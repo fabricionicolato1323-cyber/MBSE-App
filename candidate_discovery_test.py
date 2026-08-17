@@ -2,39 +2,87 @@ from candidate_discovery import extract_goal_candidates, filter_goal_candidates
 
 
 class FakeLLM:
-    """Simulates a compact local model that incorrectly merges two candidates."""
+    """Simulates a compact model that merges two valid generic candidates."""
 
     def _json_chat(self, messages, schema):
         return {
             "candidates": [
                 {
-                    "mention": "infrastructure and soldiers",
+                    "mention": "staff and facilities",
                     "candidate_concept": "OperationalEntity",
-                    "reason": "Real-world elements explicitly mentioned in the goal.",
+                    "reason": "Two real-world elements were merged by the model.",
                 }
             ]
         }
 
+    def validate_participant(self, candidate, context=""):
+        normalized = candidate.strip().casefold()
+        if normalized == "staff":
+            concept = "OperationalActor"
+            valid = True
+        elif normalized == "facilities":
+            concept = "OperationalEntity"
+            valid = True
+        else:
+            concept = "Other"
+            valid = False
+
+        return {
+            "valid": valid,
+            "language": "English",
+            "detected_concept": concept,
+            "normalized_value": candidate,
+            "solution_bias": False,
+            "reason": "",
+            "suggestion": "",
+        }
+
+
+class CompoundFakeLLM(FakeLLM):
+    def _json_chat(self, messages, schema):
+        return {
+            "candidates": [
+                {
+                    "mention": "research and development center",
+                    "candidate_concept": "OperationalEntity",
+                    "reason": "One established compound phrase.",
+                }
+            ]
+        }
+
+    def validate_participant(self, candidate, context=""):
+        # One side is not independently a participant/context element, so the
+        # generic splitter must preserve the compound phrase.
+        if candidate.strip().casefold() == "development center":
+            concept = "OperationalEntity"
+            valid = True
+        else:
+            concept = "Other"
+            valid = False
+        return {
+            "valid": valid,
+            "language": "English",
+            "detected_concept": concept,
+            "normalized_value": candidate,
+            "solution_bias": False,
+            "reason": "",
+            "suggestion": "",
+        }
+
 
 def main() -> None:
-    goal = "Keep infrastructure and soldiers safe"
+    goal = "Support staff and facilities"
 
-    # Normal case: the LLM already returns separate candidates.
     raw = [
         {
-            "mention": "infrastructure",
-            "candidate_concept": "OperationalEntity",
-            "reason": "Real-world infrastructure mentioned in the goal.",
-        },
-        {
-            "mention": "soldiers",
+            "mention": "staff",
             "candidate_concept": "OperationalActor",
             "reason": "Human group explicitly mentioned in the goal.",
         },
         {
-            "mention": "safe",
-            "candidate_concept": "Other",
-            "reason": "Quality, not a participant.",
+            "mention": "facilities",
+            "candidate_concept": "OperationalEntity",
+            "reason": "Context element explicitly mentioned in the goal.",
         },
         {
             "mention": "command center",
@@ -44,40 +92,31 @@ def main() -> None:
     ]
 
     candidates = filter_goal_candidates(goal, raw)
-    assert [item["mention"] for item in candidates] == ["infrastructure", "soldiers"]
-    assert candidates[0]["candidate_concept"] == "OperationalEntity"
-    assert candidates[1]["candidate_concept"] == "OperationalActor"
+    assert [item["mention"] for item in candidates] == ["staff", "facilities"]
+    assert candidates[0]["candidate_concept"] == "OperationalActor"
+    assert candidates[1]["candidate_concept"] == "OperationalEntity"
 
-    # Regression case: Qwen returns one merged phrase. The deterministic barrier
-    # must split it into the two independently confirmable model candidates.
+    # If a compact model merges coordinated candidates, semantic classification
+    # of each side must recover them without relying on a domain vocabulary.
     merged = extract_goal_candidates(FakeLLM(), goal)
-    assert [item["mention"] for item in merged] == ["infrastructure", "soldiers"]
+    assert [item["mention"] for item in merged] == ["staff", "facilities"]
     assert [item["candidate_concept"] for item in merged] == [
-        "OperationalEntity",
         "OperationalActor",
+        "OperationalEntity",
     ]
 
     duplicate_filtered = filter_goal_candidates(
         goal,
         raw,
-        existing_names=["soldiers"],
+        existing_names=["staff"],
     )
-    assert [item["mention"] for item in duplicate_filtered] == ["infrastructure"]
+    assert [item["mention"] for item in duplicate_filtered] == ["facilities"]
 
-    # Do not blindly split established compound phrases just because they contain
-    # the word "and".
-    compound_goal = "Maintain command and control center readiness"
-    compound = filter_goal_candidates(
-        compound_goal,
-        [
-            {
-                "mention": "command and control center",
-                "candidate_concept": "OperationalEntity",
-                "reason": "Facility explicitly mentioned in the goal.",
-            }
-        ],
-    )
-    assert [item["mention"] for item in compound] == ["command and control center"]
+    compound_goal = "Maintain research and development center readiness"
+    compound = extract_goal_candidates(CompoundFakeLLM(), compound_goal)
+    assert [item["mention"] for item in compound] == [
+        "research and development center"
+    ]
 
     print("Candidate discovery test passed.")
 
