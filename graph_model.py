@@ -55,7 +55,14 @@ class OAGraph:
                 return node_id
         return None
 
-    def add_node(self, node_type: str, name: str) -> tuple[bool, str, str]:
+    def add_node(
+        self,
+        node_type: str,
+        name: str,
+        *,
+        expects_activity: bool | None = None,
+        **attributes,
+    ) -> tuple[bool, str, str]:
         if node_type not in NODE_TYPES:
             return False, "", "Unsupported internal model element."
 
@@ -69,10 +76,62 @@ class OAGraph:
 
         self._checkpoint()
         node_id = self._new_id(node_type, name)
-        self.graph.add_node(node_id, type=node_type, name=name)
+
+        node_attributes = {"type": node_type, "name": name}
+        if node_type == "OperationalActor":
+            node_attributes["expects_activity"] = True
+        elif node_type == "OperationalEntity":
+            node_attributes["expects_activity"] = (
+                True if expects_activity is None else bool(expects_activity)
+            )
+
+        node_attributes.update(attributes)
+        self.graph.add_node(node_id, **node_attributes)
         return True, node_id, ""
 
-    def add_relation(self, source_id: str, relation: str, target_id: str, **attributes) -> tuple[bool, str]:
+    def _relation_graph(self, relation: str) -> nx.DiGraph:
+        relation_graph = nx.DiGraph()
+        for source, target, data in self.graph.edges(data=True):
+            if data.get("type") == relation:
+                relation_graph.add_edge(source, target)
+        return relation_graph
+
+    def _would_create_cycle(self, source_id: str, target_id: str, relation: str) -> bool:
+        if source_id == target_id:
+            return True
+        relation_graph = self._relation_graph(relation)
+        if target_id not in relation_graph or source_id not in relation_graph:
+            return False
+        return nx.has_path(relation_graph, target_id, source_id)
+
+    def structural_parent(self, node_id: str) -> str | None:
+        for source, _, data in self.graph.in_edges(node_id, data=True):
+            if data.get("type") == "CONTAINS":
+                return source
+        return None
+
+    def locations_for(self, node_id: str) -> list[str]:
+        return [
+            target
+            for _, target, data in self.graph.out_edges(node_id, data=True)
+            if data.get("type") == "LOCATED_IN"
+        ]
+
+    def expects_activity(self, node_id: str) -> bool:
+        data = self.graph.nodes[node_id]
+        if data.get("type") == "OperationalActor":
+            return True
+        if data.get("type") == "OperationalEntity":
+            return bool(data.get("expects_activity", True))
+        return False
+
+    def add_relation(
+        self,
+        source_id: str,
+        relation: str,
+        target_id: str,
+        **attributes,
+    ) -> tuple[bool, str]:
         if source_id not in self.graph or target_id not in self.graph:
             return False, "Both model elements must already exist."
 
@@ -82,10 +141,27 @@ class OAGraph:
         if signature not in ALLOWED_RELATIONS:
             return False, "That connection is not allowed by the model rules."
 
-        for _, existing_target, _, data in self.graph.out_edges(source_id, keys=True, data=True):
+        if relation in {"CONTAINS", "LOCATED_IN"} and source_id == target_id:
+            return False, "An element cannot contain or locate itself."
+
+        if relation == "CONTAINS":
+            if self.structural_parent(target_id):
+                return False, "That element is already part of another structural parent."
+            if self._would_create_cycle(source_id, target_id, "CONTAINS"):
+                return False, "That structural connection would create a containment cycle."
+
+        if relation == "LOCATED_IN":
+            if self._would_create_cycle(source_id, target_id, "LOCATED_IN"):
+                return False, "That location connection would create a location cycle."
+
+        for _, existing_target, _, data in self.graph.out_edges(
+            source_id, keys=True, data=True
+        ):
             if existing_target != target_id or data.get("type") != relation:
                 continue
-            same_name = _canonical(data.get("name", "")) == _canonical(attributes.get("name", ""))
+            same_name = _canonical(data.get("name", "")) == _canonical(
+                attributes.get("name", "")
+            )
             if relation in {"OPERATIONAL_EXCHANGE", "COMMUNICATION_MEAN"} and same_name:
                 return False, "The same connection already exists."
             if relation not in {"OPERATIONAL_EXCHANGE", "COMMUNICATION_MEAN"}:
@@ -97,10 +173,24 @@ class OAGraph:
 
     def nodes_of_type(self, *types: str) -> list[str]:
         wanted = set(types)
-        return [node_id for node_id, data in self.graph.nodes(data=True) if data.get("type") in wanted]
+        return [
+            node_id
+            for node_id, data in self.graph.nodes(data=True)
+            if data.get("type") in wanted
+        ]
 
     def participants(self) -> list[str]:
         return self.nodes_of_type(*PARTICIPANT_TYPES)
+
+    def active_participants(self) -> list[str]:
+        return [node_id for node_id in self.participants() if self.expects_activity(node_id)]
+
+    def context_entities(self) -> list[str]:
+        return [
+            node_id
+            for node_id in self.nodes_of_type("OperationalEntity")
+            if not self.expects_activity(node_id)
+        ]
 
     def name(self, node_id: str) -> str:
         return self.graph.nodes[node_id].get("name", node_id)
@@ -126,14 +216,20 @@ class OAGraph:
 
     def short_context(self, limit: int = 14) -> str:
         items = []
-        friendly = {
-            "OperationalCapability": "goal",
-            "OperationalActor": "participant",
-            "OperationalEntity": "participant",
-            "OperationalActivity": "action",
-        }
-        for _, data in self.graph.nodes(data=True):
-            items.append(f"{data.get('name')} ({friendly.get(data.get('type'), 'item')})")
+        for node_id, data in self.graph.nodes(data=True):
+            node_type = data.get("type")
+            if node_type == "OperationalCapability":
+                friendly = "goal"
+            elif node_type == "OperationalActivity":
+                friendly = "action"
+            elif node_type in PARTICIPANT_TYPES and not self.expects_activity(node_id):
+                friendly = "place/context"
+            elif node_type in PARTICIPANT_TYPES:
+                friendly = "participant"
+            else:
+                friendly = "item"
+
+            items.append(f"{data.get('name')} ({friendly})")
             if len(items) >= limit:
                 break
         return ", ".join(items) if items else "No model elements yet."
@@ -152,7 +248,26 @@ class OAGraph:
                 result.append((source, target, data.get("name", "Communication")))
         return result
 
-    def has_communication_between(self, source_participant: str, target_participant: str, name: str = "") -> bool:
+    def containment_relations(self) -> list[tuple[str, str]]:
+        return [
+            (source, target)
+            for source, target, data in self.graph.edges(data=True)
+            if data.get("type") == "CONTAINS"
+        ]
+
+    def location_relations(self) -> list[tuple[str, str]]:
+        return [
+            (source, target)
+            for source, target, data in self.graph.edges(data=True)
+            if data.get("type") == "LOCATED_IN"
+        ]
+
+    def has_communication_between(
+        self,
+        source_participant: str,
+        target_participant: str,
+        name: str = "",
+    ) -> bool:
         wanted = _canonical(name)
         for _, target, data in self.graph.out_edges(source_participant, data=True):
             if target != target_participant or data.get("type") != "COMMUNICATION_MEAN":
@@ -170,21 +285,53 @@ class OAGraph:
         lines = ["", "MODEL SO FAR", "=" * 64]
 
         goals = self.nodes_of_type("OperationalCapability")
-        participants = self.participants()
+        participants = self.active_participants()
+        context = self.context_entities()
         actions = self.nodes_of_type("OperationalActivity")
 
         lines.append("\nGoals")
         lines.extend([f"  - {self.name(node)}" for node in goals] or ["  (none)"])
 
         lines.append("\nParticipants")
-        lines.extend([f"  - {self.name(node)}" for node in participants] or ["  (none)"])
+        lines.extend(
+            [f"  - {self.name(node)}" for node in participants] or ["  (none)"]
+        )
+
+        lines.append("\nPlaces / context")
+        lines.extend([f"  - {self.name(node)}" for node in context] or ["  (none)"])
+
+        lines.append("\nStructure")
+        containment = self.containment_relations()
+        if containment:
+            for parent, child in containment:
+                lines.append(
+                    f"  - {self.name(parent)} contains {self.name(child)}"
+                )
+        else:
+            lines.append("  (none)")
+
+        lines.append("\nLocation")
+        locations = self.location_relations()
+        if locations:
+            for item, place in locations:
+                if self.expects_activity(item):
+                    relation_text = "operates in"
+                else:
+                    relation_text = "is located in"
+                lines.append(
+                    f"  - {self.name(item)} {relation_text} {self.name(place)}"
+                )
+        else:
+            lines.append("  (none)")
 
         lines.append("\nActions")
         if actions:
             for action in actions:
                 performer = self.participant_for_activity(action)
                 if performer:
-                    lines.append(f"  - {self.name(performer)} -> {self.name(action)}")
+                    lines.append(
+                        f"  - {self.name(performer)} -> {self.name(action)}"
+                    )
                 else:
                     lines.append(f"  - {self.name(action)}")
         else:
@@ -194,7 +341,9 @@ class OAGraph:
         exchanges = self.exchanges()
         if exchanges:
             for source, target, name in exchanges:
-                lines.append(f"  - {self.name(source)} --[{name}]--> {self.name(target)}")
+                lines.append(
+                    f"  - {self.name(source)} --[{name}]--> {self.name(target)}"
+                )
         else:
             lines.append("  (none)")
 
@@ -202,15 +351,19 @@ class OAGraph:
         means = self.communication_means()
         if means:
             for source, target, name in means:
-                lines.append(f"  - {self.name(source)} <--[{name}]--> {self.name(target)}")
+                lines.append(
+                    f"  - {self.name(source)} <--[{name}]--> {self.name(target)}"
+                )
         else:
             lines.append("  (none)")
 
-        lines.extend([
-            "",
-            f"Items: {self.graph.number_of_nodes()} | Connections: {self.graph.number_of_edges()}",
-            "=" * 64,
-        ])
+        lines.extend(
+            [
+                "",
+                f"Items: {self.graph.number_of_nodes()} | Connections: {self.graph.number_of_edges()}",
+                "=" * 64,
+            ]
+        )
         return "\n".join(lines)
 
     def completeness_messages(self) -> list[str]:
@@ -222,12 +375,14 @@ class OAGraph:
         if not goals:
             messages.append("The main operational goal is still missing.")
         if not participants:
-            messages.append("No participant has been identified yet.")
+            messages.append("No participant or context element has been identified yet.")
         if not actions:
             messages.append("No operational action has been described yet.")
 
         for participant in participants:
-            if not self.actions_for_participant(participant):
+            if self.expects_activity(participant) and not self.actions_for_participant(
+                participant
+            ):
                 messages.append(f"'{self.name(participant)}' has no action yet.")
 
         for action in actions:
@@ -239,7 +394,9 @@ class OAGraph:
                 for _, _, data in self.graph.out_edges(action, data=True)
             )
             if goals and not supports:
-                messages.append(f"'{self.name(action)}' is not connected to a goal yet.")
+                messages.append(
+                    f"'{self.name(action)}' is not connected to a goal yet."
+                )
 
         return messages
 
@@ -247,5 +404,8 @@ class OAGraph:
         output = Path(path)
         output.parent.mkdir(parents=True, exist_ok=True)
         data = json_graph.node_link_data(self.graph, edges="edges")
-        output.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        output.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
         return output
