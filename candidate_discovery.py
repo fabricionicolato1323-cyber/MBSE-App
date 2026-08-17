@@ -51,6 +51,7 @@ Goal: "Keep infrastructure and soldiers safe"
 Candidates:
 - "infrastructure" -> OperationalEntity
 - "soldiers" -> OperationalActor
+Do not return "infrastructure and soldiers" as one combined candidate.
 Do not extract "safe".
 
 Goal: "Maintain safe airspace operations"
@@ -80,13 +81,91 @@ _EXCLUDED_MENTIONS = {
     "operations",
 }
 
+# These vocabularies are deliberately small and high-confidence. They are not a
+# general NLP classifier; they only provide a deterministic fallback when a small
+# local model merges clearly different coordinated mentions into one phrase.
+_HUMAN_HINTS = {
+    "person", "people", "civilian", "civilians", "soldier", "soldiers",
+    "pilot", "pilots", "operator", "operators", "controller", "controllers",
+    "officer", "officers", "worker", "workers", "guard", "guards",
+    "responder", "responders", "staff", "personnel", "crew", "commander",
+    "commanders", "technician", "technicians", "driver", "drivers",
+}
+
+_ENTITY_HINTS = {
+    "infrastructure", "facility", "facilities", "building", "buildings",
+    "base", "bases", "station", "stations", "site", "sites", "area", "areas",
+    "zone", "zones", "airspace", "region", "regions", "airport", "airports",
+    "center", "centers", "centre", "centres", "organization", "organizations",
+    "organisation", "organisations", "authority", "authorities", "department",
+    "departments", "service", "services", "unit", "units", "team", "teams",
+    "environment", "environments", "warehouse", "warehouses", "port", "ports",
+    "terminal", "terminals", "road", "roads", "bridge", "bridges",
+}
+
 
 def _canonical(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip()).casefold()
 
 
+def _tokens(value: str) -> list[str]:
+    return re.findall(r"[a-z]+", value.casefold())
+
+
 def _appears_in_text(mention: str, text: str) -> bool:
     return _canonical(mention) in _canonical(text)
+
+
+def _concept_hint(mention: str) -> str | None:
+    tokens = set(_tokens(mention))
+    if tokens & _HUMAN_HINTS:
+        return "OperationalActor"
+    if tokens & _ENTITY_HINTS:
+        return "OperationalEntity"
+    return None
+
+
+def _split_coordinated_candidate(raw: dict, goal: str) -> list[dict]:
+    """Split a merged candidate only when each side has a confident OA hint.
+
+    Example:
+      "infrastructure and soldiers" ->
+          "infrastructure" (OperationalEntity)
+          "soldiers" (OperationalActor)
+
+    We intentionally do not split phrases such as "command and control center"
+    because both sides do not independently have a confident candidate meaning.
+    """
+    mention = re.sub(r"\s+", " ", str(raw.get("mention", "")).strip())
+    if " and " not in mention.casefold():
+        return [raw]
+
+    parts = [part.strip(" ,") for part in re.split(r"\band\b", mention, flags=re.IGNORECASE)]
+    if len(parts) != 2 or not all(parts):
+        return [raw]
+
+    concepts = [_concept_hint(part) for part in parts]
+    if any(concept is None for concept in concepts):
+        return [raw]
+    if not all(_appears_in_text(part, goal) for part in parts):
+        return [raw]
+
+    reason = re.sub(r"\s+", " ", str(raw.get("reason", "")).strip())
+    return [
+        {
+            "mention": part,
+            "candidate_concept": concept,
+            "reason": reason or "Explicit real-world element mentioned in the goal.",
+        }
+        for part, concept in zip(parts, concepts)
+    ]
+
+
+def _expand_coordinated_candidates(goal: str, candidates: Iterable[dict]) -> list[dict]:
+    expanded: list[dict] = []
+    for raw in candidates:
+        expanded.extend(_split_coordinated_candidate(raw, goal))
+    return expanded
 
 
 def filter_goal_candidates(
@@ -99,12 +178,16 @@ def filter_goal_candidates(
     Candidate discovery is advisory only. A candidate must be an exact phrase from
     the goal, must map to an allowed OA participant/context concept, and must not
     duplicate something that is already in the model.
+
+    Before filtering, high-confidence coordinated phrases are split into separate
+    candidates. This makes the workflow robust when a compact LLM returns
+    "infrastructure and soldiers" as one candidate instead of two.
     """
     existing = {_canonical(name) for name in existing_names}
     seen: set[str] = set()
     accepted: list[dict] = []
 
-    for raw in candidates:
+    for raw in _expand_coordinated_candidates(goal, candidates):
         mention = re.sub(r"\s+", " ", str(raw.get("mention", "")).strip())
         concept = str(raw.get("candidate_concept", "")).strip()
         reason = re.sub(r"\s+", " ", str(raw.get("reason", "")).strip())
@@ -133,7 +216,11 @@ def filter_goal_candidates(
     return accepted
 
 
-def extract_goal_candidates(local_llm, goal: str, existing_names: Iterable[str] = ()) -> list[dict]:
+def extract_goal_candidates(
+    local_llm,
+    goal: str,
+    existing_names: Iterable[str] = (),
+) -> list[dict]:
     prompt = f"""
 Operational goal:
 {goal}
@@ -141,6 +228,10 @@ Operational goal:
 Extract only explicit real-world people, human groups, organizations, facilities,
 infrastructure, places, areas, environments, resources, or contextual elements
 that could be useful candidates for the operational picture.
+
+When the goal contains separate coordinated objects, return them as separate
+candidates. Example: "infrastructure and soldiers" must be returned as two
+candidates, not one combined phrase.
 
 Do not infer missing stakeholders. Do not rewrite or singularize the wording.
 """.strip()
