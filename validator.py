@@ -43,83 +43,34 @@ def deterministic_english_check(value: str) -> Optional[bool]:
         return None
 
 
-HUMAN_ROLE_WORDS = {
-    "controller", "operator", "pilot", "officer", "dispatcher", "coordinator",
-    "technician", "analyst", "manager", "inspector", "supervisor", "driver",
-    "soldier", "commander", "guard", "worker", "agent",
-}
-
-ENTITY_LABEL_WORDS = {
-    "control", "authority", "agency", "department", "team", "center", "centre",
-    "organization", "organisation", "unit", "service", "company", "office",
-    "command", "administration", "operations",
-    "facility", "airport", "building", "base", "station", "site", "area", "zone",
-    "airspace", "region", "room", "terminal", "port", "harbor", "harbour",
-    "warehouse", "field", "environment", "location", "sector",
-}
-
+# These terms describe implementation categories, not application domains.
+# They are only a deterministic safety net against premature solution design.
 TECHNICAL_SOLUTION_WORDS = {
-    "system", "software", "application", "platform", "algorithm", "database",
-    "microservice", "sensor network", "api",
+    "system",
+    "software",
+    "application",
+    "platform",
+    "algorithm",
+    "database",
+    "microservice",
+    "sensor network",
+    "api",
 }
 
-ACTION_VERBS = {
-    "assess", "assesses", "check", "checks", "classify", "classifies",
-    "detect", "detects", "determine", "determines", "evaluate", "evaluates",
-    "gather", "gathers", "identify", "identifies", "inform", "informs",
-    "inspect", "inspects", "locate", "locates", "monitor", "monitors",
-    "notify", "notifies", "observe", "observes", "record", "records",
-    "report", "reports", "track", "tracks", "verify", "verifies",
-    "advise", "advises", "alert", "alerts", "allow", "allows",
-    "approve", "approves", "assign", "assigns", "authorize", "authorizes",
-    "command", "commands", "communicate", "communicates", "confirm", "confirms",
-    "control", "controls", "coordinate", "coordinates", "decide", "decides",
-    "deny", "denies", "direct", "directs", "dispatch", "dispatches",
-    "guide", "guides", "instruct", "instructs", "issue", "issues",
-    "lead", "leads", "manage", "manages", "permit", "permits",
-    "plan", "plans", "prioritize", "prioritizes", "request", "requests",
-    "route", "routes", "select", "selects", "supervise", "supervises",
-    "synchronize", "synchronizes", "task", "tasks",
-    "act", "acts", "activate", "activates", "adapt", "adapts",
-    "adjust", "adjusts", "avoid", "avoids", "cancel", "cancels",
-    "capture", "captures", "clear", "clears", "contain", "contains",
-    "continue", "continues", "deploy", "deploys", "engage", "engages",
-    "ensure", "ensures", "escort", "escorts", "establish", "establishes",
-    "execute", "executes", "facilitate", "facilitates", "follow", "follows",
-    "handle", "handles", "initiate", "initiates", "intercept", "intercepts",
-    "investigate", "investigates", "keep", "keeps", "maintain", "maintains",
-    "operate", "operates", "organize", "organizes", "patrol", "patrols",
-    "prevent", "prevents", "process", "processes", "protect", "protects",
-    "recover", "recovers", "redirect", "redirects", "release", "releases",
-    "remove", "removes", "resolve", "resolves", "respond", "responds",
-    "secure", "secures", "separate", "separates", "stop", "stops",
-    "support", "supports", "suppress", "suppresses", "terminate", "terminates",
-    "transport", "transports", "validate", "validates", "warn", "warns",
-    "provide", "provides", "receive", "receives", "send", "sends",
-    "share", "shares", "transfer", "transfers", "update", "updates",
-    "make", "makes", "take", "takes", "perform", "performs",
-}
 
-# High-confidence starts for short operational outcome/capability phrases.
-# This is intentionally narrower than ACTION_VERBS. It exists so a compact LLM
-# cannot reject an obvious goal such as "Keep infrastructure and soldiers safe".
-GOAL_VERBS = {
-    "achieve", "achieves", "allow", "allows", "enable", "enables",
-    "ensure", "ensures", "improve", "improves", "keep", "keeps",
-    "maintain", "maintains", "minimize", "minimizes", "preserve", "preserves",
-    "prevent", "prevents", "protect", "protects", "provide", "provides",
-    "reduce", "reduces", "safeguard", "safeguards", "secure", "secures",
-    "support", "supports", "sustain", "sustains",
-}
-
+# Very common markers used only to catch high-confidence non-English short input.
+# There is deliberately no domain vocabulary here.
 NON_ENGLISH_MARKERS = {
+    # Portuguese
     "o", "a", "os", "as", "de", "da", "do", "das", "dos", "para", "com", "sem",
-    "e", "ou", "que", "como", "avaliar", "detectar", "fornecer", "informar", "controlar",
-    "ameaça", "ameaças", "informação", "informações", "posição", "velocidade",
+    "e", "ou", "que", "como", "avaliar", "fornecer", "informar", "controlar",
+    "informação", "informações", "posição", "velocidade",
+    # German
     "der", "die", "das", "den", "dem", "des", "und", "oder", "mit", "ohne", "für",
-    "über", "erkennen", "melden", "bereitstellen", "steuern", "überwachen",
-    "el", "la", "los", "las", "y", "con", "sin", "detectar", "proporcionar",
-    "le", "les", "et", "avec", "sans", "détecter", "fournir",
+    "über", "melden", "bereitstellen", "steuern", "überwachen",
+    # Spanish / French
+    "el", "la", "los", "las", "y", "con", "sin", "proporcionar",
+    "le", "les", "et", "avec", "sans", "fournir",
 }
 
 
@@ -129,56 +80,6 @@ def _tokens(value: str) -> list[str]:
 
 def _token_set(value: str) -> set[str]:
     return set(_tokens(value))
-
-
-def participant_type_hint(value: str) -> str | None:
-    """Conservative deterministic hint for short participant/context labels."""
-    lowered = normalize_whitespace(value).casefold()
-    tokens = _token_set(lowered)
-
-    if any(term in lowered for term in TECHNICAL_SOLUTION_WORDS):
-        return None
-    if tokens & HUMAN_ROLE_WORDS:
-        return "OperationalActor"
-    if tokens & ENTITY_LABEL_WORDS:
-        return "OperationalEntity"
-    return None
-
-
-def starts_with_action_verb(value: str) -> bool:
-    tokens = _tokens(value)
-    if not tokens:
-        return False
-
-    if tokens[0] == "to" and len(tokens) > 1:
-        return tokens[1] in ACTION_VERBS
-
-    return tokens[0] in ACTION_VERBS
-
-
-def is_clear_operational_goal(value: str) -> bool:
-    """Recognize a short, explicit operational outcome without trusting the LLM.
-
-    The helper is deliberately conservative. It only overrides the LLM when the
-    phrase starts with a common outcome verb, is reasonably short, and contains
-    no obvious technical/implementation terminology.
-    """
-    normalized = normalize_whitespace(value)
-    tokens = _tokens(normalized)
-    if not 2 <= len(tokens) <= 16:
-        return False
-
-    first_index = 1 if tokens[0] == "to" and len(tokens) > 1 else 0
-    if tokens[first_index] not in GOAL_VERBS:
-        return False
-
-    lowered = normalized.casefold()
-    if any(term in lowered for term in TECHNICAL_SOLUTION_WORDS):
-        return False
-    if any(term in lowered for term in SOLUTION_BIAS_TERMS):
-        return False
-
-    return True
 
 
 def obvious_non_english_short_text(value: str) -> bool:
@@ -206,18 +107,8 @@ def _language_rejected(
     if llm_language != "Non-English":
         return False
 
-    if (
-        expected_concept == "OperationalActivity"
-        and starts_with_action_verb(value)
-    ):
-        return False
-
-    if (
-        expected_concept == "OperationalCapability"
-        and is_clear_operational_goal(value)
-    ):
-        return False
-
+    # Compact language classifiers are unreliable for very short ASCII labels and
+    # phrases. Do not reject those solely because of one LLM language label.
     words = _tokens(value)
     if len(words) <= 5 and value.isascii():
         return False
@@ -226,10 +117,9 @@ def _language_rejected(
 
 
 def _safe_normalized_value(raw_value: str, llm_result: dict) -> str:
+    """Accept an LLM English correction only when it stays close to the input."""
     raw = normalize_whitespace(raw_value)
-    candidate = normalize_whitespace(
-        llm_result.get("normalized_value") or ""
-    )
+    candidate = normalize_whitespace(llm_result.get("normalized_value") or "")
     if not candidate:
         return raw
 
@@ -244,6 +134,15 @@ def _safe_normalized_value(raw_value: str, llm_result: dict) -> str:
     return candidate
 
 
+def _contains_technical_solution_term(value: str) -> bool:
+    lowered = value.casefold()
+    if any(term in lowered for term in TECHNICAL_SOLUTION_WORDS):
+        return True
+    if any(term in lowered for term in SOLUTION_BIAS_TERMS):
+        return True
+    return False
+
+
 def _validate_common(
     raw_value: str,
     allowed_concepts: Iterable[str],
@@ -252,45 +151,17 @@ def _validate_common(
 ) -> ValidationResult:
     value = normalize_whitespace(raw_value)
     allowed = set(allowed_concepts)
-    expected = (
-        expected_concept
-        or (next(iter(allowed)) if len(allowed) == 1 else "")
-    )
+    expected = expected_concept or (next(iter(allowed)) if len(allowed) == 1 else "")
 
     if not value:
-        return ValidationResult(
-            False,
-            reason="The answer cannot be empty.",
-        )
+        return ValidationResult(False, reason="The answer cannot be empty.")
 
     if len(value) > 160:
-        return ValidationResult(
-            False,
-            reason="Please give one short answer at a time.",
-        )
+        return ValidationResult(False, reason="Please give one short answer at a time.")
 
     adjusted = dict(llm_result)
-    clear_goal = (
-        expected == "OperationalCapability"
-        and is_clear_operational_goal(value)
-    )
-
-    if (
-        expected == "OperationalActivity"
-        and starts_with_action_verb(value)
-    ):
-        adjusted["detected_concept"] = "OperationalActivity"
-        adjusted["valid"] = True
-        adjusted["reason"] = ""
-        adjusted["suggestion"] = ""
-
-    if clear_goal:
-        adjusted["detected_concept"] = "OperationalCapability"
-        adjusted["valid"] = True
-        adjusted["reason"] = ""
-        adjusted["suggestion"] = ""
-
     detected = adjusted.get("detected_concept", "")
+
     if detected not in allowed:
         return ValidationResult(
             False,
@@ -303,10 +174,7 @@ def _validate_common(
         )
 
     guidance = CONCEPT_GUIDANCE[detected]
-    if (
-        guidance["language_required"]
-        and _language_rejected(value, adjusted, expected)
-    ):
+    if guidance["language_required"] and _language_rejected(value, adjusted, expected):
         return ValidationResult(
             False,
             detected_concept=detected,
@@ -314,13 +182,8 @@ def _validate_common(
             suggestion="",
         )
 
-    lowered = value.lower()
     if detected in {"OperationalCapability", "OperationalActivity"}:
-        matched = next(
-            (term for term in SOLUTION_BIAS_TERMS if term in lowered),
-            None,
-        )
-        if matched:
+        if _contains_technical_solution_term(value):
             return ValidationResult(
                 False,
                 detected_concept=detected,
@@ -331,10 +194,7 @@ def _validate_common(
                 suggestion="",
             )
 
-    # A deterministic, clearly operational goal is authoritative over a small
-    # model's false solution-bias classification. Technical terms were already
-    # screened by is_clear_operational_goal and the explicit check above.
-    if adjusted.get("solution_bias", False) and not clear_goal:
+    if adjusted.get("solution_bias", False):
         return ValidationResult(
             False,
             detected_concept=detected,
@@ -346,31 +206,11 @@ def _validate_common(
             suggestion=adjusted.get("suggestion", ""),
         )
 
-    if (
-        expected == "OperationalActivity"
-        and starts_with_action_verb(value)
-    ):
-        return ValidationResult(
-            True,
-            normalized_value=_safe_normalized_value(value, adjusted),
-            detected_concept="OperationalActivity",
-        )
-
-    if clear_goal:
-        return ValidationResult(
-            True,
-            normalized_value=_safe_normalized_value(value, adjusted),
-            detected_concept="OperationalCapability",
-        )
-
     if not adjusted.get("valid", False):
         return ValidationResult(
             False,
             detected_concept=detected,
-            reason=(
-                adjusted.get("reason")
-                or "I cannot use that answer yet."
-            ),
+            reason=adjusted.get("reason") or "I cannot use that answer yet.",
             suggestion=adjusted.get("suggestion", ""),
         )
 
@@ -407,46 +247,31 @@ def validate_participant_candidate(
     llm_result: dict,
 ) -> ValidationResult:
     value = normalize_whitespace(raw_value)
-    lowered = value.casefold()
 
-    if any(term in lowered for term in TECHNICAL_SOLUTION_WORDS):
+    if _contains_technical_solution_term(value):
         return ValidationResult(
             False,
             reason=(
                 "That sounds like a technical system or solution. "
-                "Here I need a real-world person, team, organization, "
-                "facility, place, area, or environmental element."
+                "Here I need a real-world person, group, organization, resource, "
+                "place, area, or environmental element."
             ),
         )
 
-    adjusted = dict(llm_result)
-    hint = participant_type_hint(raw_value)
-
     if obvious_non_english_short_text(value):
-        return ValidationResult(
-            False,
-            reason="Please answer in English only.",
-        )
+        return ValidationResult(False, reason="Please answer in English only.")
 
-    if adjusted.get("solution_bias", False):
-        return _validate_common(
-            raw_value,
-            {"OperationalActor", "OperationalEntity"},
-            adjusted,
-        )
+    adjusted = dict(llm_result)
+    detected = adjusted.get("detected_concept", "")
 
-    if hint:
-        adjusted["detected_concept"] = hint
-        adjusted["valid"] = True
-        adjusted["normalized_value"] = (
-            adjusted.get("normalized_value") or value
-        )
-        adjusted["reason"] = ""
-        adjusted["suggestion"] = ""
-    elif adjusted.get("detected_concept") in {
-        "OperationalActor",
-        "OperationalEntity",
-    }:
+    # Participant labels do not need to be complete sentences. If semantic
+    # classification identifies a valid Actor/Entity and there is no solution bias,
+    # the compact model's separate `valid` flag is not allowed to reject it merely
+    # for wording/style reasons. This rule is concept-based, not vocabulary-based.
+    if (
+        detected in {"OperationalActor", "OperationalEntity"}
+        and not adjusted.get("solution_bias", False)
+    ):
         adjusted["valid"] = True
         if len(_tokens(value)) <= 5 and value.isascii():
             adjusted["language"] = "Language-neutral"
@@ -456,9 +281,6 @@ def validate_participant_candidate(
         {"OperationalActor", "OperationalEntity"},
         adjusted,
     )
-    if (
-        not result.accepted
-        and adjusted.get("detected_concept") == "Other"
-    ):
+    if not result.accepted and detected == "Other":
         result.suggestion = ""
     return result
