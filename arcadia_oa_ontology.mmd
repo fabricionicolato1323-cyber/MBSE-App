@@ -1,10 +1,17 @@
 flowchart LR
 
+    TEXT["User wording / goal"]
+    CAND["Candidate Mention\n(transient helper)"]
+
     OC["Operational Capability"]
     OA["Operational Actor"]
     OE["Operational Entity"]
     ACT["Operational Activity"]
     CM["Communication Mean"]
+
+    TEXT -.->|"extract exact noun phrases"| CAND
+    CAND -.->|"user confirms + classify"| OA
+    CAND -.->|"user confirms + classify"| OE
 
     OA -->|"PERFORMS"| ACT
     OE -->|"PERFORMS"| ACT
@@ -22,10 +29,12 @@ flowchart LR
     OA -.->|"LOCATED_IN"| OE
     OE -.->|"LOCATED_IN"| OE
 
+    NOTE0["Candidate Mention is not persisted.\nIt only guides elicitation and must be confirmed by the user."]
     NOTE1["PART_OF is the inverse meaning of CONTAINS\nand is not stored as a duplicate edge"]
     NOTE2["Operational Actors are structural leaves"]
     NOTE3["CONTAINS/PART_OF = structure\nLOCATED_IN = operational/physical location"]
 
+    CAND --- NOTE0
     OE --- NOTE1
     OA --- NOTE2
     OE --- NOTE3
