@@ -100,6 +100,18 @@ ACTION_VERBS = {
     "make", "makes", "take", "takes", "perform", "performs",
 }
 
+# High-confidence starts for short operational outcome/capability phrases.
+# This is intentionally narrower than ACTION_VERBS. It exists so a compact LLM
+# cannot reject an obvious goal such as "Keep infrastructure and soldiers safe".
+GOAL_VERBS = {
+    "achieve", "achieves", "allow", "allows", "enable", "enables",
+    "ensure", "ensures", "improve", "improves", "keep", "keeps",
+    "maintain", "maintains", "minimize", "minimizes", "preserve", "preserves",
+    "prevent", "prevents", "protect", "protects", "provide", "provides",
+    "reduce", "reduces", "safeguard", "safeguards", "secure", "secures",
+    "support", "supports", "sustain", "sustains",
+}
+
 NON_ENGLISH_MARKERS = {
     "o", "a", "os", "as", "de", "da", "do", "das", "dos", "para", "com", "sem",
     "e", "ou", "que", "como", "avaliar", "detectar", "fornecer", "informar", "controlar",
@@ -144,6 +156,31 @@ def starts_with_action_verb(value: str) -> bool:
     return tokens[0] in ACTION_VERBS
 
 
+def is_clear_operational_goal(value: str) -> bool:
+    """Recognize a short, explicit operational outcome without trusting the LLM.
+
+    The helper is deliberately conservative. It only overrides the LLM when the
+    phrase starts with a common outcome verb, is reasonably short, and contains
+    no obvious technical/implementation terminology.
+    """
+    normalized = normalize_whitespace(value)
+    tokens = _tokens(normalized)
+    if not 2 <= len(tokens) <= 16:
+        return False
+
+    first_index = 1 if tokens[0] == "to" and len(tokens) > 1 else 0
+    if tokens[first_index] not in GOAL_VERBS:
+        return False
+
+    lowered = normalized.casefold()
+    if any(term in lowered for term in TECHNICAL_SOLUTION_WORDS):
+        return False
+    if any(term in lowered for term in SOLUTION_BIAS_TERMS):
+        return False
+
+    return True
+
+
 def obvious_non_english_short_text(value: str) -> bool:
     tokens = _token_set(value)
     if not tokens:
@@ -172,6 +209,12 @@ def _language_rejected(
     if (
         expected_concept == "OperationalActivity"
         and starts_with_action_verb(value)
+    ):
+        return False
+
+    if (
+        expected_concept == "OperationalCapability"
+        and is_clear_operational_goal(value)
     ):
         return False
 
@@ -227,12 +270,22 @@ def _validate_common(
         )
 
     adjusted = dict(llm_result)
+    clear_goal = (
+        expected == "OperationalCapability"
+        and is_clear_operational_goal(value)
+    )
 
     if (
         expected == "OperationalActivity"
         and starts_with_action_verb(value)
     ):
         adjusted["detected_concept"] = "OperationalActivity"
+        adjusted["valid"] = True
+        adjusted["reason"] = ""
+        adjusted["suggestion"] = ""
+
+    if clear_goal:
+        adjusted["detected_concept"] = "OperationalCapability"
         adjusted["valid"] = True
         adjusted["reason"] = ""
         adjusted["suggestion"] = ""
@@ -278,7 +331,10 @@ def _validate_common(
                 suggestion="",
             )
 
-    if adjusted.get("solution_bias", False):
+    # A deterministic, clearly operational goal is authoritative over a small
+    # model's false solution-bias classification. Technical terms were already
+    # screened by is_clear_operational_goal and the explicit check above.
+    if adjusted.get("solution_bias", False) and not clear_goal:
         return ValidationResult(
             False,
             detected_concept=detected,
@@ -298,6 +354,13 @@ def _validate_common(
             True,
             normalized_value=_safe_normalized_value(value, adjusted),
             detected_concept="OperationalActivity",
+        )
+
+    if clear_goal:
+        return ValidationResult(
+            True,
+            normalized_value=_safe_normalized_value(value, adjusted),
+            detected_concept="OperationalCapability",
         )
 
     if not adjusted.get("valid", False):
