@@ -1,7 +1,15 @@
 """Restricted Arcadia Operational Analysis ontology for the guided prototype.
 
 Arcadia terminology is intentionally internal. The user-facing application talks
-about goals, participants, actions, interactions, and communication methods.
+about goals, participants, actions, interactions, structure, places, and
+communication methods.
+
+Structural convention:
+- CONTAINS is stored from the larger Operational Entity to the contained
+  Operational Entity or Operational Actor.
+- PART_OF is the inverse meaning of CONTAINS and is not stored as a second edge.
+- LOCATED_IN is separate from structural containment so organizational
+  decomposition is not confused with physical/operational location.
 """
 
 NODE_TYPES = {
@@ -22,6 +30,16 @@ ALLOWED_RELATIONS = {
     ("OperationalActor", "COMMUNICATION_MEAN", "OperationalEntity"),
     ("OperationalEntity", "COMMUNICATION_MEAN", "OperationalActor"),
     ("OperationalEntity", "COMMUNICATION_MEAN", "OperationalEntity"),
+
+    # Structural decomposition. Operational Actors are leaves: they may be
+    # contained by an Operational Entity but do not contain other participants.
+    ("OperationalEntity", "CONTAINS", "OperationalEntity"),
+    ("OperationalEntity", "CONTAINS", "OperationalActor"),
+
+    # Operational / physical location. This is deliberately distinct from
+    # CONTAINS/PART_OF.
+    ("OperationalActor", "LOCATED_IN", "OperationalEntity"),
+    ("OperationalEntity", "LOCATED_IN", "OperationalEntity"),
 }
 
 CONCEPT_GUIDANCE = {
@@ -44,11 +62,13 @@ CONCEPT_GUIDANCE = {
     },
     "OperationalEntity": {
         "definition": (
-            "A non-human real-world participant or stakeholder involved in the operation, "
-            "such as an organization, group, facility, environment, or external party."
+            "A non-human real-world participant or contextual element involved in the "
+            "operation, such as an organization, group, facility, building, area, "
+            "environment, location, or external party. An Operational Entity may contain "
+            "other Operational Entities or Operational Actors."
         ),
-        "friendly_name": "non-human participant",
-        "expected_format": "One real-world participant name.",
+        "friendly_name": "non-human participant or context",
+        "expected_format": "One real-world participant, place, area, or context name.",
         "example": "Airport Operations Center",
         "language_required": False,
     },
@@ -84,8 +104,6 @@ CONCEPT_GUIDANCE = {
     },
 }
 
-# High-confidence implementation terms used only as a deterministic safety net.
-# Semantic solution-bias detection is still performed by the LLM.
 SOLUTION_BIAS_TERMS = {
     "microservice",
     "database schema",
