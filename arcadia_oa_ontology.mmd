@@ -2,6 +2,7 @@ flowchart LR
 
     TEXT["User wording / goal"]
     CAND["Candidate Mention\n(transient helper)"]
+    SFRAME["Semantic Frame / Clause\n(transient parser)"]
 
     OC["Operational Capability"]
     OA["Operational Actor"]
@@ -12,6 +13,11 @@ flowchart LR
     TEXT -.->|"extract exact noun phrases"| CAND
     CAND -.->|"user confirms + classify"| OA
     CAND -.->|"user confirms + classify"| OE
+
+    TEXT -.->|"parse subjects / verbs / objects / complements"| SFRAME
+    SFRAME -.->|"complex interpretation confirmed"| ACT
+    SFRAME -.->|"additional explicit subjects may become performers"| OA
+    SFRAME -.->|"additional explicit subjects may become performers"| OE
 
     OA -->|"PERFORMS"| ACT
     OE -->|"PERFORMS"| ACT
@@ -30,11 +36,13 @@ flowchart LR
     OE -.->|"LOCATED_IN"| OE
 
     NOTE0["Candidate Mention is not persisted.\nIt only guides elicitation and must be confirmed by the user."]
+    NOTE4["Semantic Frame / Clause is not persisted as an Arcadia node.\nIt structures natural-language behavior before graph writes."]
     NOTE1["PART_OF is the inverse meaning of CONTAINS\nand is not stored as a duplicate edge"]
     NOTE2["Operational Actors are structural leaves"]
     NOTE3["CONTAINS/PART_OF = structure\nLOCATED_IN = operational/physical location"]
 
     CAND --- NOTE0
+    SFRAME --- NOTE4
     OE --- NOTE1
     OA --- NOTE2
     OE --- NOTE3
