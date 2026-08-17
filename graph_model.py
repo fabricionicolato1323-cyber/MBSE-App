@@ -44,14 +44,20 @@ class OAGraph:
     def find_duplicate(self, node_type: str, name: str) -> str | None:
         wanted = _canonical(name)
         for node_id, data in self.graph.nodes(data=True):
-            if data.get("type") == node_type and _canonical(data.get("name", "")) == wanted:
+            if (
+                data.get("type") == node_type
+                and _canonical(data.get("name", "")) == wanted
+            ):
                 return node_id
         return None
 
     def find_participant_duplicate(self, name: str) -> str | None:
         wanted = _canonical(name)
         for node_id, data in self.graph.nodes(data=True):
-            if data.get("type") in PARTICIPANT_TYPES and _canonical(data.get("name", "")) == wanted:
+            if (
+                data.get("type") in PARTICIPANT_TYPES
+                and _canonical(data.get("name", "")) == wanted
+            ):
                 return node_id
         return None
 
@@ -89,6 +95,13 @@ class OAGraph:
         self.graph.add_node(node_id, **node_attributes)
         return True, node_id, ""
 
+    def update_node_attributes(self, node_id: str, **attributes) -> bool:
+        if node_id not in self.graph or not attributes:
+            return False
+        self._checkpoint()
+        self.graph.nodes[node_id].update(attributes)
+        return True
+
     def _relation_graph(self, relation: str) -> nx.DiGraph:
         relation_graph = nx.DiGraph()
         for source, target, data in self.graph.edges(data=True):
@@ -96,7 +109,12 @@ class OAGraph:
                 relation_graph.add_edge(source, target)
         return relation_graph
 
-    def _would_create_cycle(self, source_id: str, target_id: str, relation: str) -> bool:
+    def _would_create_cycle(
+        self,
+        source_id: str,
+        target_id: str,
+        relation: str,
+    ) -> bool:
         if source_id == target_id:
             return True
         relation_graph = self._relation_graph(relation)
@@ -123,6 +141,19 @@ class OAGraph:
             return True
         if data.get("type") == "OperationalEntity":
             return bool(data.get("expects_activity", True))
+        return False
+
+    def has_relation(
+        self,
+        source_id: str,
+        relation: str,
+        target_id: str,
+    ) -> bool:
+        if source_id not in self.graph or target_id not in self.graph:
+            return False
+        for _, existing_target, data in self.graph.out_edges(source_id, data=True):
+            if existing_target == target_id and data.get("type") == relation:
+                return True
         return False
 
     def add_relation(
@@ -155,20 +186,30 @@ class OAGraph:
                 return False, "That location connection would create a location cycle."
 
         for _, existing_target, _, data in self.graph.out_edges(
-            source_id, keys=True, data=True
+            source_id,
+            keys=True,
+            data=True,
         ):
             if existing_target != target_id or data.get("type") != relation:
                 continue
             same_name = _canonical(data.get("name", "")) == _canonical(
                 attributes.get("name", "")
             )
-            if relation in {"OPERATIONAL_EXCHANGE", "COMMUNICATION_MEAN"} and same_name:
+            if (
+                relation in {"OPERATIONAL_EXCHANGE", "COMMUNICATION_MEAN"}
+                and same_name
+            ):
                 return False, "The same connection already exists."
             if relation not in {"OPERATIONAL_EXCHANGE", "COMMUNICATION_MEAN"}:
                 return False, "That connection already exists."
 
         self._checkpoint()
-        self.graph.add_edge(source_id, target_id, type=relation, **attributes)
+        self.graph.add_edge(
+            source_id,
+            target_id,
+            type=relation,
+            **attributes,
+        )
         return True, ""
 
     def nodes_of_type(self, *types: str) -> list[str]:
@@ -183,7 +224,11 @@ class OAGraph:
         return self.nodes_of_type(*PARTICIPANT_TYPES)
 
     def active_participants(self) -> list[str]:
-        return [node_id for node_id in self.participants() if self.expects_activity(node_id)]
+        return [
+            node_id
+            for node_id in self.participants()
+            if self.expects_activity(node_id)
+        ]
 
     def context_entities(self) -> list[str]:
         return [
@@ -195,11 +240,16 @@ class OAGraph:
     def name(self, node_id: str) -> str:
         return self.graph.nodes[node_id].get("name", node_id)
 
+    def participants_for_activity(self, activity_id: str) -> list[str]:
+        return [
+            source
+            for source, _, data in self.graph.in_edges(activity_id, data=True)
+            if data.get("type") == "PERFORMS"
+        ]
+
     def participant_for_activity(self, activity_id: str) -> str | None:
-        for source, _, data in self.graph.in_edges(activity_id, data=True):
-            if data.get("type") == "PERFORMS":
-                return source
-        return None
+        performers = self.participants_for_activity(activity_id)
+        return performers[0] if performers else None
 
     def actions_for_participant(self, participant_id: str) -> list[str]:
         return [
@@ -208,10 +258,27 @@ class OAGraph:
             if data.get("type") == "PERFORMS"
         ]
 
+    def activity_semantics(self, activity_id: str) -> dict:
+        if activity_id not in self.graph:
+            return {}
+        data = self.graph.nodes[activity_id]
+        fields = (
+            "semantic_verb",
+            "semantic_objects",
+            "semantic_recipients",
+            "semantic_locations",
+            "semantic_conditions",
+            "semantic_time",
+            "semantic_other_complements",
+            "source_text",
+        )
+        return {field: data.get(field) for field in fields if data.get(field)}
+
     def action_label(self, activity_id: str) -> str:
-        performer = self.participant_for_activity(activity_id)
-        if performer:
-            return f"{self.name(activity_id)} — {self.name(performer)}"
+        performers = self.participants_for_activity(activity_id)
+        if performers:
+            names = ", ".join(self.name(node_id) for node_id in performers)
+            return f"{self.name(activity_id)} — {names}"
         return self.name(activity_id)
 
     def short_context(self, limit: int = 14) -> str:
@@ -222,7 +289,10 @@ class OAGraph:
                 friendly = "goal"
             elif node_type == "OperationalActivity":
                 friendly = "action"
-            elif node_type in PARTICIPANT_TYPES and not self.expects_activity(node_id):
+            elif (
+                node_type in PARTICIPANT_TYPES
+                and not self.expects_activity(node_id)
+            ):
                 friendly = "place/context"
             elif node_type in PARTICIPANT_TYPES:
                 friendly = "participant"
@@ -238,14 +308,26 @@ class OAGraph:
         result = []
         for source, target, data in self.graph.edges(data=True):
             if data.get("type") == "OPERATIONAL_EXCHANGE":
-                result.append((source, target, data.get("name", "Interaction")))
+                result.append(
+                    (
+                        source,
+                        target,
+                        data.get("name", "Interaction"),
+                    )
+                )
         return result
 
     def communication_means(self) -> list[tuple[str, str, str]]:
         result = []
         for source, target, data in self.graph.edges(data=True):
             if data.get("type") == "COMMUNICATION_MEAN":
-                result.append((source, target, data.get("name", "Communication")))
+                result.append(
+                    (
+                        source,
+                        target,
+                        data.get("name", "Communication"),
+                    )
+                )
         return result
 
     def containment_relations(self) -> list[tuple[str, str]]:
@@ -269,13 +351,25 @@ class OAGraph:
         name: str = "",
     ) -> bool:
         wanted = _canonical(name)
-        for _, target, data in self.graph.out_edges(source_participant, data=True):
-            if target != target_participant or data.get("type") != "COMMUNICATION_MEAN":
+        for _, target, data in self.graph.out_edges(
+            source_participant,
+            data=True,
+        ):
+            if (
+                target != target_participant
+                or data.get("type") != "COMMUNICATION_MEAN"
+            ):
                 continue
             if not name or _canonical(data.get("name", "")) == wanted:
                 return True
-        for _, target, data in self.graph.out_edges(target_participant, data=True):
-            if target != source_participant or data.get("type") != "COMMUNICATION_MEAN":
+        for _, target, data in self.graph.out_edges(
+            target_participant,
+            data=True,
+        ):
+            if (
+                target != source_participant
+                or data.get("type") != "COMMUNICATION_MEAN"
+            ):
                 continue
             if not name or _canonical(data.get("name", "")) == wanted:
                 return True
@@ -290,15 +384,22 @@ class OAGraph:
         actions = self.nodes_of_type("OperationalActivity")
 
         lines.append("\nGoals")
-        lines.extend([f"  - {self.name(node)}" for node in goals] or ["  (none)"])
+        lines.extend(
+            [f"  - {self.name(node)}" for node in goals]
+            or ["  (none)"]
+        )
 
         lines.append("\nParticipants")
         lines.extend(
-            [f"  - {self.name(node)}" for node in participants] or ["  (none)"]
+            [f"  - {self.name(node)}" for node in participants]
+            or ["  (none)"]
         )
 
         lines.append("\nPlaces / context")
-        lines.extend([f"  - {self.name(node)}" for node in context] or ["  (none)"])
+        lines.extend(
+            [f"  - {self.name(node)}" for node in context]
+            or ["  (none)"]
+        )
 
         lines.append("\nStructure")
         containment = self.containment_relations()
@@ -327,13 +428,43 @@ class OAGraph:
         lines.append("\nActions")
         if actions:
             for action in actions:
-                performer = self.participant_for_activity(action)
-                if performer:
+                performers = self.participants_for_activity(action)
+                if performers:
+                    performer_names = ", ".join(
+                        self.name(node_id) for node_id in performers
+                    )
                     lines.append(
-                        f"  - {self.name(performer)} -> {self.name(action)}"
+                        f"  - {performer_names} -> {self.name(action)}"
                     )
                 else:
                     lines.append(f"  - {self.name(action)}")
+
+                semantics = self.activity_semantics(action)
+                if semantics.get("semantic_objects"):
+                    lines.append(
+                        "      objects: "
+                        + ", ".join(semantics["semantic_objects"])
+                    )
+                if semantics.get("semantic_recipients"):
+                    lines.append(
+                        "      recipients: "
+                        + ", ".join(semantics["semantic_recipients"])
+                    )
+                if semantics.get("semantic_locations"):
+                    lines.append(
+                        "      locations: "
+                        + ", ".join(semantics["semantic_locations"])
+                    )
+                if semantics.get("semantic_conditions"):
+                    lines.append(
+                        "      conditions: "
+                        + ", ".join(semantics["semantic_conditions"])
+                    )
+                if semantics.get("semantic_time"):
+                    lines.append(
+                        "      time: "
+                        + ", ".join(semantics["semantic_time"])
+                    )
         else:
             lines.append("  (none)")
 
@@ -360,7 +491,10 @@ class OAGraph:
         lines.extend(
             [
                 "",
-                f"Items: {self.graph.number_of_nodes()} | Connections: {self.graph.number_of_edges()}",
+                (
+                    f"Items: {self.graph.number_of_nodes()} | "
+                    f"Connections: {self.graph.number_of_edges()}"
+                ),
                 "=" * 64,
             ]
         )
@@ -375,20 +509,27 @@ class OAGraph:
         if not goals:
             messages.append("The main operational goal is still missing.")
         if not participants:
-            messages.append("No participant or context element has been identified yet.")
+            messages.append(
+                "No participant or context element has been identified yet."
+            )
         if not actions:
             messages.append("No operational action has been described yet.")
 
         for participant in participants:
-            if self.expects_activity(participant) and not self.actions_for_participant(
-                participant
+            if (
+                self.expects_activity(participant)
+                and not self.actions_for_participant(participant)
             ):
-                messages.append(f"'{self.name(participant)}' has no action yet.")
+                messages.append(
+                    f"'{self.name(participant)}' has no action yet."
+                )
 
         for action in actions:
-            performer = self.participant_for_activity(action)
-            if not performer:
-                messages.append(f"'{self.name(action)}' is not assigned to anyone yet.")
+            performers = self.participants_for_activity(action)
+            if not performers:
+                messages.append(
+                    f"'{self.name(action)}' is not assigned to anyone yet."
+                )
             supports = any(
                 data.get("type") == "SUPPORTS_CAPABILITY"
                 for _, _, data in self.graph.out_edges(action, data=True)
