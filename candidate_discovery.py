@@ -42,29 +42,18 @@ it before anything is added to the model.
 Classify each extracted mention as one of:
 - OperationalActor: a person, human role, or human group.
 - OperationalEntity: a non-human real-world stakeholder, organization, group,
-  facility, infrastructure, place, area, environment, resource, or context element.
-- Other: an abstract quality, event, action, or word that should not become a
-  participant/context candidate.
+  facility, resource, place, area, environment, or contextual element.
+- Other: an abstract quality, event, action, property, or phrase that should not
+  become a participant/context candidate.
 
-Important examples:
-Goal: "Keep infrastructure and soldiers safe"
-Candidates:
-- "infrastructure" -> OperationalEntity
-- "soldiers" -> OperationalActor
-Do not return "infrastructure and soldiers" as one combined candidate.
-Do not extract "safe".
+General rules:
+- Extract each independently meaningful coordinated noun phrase separately.
+- Preserve the exact wording used in the goal.
+- Do not infer unstated stakeholders, systems, locations, or resources.
+- Do not turn adjectives, qualities, goals, actions, or outcomes into participants.
+- Do not favor any application domain.
 
-Goal: "Maintain safe airspace operations"
-Candidate:
-- "airspace" -> OperationalEntity
-Do not extract "safe" or "operations" merely because they are nouns.
-
-Goal: "Protect civilians from flooding"
-Candidate:
-- "civilians" -> OperationalActor
-Do not extract "flooding" as a participant.
-
-Preserve the exact wording used in the goal. Output JSON only.
+Output JSON only.
 """.strip()
 
 
@@ -81,76 +70,80 @@ _EXCLUDED_MENTIONS = {
     "operations",
 }
 
-# These vocabularies are deliberately small and high-confidence. They are not a
-# general NLP classifier; they only provide a deterministic fallback when a small
-# local model merges clearly different coordinated mentions into one phrase.
-_HUMAN_HINTS = {
-    "person", "people", "civilian", "civilians", "soldier", "soldiers",
-    "pilot", "pilots", "operator", "operators", "controller", "controllers",
-    "officer", "officers", "worker", "workers", "guard", "guards",
-    "responder", "responders", "staff", "personnel", "crew", "commander",
-    "commanders", "technician", "technicians", "driver", "drivers",
-}
-
-_ENTITY_HINTS = {
-    "infrastructure", "facility", "facilities", "building", "buildings",
-    "base", "bases", "station", "stations", "site", "sites", "area", "areas",
-    "zone", "zones", "airspace", "region", "regions", "airport", "airports",
-    "center", "centers", "centre", "centres", "organization", "organizations",
-    "organisation", "organisations", "authority", "authorities", "department",
-    "departments", "service", "services", "unit", "units", "team", "teams",
-    "environment", "environments", "warehouse", "warehouses", "port", "ports",
-    "terminal", "terminals", "road", "roads", "bridge", "bridges",
-}
-
 
 def _canonical(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip()).casefold()
-
-
-def _tokens(value: str) -> list[str]:
-    return re.findall(r"[a-z]+", value.casefold())
 
 
 def _appears_in_text(mention: str, text: str) -> bool:
     return _canonical(mention) in _canonical(text)
 
 
-def _concept_hint(mention: str) -> str | None:
-    tokens = set(_tokens(mention))
-    if tokens & _HUMAN_HINTS:
-        return "OperationalActor"
-    if tokens & _ENTITY_HINTS:
-        return "OperationalEntity"
+def _clean_mention(value: str) -> str:
+    return re.sub(r"\s+", " ", value.strip(" ,;:.\t\n"))
+
+
+def _classify_part(local_llm, part: str, context: str) -> str | None:
+    """Classify one explicit noun phrase without any domain vocabulary.
+
+    This uses the same semantic participant classifier used by the main workflow.
+    No role names, asset names, industries, or scenario-specific nouns are embedded
+    here. If the compact model is uncertain, no split is forced.
+    """
+    try:
+        result = local_llm.validate_participant(part, context)
+    except Exception:
+        return None
+
+    concept = str(result.get("detected_concept", "")).strip()
+    valid = bool(result.get("valid", False))
+    solution_bias = bool(result.get("solution_bias", False))
+
+    if concept in CANDIDATE_TARGET_TYPES and valid and not solution_bias:
+        return concept
     return None
 
 
-def _split_coordinated_candidate(raw: dict, goal: str) -> list[dict]:
-    """Split a merged candidate only when each side has a confident OA hint.
+def _split_coordinated_candidate(local_llm, raw: dict, goal: str) -> list[dict]:
+    """Split a merged A-and-B candidate only after semantic classification.
 
-    Example:
-      "infrastructure and soldiers" ->
-          "infrastructure" (OperationalEntity)
-          "soldiers" (OperationalActor)
+    The split rule is domain-independent:
+    1. both sides must occur literally in the user's goal;
+    2. both sides must independently classify as a valid Actor or Entity;
+    3. otherwise the original phrase is preserved.
 
-    We intentionally do not split phrases such as "command and control center"
-    because both sides do not independently have a confident candidate meaning.
+    This prevents blind splitting of established compound phrases while still
+    recovering when a small model merges two independently meaningful candidates.
     """
-    mention = re.sub(r"\s+", " ", str(raw.get("mention", "")).strip())
-    if " and " not in mention.casefold():
+    mention = _clean_mention(str(raw.get("mention", "")))
+    if not mention or " and " not in mention.casefold():
         return [raw]
 
-    parts = [part.strip(" ,") for part in re.split(r"\band\b", mention, flags=re.IGNORECASE)]
+    parts = [
+        _clean_mention(part)
+        for part in re.split(r"\band\b", mention, flags=re.IGNORECASE)
+    ]
     if len(parts) != 2 or not all(parts):
-        return [raw]
-
-    concepts = [_concept_hint(part) for part in parts]
-    if any(concept is None for concept in concepts):
         return [raw]
     if not all(_appears_in_text(part, goal) for part in parts):
         return [raw]
 
-    reason = re.sub(r"\s+", " ", str(raw.get("reason", "")).strip())
+    concepts = [
+        _classify_part(
+            local_llm,
+            part,
+            context=(
+                "This phrase was explicitly mentioned inside the operational goal. "
+                "Classify only whether it is a real-world human participant or a "
+                "non-human participant/context element."
+            ),
+        )
+        for part in parts
+    ]
+    if any(concept is None for concept in concepts):
+        return [raw]
+
+    reason = _clean_mention(str(raw.get("reason", "")))
     return [
         {
             "mention": part,
@@ -161,10 +154,10 @@ def _split_coordinated_candidate(raw: dict, goal: str) -> list[dict]:
     ]
 
 
-def _expand_coordinated_candidates(goal: str, candidates: Iterable[dict]) -> list[dict]:
+def _expand_coordinated_candidates(local_llm, goal: str, candidates: Iterable[dict]) -> list[dict]:
     expanded: list[dict] = []
     for raw in candidates:
-        expanded.extend(_split_coordinated_candidate(raw, goal))
+        expanded.extend(_split_coordinated_candidate(local_llm, raw, goal))
     return expanded
 
 
@@ -173,24 +166,20 @@ def filter_goal_candidates(
     candidates: Iterable[dict],
     existing_names: Iterable[str] = (),
 ) -> list[dict]:
-    """Deterministic barrier for LLM candidate extraction.
+    """Deterministic write barrier for advisory LLM candidate extraction.
 
-    Candidate discovery is advisory only. A candidate must be an exact phrase from
-    the goal, must map to an allowed OA participant/context concept, and must not
-    duplicate something that is already in the model.
-
-    Before filtering, high-confidence coordinated phrases are split into separate
-    candidates. This makes the workflow robust when a compact LLM returns
-    "infrastructure and soldiers" as one candidate instead of two.
+    A candidate must be an exact phrase from the goal, must map to an allowed
+    participant/context concept, and must not duplicate an existing model element.
+    The function contains no domain-specific participant or action vocabulary.
     """
     existing = {_canonical(name) for name in existing_names}
     seen: set[str] = set()
     accepted: list[dict] = []
 
-    for raw in _expand_coordinated_candidates(goal, candidates):
-        mention = re.sub(r"\s+", " ", str(raw.get("mention", "")).strip())
+    for raw in candidates:
+        mention = _clean_mention(str(raw.get("mention", "")))
         concept = str(raw.get("candidate_concept", "")).strip()
-        reason = re.sub(r"\s+", " ", str(raw.get("reason", "")).strip())
+        reason = _clean_mention(str(raw.get("reason", "")))
         canonical = _canonical(mention)
 
         if not mention or len(mention) > 80:
@@ -226,14 +215,12 @@ Operational goal:
 {goal}
 
 Extract only explicit real-world people, human groups, organizations, facilities,
-infrastructure, places, areas, environments, resources, or contextual elements
-that could be useful candidates for the operational picture.
+resources, places, areas, environments, or contextual elements that could be
+useful candidates for the operational picture.
 
-When the goal contains separate coordinated objects, return them as separate
-candidates. Example: "infrastructure and soldiers" must be returned as two
-candidates, not one combined phrase.
-
-Do not infer missing stakeholders. Do not rewrite or singularize the wording.
+Do not infer missing stakeholders. Do not rewrite the wording. When the goal
+contains two independently meaningful noun phrases joined by 'and', return them
+as separate candidates when appropriate.
 """.strip()
 
     result = local_llm._json_chat(
@@ -243,8 +230,11 @@ Do not infer missing stakeholders. Do not rewrite or singularize the wording.
         ],
         GOAL_CANDIDATE_SCHEMA,
     )
+
+    raw_candidates = result.get("candidates", [])
+    expanded = _expand_coordinated_candidates(local_llm, goal, raw_candidates)
     return filter_goal_candidates(
         goal,
-        result.get("candidates", []),
+        expanded,
         existing_names=existing_names,
     )
