@@ -56,44 +56,42 @@ You do not modify the graph. You only validate and normalize one candidate answe
 Internal concepts:
 - OperationalCapability: an operational outcome or ability needed by stakeholders.
 - OperationalActor: a human operational participant or human role.
-- OperationalEntity: a non-human real-world participant or stakeholder in the operation.
+- OperationalEntity: a non-human real-world participant or contextual element.
 - OperationalActivity: an action performed by a participant.
 - OperationalExchange: information, material, request, or item exchanged between actions.
 - CommunicationMean: an operational communication method between participants.
 
-Rules:
+General rules:
 1. Never invent facts.
 2. Natural-language answers must be English. Proper names may be Language-neutral.
 3. Stay in Operational Analysis. Reject premature software, hardware, architecture,
    component, algorithm, interface, or implementation choices when the same meaning
    can be stated as an operational need or action.
-4. The system-of-interest must not be introduced as the future solution in Operational Analysis.
-5. Actions should describe WHAT a participant does, preferably using a short verb phrase.
-   Accept broad but meaningful action phrases. Do NOT reject an action merely because it is short or broad.
-   Decisions, approvals, authorizations, commands, and engagements ARE operational actions when a participant performs them.
-   Examples that MUST be treated as OperationalActivity when asked what a participant does:
-   - 'Provide drone information'
-   - 'Provide drone information such as position and velocity'
-   - 'Decide to engage a countermeasure'
-   - 'Engage a countermeasure'
-   - 'Coordinate air traffic'
-   - 'Maintain safe separation'
-   Do not relabel such verb phrases as a goal, role description, or exchange just because their object describes an outcome or information.
-6. Goals should describe an operational outcome or desired state, not product features or solution components.
-   Short outcome phrases beginning with verbs such as keep, protect, ensure, maintain,
-   preserve, prevent, reduce, secure, or enable are valid when they describe stakeholder
-   needs and contain no implementation choice.
-   Examples that MUST be treated as OperationalCapability when the user is asked for the goal:
-   - 'Keep restricted airspace safe'
-   - 'Keep infrastructure and soldiers safe'
-   - 'Protect civilians and critical infrastructure'
-   - 'Maintain safe airport operations'
-   - 'Reduce response time to hostile activity'
-   These are NOT solution descriptions merely because they mention real-world assets or people.
-7. Keep reasons short and user-friendly. Do not mention Arcadia terminology in the reason.
-8. If invalid, give one simple English suggestion only when it preserves the user's intended meaning. Never invent a different fact.
-9. normalized_value may fix grammar/capitalization but must preserve the same verb/object meaning.
-10. Output JSON only using the supplied schema.
+4. Do not introduce the future system-of-interest as if it were an existing
+   operational participant.
+5. Validate actions semantically, not by matching a scenario-specific action list.
+   A meaningful English verb phrase can be a valid OperationalActivity in any
+   domain. Decisions, approvals, authorizations, commands, observations,
+   communications, physical actions, coordination, and information-handling actions
+   can all be valid when they describe what a participant does operationally.
+6. Do not reject an action merely because it is short, broad, unfamiliar, or from
+   a domain not represented in the prompt. Judge whether it expresses behavior,
+   not whether it resembles an example.
+7. Goals should describe an operational outcome or desired state, not a product
+   feature or solution component. Judge the semantics rather than a fixed scenario.
+8. Participant classification must be domain-independent. A human person, role, or
+   human group is an OperationalActor. A non-human organization, group, facility,
+   resource, place, area, environment, or other real-world contextual element is an
+   OperationalEntity. A proposed technical solution is Other when it is not an
+   existing operational participant.
+9. Keep reasons short and user-friendly. Do not mention Arcadia terminology in the reason.
+10. If invalid, give one simple English suggestion only when it preserves the user's
+    intended meaning. Never invent a different fact.
+11. normalized_value may fix grammar/capitalization but must preserve the same meaning.
+12. Output JSON only using the supplied schema.
+
+The rules above are intentionally domain-neutral. Do not assume aviation, defense,
+transportation, healthcare, manufacturing, software, or any other specific domain.
 """.strip()
 
 
@@ -128,13 +126,7 @@ class LocalLLM:
 
     @staticmethod
     def _parse_json(content: str) -> dict:
-        """Parse small-model JSON robustly without weakening the schema contract.
-
-        Some local models occasionally place a raw newline or another control
-        character inside a JSON string. Python's strict JSON parser rejects that
-        even though the structure is otherwise usable. strict=False accepts these
-        characters. We also strip accidental markdown fences and surrounding text.
-        """
+        """Parse small-model JSON robustly without weakening the schema contract."""
         cleaned = content.strip()
         cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r"\s*```$", "", cleaned)
@@ -178,19 +170,28 @@ class LocalLLM:
             except (json.JSONDecodeError, TypeError, ValueError) as exc:
                 last_error = exc
 
-        raise RuntimeError(f"The local model returned invalid structured data twice: {last_error}")
+        raise RuntimeError(
+            f"The local model returned invalid structured data twice: {last_error}"
+        )
 
-    def validate_candidate(self, candidate: str, expected_concept: str, context: str = "") -> dict:
+    def validate_candidate(
+        self,
+        candidate: str,
+        expected_concept: str,
+        context: str = "",
+    ) -> dict:
         guidance = CONCEPT_GUIDANCE[expected_concept]
         prompt = f"""
 Expected internal concept: {expected_concept}
 Definition: {guidance['definition']}
 Expected answer: {guidance['expected_format']}
-Example: {guidance['example']}
+Generic form example: {guidance['example']}
 Current context: {context or 'No additional context.'}
 Candidate answer: {candidate}
 
-Assess only this answer. Keep any user-facing reason simple and free of Arcadia jargon.
+Assess only this answer using the concept definition and general rules. Do not
+require the candidate to resemble the example. Keep any user-facing reason simple
+and free of Arcadia jargon.
 """.strip()
         return self._json_chat(
             [
@@ -202,30 +203,19 @@ Assess only this answer. Keep any user-facing reason simple and free of Arcadia 
 
     def validate_participant(self, candidate: str, context: str = "") -> dict:
         prompt = f"""
-The user was asked to name one person, human role, organization, group, facility,
-operational service, environment, or other real-world participant in an operation.
+The user was asked to name one real-world element involved in an operation.
 
 Classify the answer internally as:
-- OperationalActor only when it clearly names a human person or human role.
-- OperationalEntity when it names a non-human stakeholder or operational party,
-  including an organization, authority, team, department, center, facility, or
-  operational service.
-- Other when it is not a stakeholder/participant or when it is clearly the future
-  technical solution being designed.
+- OperationalActor only when it clearly names a human person, human role, or human group.
+- OperationalEntity when it names a non-human real-world participant or contextual
+  element such as an organization, group, facility, resource, place, area,
+  environment, location, or external party.
+- Other when it is neither of those, or when it is clearly a proposed technical
+  solution rather than an existing real-world participant/context element.
 
-Important classification examples:
-- Air Traffic Controller -> OperationalActor
-- Drone Traffic Controller -> OperationalActor
-- Air Traffic Control -> OperationalEntity
-- Drone Traffic Control -> OperationalEntity
-- Airport Operations Center -> OperationalEntity
-- Police Department -> OperationalEntity
-- Drone Detection System -> Other when it is the solution being proposed
-
-Do not reject a plausible stakeholder label merely because it is short or not a
-complete sentence. For a participant label, valid should be true whenever the
-classification is OperationalActor or OperationalEntity and there is no clear
-solution bias or language violation.
+Do not use a fixed vocabulary of professions, industries, assets, places, or
+scenario names. Classify from meaning. Do not reject a plausible short label merely
+because it is not a complete sentence or because its domain is unfamiliar.
 
 Current context: {context or 'No additional context.'}
 Candidate answer: {candidate}
