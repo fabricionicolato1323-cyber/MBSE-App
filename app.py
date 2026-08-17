@@ -9,6 +9,12 @@ from typing import Callable
 from candidate_discovery import extract_goal_candidates
 from graph_model import OAGraph
 from llm_service import LocalLLM
+from semantic_frames import (
+    format_frame_summary,
+    frame_is_complex,
+    looks_structurally_complex,
+    parse_activity_frames,
+)
 from terminal_ui import EXPECTED_STRUCTURES, processing_indicator
 from validator import validate_llm_candidate, validate_participant_candidate
 
@@ -32,6 +38,8 @@ Commands:
 
 Each question also shows the preferred answer structure.
 The structure is guidance, not a rigid template.
+Activity answers may contain multiple subjects, objects, complements, or actions.
+Complex activity sentences are decomposed before anything is written to the model.
 """.strip()
 
 
@@ -168,7 +176,7 @@ class OAApp:
         return True
 
     # ------------------------------------------------------------------
-    # Input helpers
+    # Generic input helpers
     # ------------------------------------------------------------------
     def ask_yes_no(self, question: str, why: str) -> bool:
         self.current_why = why
@@ -272,10 +280,7 @@ class OAApp:
             )
             if result.accepted:
                 normalized = result.normalized_value
-                if (
-                    normalized
-                    and normalized.casefold() != value.casefold()
-                ):
+                if normalized and normalized.casefold() != value.casefold():
                     self.add_notice(
                         f'English suggestion: "{normalized}"\n'
                         "Your meaning was clear, so I will use the corrected wording."
@@ -330,21 +335,16 @@ class OAApp:
                 continue
 
             result = validate_participant_candidate(value, llm_result)
-
             if result.accepted:
                 if (
                     result.normalized_value
-                    and result.normalized_value.casefold()
-                    != value.casefold()
+                    and result.normalized_value.casefold() != value.casefold()
                 ):
                     self.add_notice(
                         f'English suggestion: "{result.normalized_value}"\n'
                         "Your meaning was clear, so I will use the corrected wording."
                     )
-                return (
-                    result.detected_concept,
-                    result.normalized_value,
-                )
+                return result.detected_concept, result.normalized_value
 
             message = (
                 f"I cannot use that answer yet.\n"
@@ -384,6 +384,16 @@ class OAApp:
         if not goals:
             return
 
+        if any(
+            self.model.has_relation(
+                action_id,
+                "SUPPORTS_CAPABILITY",
+                goal_id,
+            )
+            for goal_id in goals
+        ):
+            return
+
         if len(goals) == 1:
             goal_id = goals[0]
         else:
@@ -417,6 +427,262 @@ class OAApp:
             "Some real-world elements perform actions, while others may "
             "only provide operational context.",
         )
+
+    # ------------------------------------------------------------------
+    # Semantic activity parsing
+    # ------------------------------------------------------------------
+    def ask_activity_frames(
+        self,
+        participant_id: str,
+    ) -> tuple[str, dict]:
+        participant_name = self.model.name(participant_id)
+        self.current_why = (
+            "The action structure identifies who performs each behavior, the "
+            "main verb, its objects, and any recipients, locations, conditions, "
+            "or timing without forcing the user to enter one rigid template."
+        )
+
+        while True:
+            self.draw_question(
+                f"What does {participant_name} do?",
+                explanation=(
+                    "You may describe one action or a natural sentence with "
+                    "multiple subjects, objects, complements, or actions."
+                ),
+                example=(
+                    "Coordinate service requests and report status to operations"
+                ),
+                expected_structure=EXPECTED_STRUCTURES["OperationalActivity"],
+            )
+            value = input("> ").strip()
+
+            if self.command(value):
+                continue
+            if value.startswith("/"):
+                self.add_notice("That command is not available here.")
+                continue
+            if not value:
+                self.add_notice("The answer cannot be empty.")
+                continue
+
+            known_subjects = [
+                self.model.name(node_id)
+                for node_id in self.model.participants()
+            ]
+
+            try:
+                with processing_indicator(
+                    "Analyzing action structure with local AI"
+                ):
+                    frame_result = parse_activity_frames(
+                        self.llm,
+                        value,
+                        default_subject=participant_name,
+                        known_subjects=known_subjects,
+                        context=self.model.short_context(),
+                    )
+            except Exception:
+                self.add_notice(
+                    "I had trouble analyzing the action structure.\n"
+                    "Please try the same answer once more. Nothing was added."
+                )
+                continue
+
+            if frame_result.get("language") == "Non-English":
+                self.add_notice(
+                    "Please answer in English only. Nothing was added to the model."
+                )
+                continue
+
+            if frame_result.get("solution_bias", False):
+                self.add_notice(
+                    "That answer appears to describe a technical implementation "
+                    "rather than operational behavior. Nothing was added."
+                )
+                continue
+
+            if not frame_result.get("valid", False):
+                reason = frame_result.get("reason") or (
+                    "I could not identify a usable operational action."
+                )
+                self.add_notice(
+                    f"I cannot use that answer yet.\nReason: {reason}\n"
+                    "Nothing was added to the model."
+                )
+                continue
+
+            rejected_clause = ""
+            for clause in frame_result.get("clauses", []):
+                activity_text = clause.get("activity_text", "")
+                synthetic_result = {
+                    "valid": True,
+                    "language": frame_result.get("language", "English"),
+                    "detected_concept": "OperationalActivity",
+                    "normalized_value": activity_text,
+                    "solution_bias": False,
+                    "reason": "",
+                    "suggestion": "",
+                }
+                validated = validate_llm_candidate(
+                    activity_text,
+                    "OperationalActivity",
+                    synthetic_result,
+                )
+                if not validated.accepted:
+                    rejected_clause = validated.reason
+                    break
+                clause["activity_text"] = validated.normalized_value
+
+            if rejected_clause:
+                self.add_notice(
+                    f"I cannot use that action structure yet.\n"
+                    f"Reason: {rejected_clause}\n"
+                    "Nothing was added to the model."
+                )
+                continue
+
+            complex_input = (
+                looks_structurally_complex(value)
+                or frame_is_complex(frame_result)
+            )
+            if complex_input:
+                summary = format_frame_summary(frame_result)
+                self.show_command_page("ACTION INTERPRETATION", summary)
+                if not self.ask_yes_no(
+                    "Use this interpretation?",
+                    "No activity is written to the graph until you confirm "
+                    "the decomposition of this complex sentence.",
+                ):
+                    self.add_notice(
+                        "Interpretation rejected. Please rewrite the action sentence."
+                    )
+                    continue
+
+            return value, frame_result
+
+    def resolve_frame_subjects(
+        self,
+        clause: dict,
+        default_participant_id: str,
+    ) -> list[str]:
+        default_name = self.model.name(default_participant_id)
+        subjects = clause.get("subjects", []) or [default_name]
+        resolved: list[str] = []
+
+        for subject in subjects:
+            existing = self.model.find_participant_duplicate(subject)
+            if existing:
+                if existing not in resolved:
+                    resolved.append(existing)
+                continue
+
+            try:
+                with processing_indicator(
+                    "Classifying additional subject with local AI"
+                ):
+                    llm_result = self.llm.validate_participant(
+                        subject,
+                        self.model.short_context(),
+                    )
+                result = validate_participant_candidate(subject, llm_result)
+            except Exception:
+                result = None
+
+            if result is None or not result.accepted:
+                self.add_notice(
+                    f'I could not classify the additional subject "{subject}". '
+                    "It was not added as a performer."
+                )
+                continue
+
+            if not self.ask_yes_no(
+                f'You mentioned "{subject}" as another performer. '
+                "Should it be included in the operational picture?",
+                "An explicitly named additional subject can become another "
+                "participant performing the same action.",
+            ):
+                continue
+
+            subject_id = self.add_node(
+                result.detected_concept,
+                result.normalized_value,
+                expects_activity=True,
+                discovery_source="activity_subject",
+            )
+            if subject_id not in resolved:
+                resolved.append(subject_id)
+
+        return resolved
+
+    def create_activity_from_frame(
+        self,
+        clause: dict,
+        default_participant_id: str,
+        source_text: str,
+    ) -> str | None:
+        performers = self.resolve_frame_subjects(
+            clause,
+            default_participant_id,
+        )
+        if not performers:
+            self.add_notice(
+                f"Skipped '{clause.get('activity_text', '')}' because no "
+                "confirmed performer could be assigned."
+            )
+            return None
+
+        activity_text = clause["activity_text"]
+        existing = self.model.find_duplicate(
+            "OperationalActivity",
+            activity_text,
+        )
+
+        attributes = {
+            "semantic_frame": True,
+            "semantic_verb": clause.get("verb", ""),
+            "semantic_objects": clause.get("objects", []),
+            "semantic_recipients": clause.get("recipients", []),
+            "semantic_locations": clause.get("locations", []),
+            "semantic_conditions": clause.get("conditions", []),
+            "semantic_time": clause.get("time", []),
+            "semantic_other_complements": clause.get(
+                "other_complements",
+                [],
+            ),
+            "source_text": source_text,
+        }
+
+        if existing:
+            action_id = existing
+            current_semantics = self.model.activity_semantics(action_id)
+            if not current_semantics:
+                self.model.update_node_attributes(action_id, **attributes)
+        else:
+            action_id = self.add_node(
+                "OperationalActivity",
+                activity_text,
+                **attributes,
+            )
+
+        for performer_id in performers:
+            if self.model.has_relation(
+                performer_id,
+                "PERFORMS",
+                action_id,
+            ):
+                continue
+            ok, error = self.model.add_relation(
+                performer_id,
+                "PERFORMS",
+                action_id,
+            )
+            if not ok:
+                self.add_notice(
+                    f"Could not connect a performer to the action: {error}"
+                )
+
+        self.link_action_to_goal(action_id)
+        return action_id
 
     # ------------------------------------------------------------------
     # Stage 1: goals
@@ -559,39 +825,24 @@ class OAApp:
             "A participant may perform more than one important "
             "operational action.",
         ):
-            action = self.ask_validated(
-                question=f"What does {participant_name} do?",
-                explanation=(
-                    "Prefer one main operational action per answer. "
-                    "Natural language and complements are allowed."
-                ),
-                example="Coordinate operational response",
-                expected_concept="OperationalActivity",
-                why=(
-                    "Actions show how each active participant contributes "
-                    "to the operational goal."
-                ),
-                context=(
-                    f"Participant: {participant_name}. "
-                    f"{self.model.short_context()}"
-                ),
+            source_text, frame_result = self.ask_activity_frames(
+                participant_id
             )
 
-            action_id = self.add_node(
-                "OperationalActivity",
-                action,
-            )
-            ok, error = self.model.add_relation(
-                participant_id,
-                "PERFORMS",
-                action_id,
-            )
-            if not ok:
+            created = 0
+            for clause in frame_result.get("clauses", []):
+                if self.create_activity_from_frame(
+                    clause,
+                    participant_id,
+                    source_text,
+                ):
+                    created += 1
+
+            if created > 1:
                 self.add_notice(
-                    f"Could not connect the action: {error}"
+                    f"The sentence was decomposed into {created} "
+                    "operational activities."
                 )
-
-            self.link_action_to_goal(action_id)
             first_action = False
 
     def add_manual_participant(self) -> str:
@@ -730,10 +981,9 @@ class OAApp:
             source_label = self.model.action_label(source_id)
 
             if not self.ask_yes_no(
-                f"Does '{source_label}' send, provide, request, or "
-                "transfer anything to another action?",
-                "Interactions reveal information, material, requests, "
-                "or other items that flow through the operation.",
+                f"Does '{source_label}' exchange anything with another action?",
+                "Interactions may carry information, material, requests, "
+                "or other operational items.",
             ):
                 continue
 
@@ -776,9 +1026,7 @@ class OAApp:
                     name=item,
                 )
                 if ok:
-                    self.add_notice(
-                        f"Added interaction: {item}"
-                    )
+                    self.add_notice(f"Added interaction: {item}")
                 else:
                     self.add_notice(
                         f"Could not add the interaction: {error}"
@@ -799,66 +1047,67 @@ class OAApp:
             target_action,
             exchange_name,
         ) in self.model.exchanges():
-            source_participant = self.model.participant_for_activity(
+            source_participants = self.model.participants_for_activity(
                 source_action
             )
-            target_participant = self.model.participant_for_activity(
+            target_participants = self.model.participants_for_activity(
                 target_action
             )
 
-            if not source_participant or not target_participant:
-                continue
-            if source_participant == target_participant:
-                continue
-            if self.model.has_communication_between(
-                source_participant,
-                target_participant,
-            ):
-                continue
+            for source_participant in source_participants:
+                for target_participant in target_participants:
+                    if source_participant == target_participant:
+                        continue
+                    if self.model.has_communication_between(
+                        source_participant,
+                        target_participant,
+                    ):
+                        continue
 
-            source_name = self.model.name(source_participant)
-            target_name = self.model.name(target_participant)
+                    source_name = self.model.name(source_participant)
+                    target_name = self.model.name(target_participant)
 
-            if not self.ask_yes_no(
-                f"Do {source_name} and {target_name} use a "
-                f"communication method for '{exchange_name}'?",
-                "If the interaction crosses between different participants, "
-                "the communication method may be important operationally.",
-            ):
-                continue
+                    if not self.ask_yes_no(
+                        f"Do {source_name} and {target_name} use a "
+                        f"communication method for '{exchange_name}'?",
+                        "If the interaction crosses between different "
+                        "participants, the communication method may be "
+                        "important operationally.",
+                    ):
+                        continue
 
-            medium = self.ask_validated(
-                question="How do they communicate?",
-                explanation=(
-                    "Name the real-world communication method, "
-                    "not software or implementation details."
-                ),
-                example="Direct communication",
-                expected_concept="CommunicationMean",
-                why=(
-                    "This records how two operational participants "
-                    "are able to interact."
-                ),
-                context=(
-                    f"Participants: {source_name} and {target_name}. "
-                    f"Interaction: {exchange_name}."
-                ),
-            )
+                    medium = self.ask_validated(
+                        question="How do they communicate?",
+                        explanation=(
+                            "Name the real-world communication method, "
+                            "not software or implementation details."
+                        ),
+                        example="Direct communication",
+                        expected_concept="CommunicationMean",
+                        why=(
+                            "This records how two operational participants "
+                            "are able to interact."
+                        ),
+                        context=(
+                            f"Participants: {source_name} and {target_name}. "
+                            f"Interaction: {exchange_name}."
+                        ),
+                    )
 
-            ok, error = self.model.add_relation(
-                source_participant,
-                "COMMUNICATION_MEAN",
-                target_participant,
-                name=medium,
-            )
-            if ok:
-                self.add_notice(
-                    f"Added communication method: {medium}"
-                )
-            else:
-                self.add_notice(
-                    f"Could not add the communication method: {error}"
-                )
+                    ok, error = self.model.add_relation(
+                        source_participant,
+                        "COMMUNICATION_MEAN",
+                        target_participant,
+                        name=medium,
+                    )
+                    if ok:
+                        self.add_notice(
+                            f"Added communication method: {medium}"
+                        )
+                    else:
+                        self.add_notice(
+                            f"Could not add the communication method: {error}"
+                        )
 
     def run(self) -> None:
         goals = self.capture_goals()
