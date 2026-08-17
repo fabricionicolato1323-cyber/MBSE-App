@@ -1,0 +1,31 @@
+flowchart LR
+
+    OC["Operational Capability"]
+    OA["Operational Actor"]
+    OE["Operational Entity"]
+    ACT["Operational Activity"]
+    CM["Communication Mean"]
+
+    OA -->|"PERFORMS"| ACT
+    OE -->|"PERFORMS"| ACT
+    ACT -->|"SUPPORTS_CAPABILITY"| OC
+    ACT -->|"OPERATIONAL_EXCHANGE"| ACT
+
+    OA -->|"COMMUNICATION_MEAN"| OA
+    OA -->|"COMMUNICATION_MEAN"| OE
+    OE -->|"COMMUNICATION_MEAN"| OA
+    OE -->|"COMMUNICATION_MEAN"| OE
+
+    OE -->|"CONTAINS"| OE
+    OE -->|"CONTAINS"| OA
+
+    OA -.->|"LOCATED_IN"| OE
+    OE -.->|"LOCATED_IN"| OE
+
+    NOTE1["PART_OF is the inverse meaning of CONTAINS\nand is not stored as a duplicate edge"]
+    NOTE2["Operational Actors are structural leaves"]
+    NOTE3["CONTAINS/PART_OF = structure\nLOCATED_IN = operational/physical location"]
+
+    OE --- NOTE1
+    OA --- NOTE2
+    OE --- NOTE3
