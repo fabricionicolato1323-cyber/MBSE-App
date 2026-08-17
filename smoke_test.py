@@ -46,8 +46,6 @@ def main() -> None:
     )
     assert participant_validation.accepted
 
-    # Participant labels are accepted from their semantic concept, not from a
-    # hardcoded profession/industry vocabulary.
     short_participant = validate_participant_candidate(
         "Service Group",
         {
@@ -69,8 +67,6 @@ def main() -> None:
     )
     assert activity_validation.accepted
 
-    # The validator must accept an unfamiliar valid action solely because the LLM
-    # classified it semantically, not because its first verb is in a fixed list.
     unfamiliar_action = validate_llm_candidate(
         "Reconcile service records",
         "OperationalActivity",
@@ -81,8 +77,6 @@ def main() -> None:
     )
     assert unfamiliar_action.accepted
 
-    # False negatives are rechecked upstream by LocalLLM rather than overridden by
-    # hardcoded verbs or scenario phrases inside validator.py.
     first_negative = {
         **ok_result("Other", "Reconcile service records"),
         "valid": False,
@@ -156,13 +150,41 @@ def main() -> None:
         "OperationalActor",
         "Operations Coordinator",
     )
+    _, second_actor, _ = graph.add_node(
+        "OperationalActor",
+        "Shift Supervisor",
+    )
     _, action, _ = graph.add_node(
         "OperationalActivity",
         "Coordinate operational response",
+        semantic_frame=True,
+        semantic_verb="Coordinate",
+        semantic_objects=["operational response", "service priorities"],
+        semantic_recipients=["Service Group"],
+        semantic_locations=["Work Area"],
+        semantic_conditions=["when escalation is required"],
+        semantic_time=["during active operations"],
+        semantic_other_complements=[],
+        source_text="Coordinate operational response and service priorities",
     )
 
     assert graph.add_relation(actor, "PERFORMS", action)[0]
+    assert graph.add_relation(second_actor, "PERFORMS", action)[0]
     assert graph.add_relation(action, "SUPPORTS_CAPABILITY", goal)[0]
+
+    performers = graph.participants_for_activity(action)
+    assert set(performers) == {actor, second_actor}
+    assert "Operations Coordinator" in graph.action_label(action)
+    assert "Shift Supervisor" in graph.action_label(action)
+
+    semantics = graph.activity_semantics(action)
+    assert semantics["semantic_verb"] == "Coordinate"
+    assert semantics["semantic_objects"] == [
+        "operational response",
+        "service priorities",
+    ]
+    assert semantics["semantic_recipients"] == ["Service Group"]
+    assert semantics["semantic_locations"] == ["Work Area"]
 
     assert graph.add_relation(facility, "CONTAINS", group)[0]
     assert graph.add_relation(group, "CONTAINS", actor)[0]
@@ -200,6 +222,8 @@ def main() -> None:
     shown = graph.friendly_show()
     assert "Operations Facility contains Service Group" in shown
     assert "Operations Coordinator operates in Work Area" in shown
+    assert "Shift Supervisor" in shown
+    assert "objects: operational response, service priorities" in shown
 
     print("Smoke test passed.")
 
