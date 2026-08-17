@@ -46,12 +46,11 @@ class OAApp:
             chat_format=config.get("chat_format") or None,
         )
         self.model = OAGraph()
-        self.current_why = "This helps build the operational picture one small step at a time."
+        self.current_why = (
+            "This helps build the operational picture one small step at a time."
+        )
         self.notice = ""
 
-    # ------------------------------------------------------------------
-    # Terminal UI
-    # ------------------------------------------------------------------
     @staticmethod
     def clear_screen() -> None:
         os.system("cls" if os.name == "nt" else "clear")
@@ -63,7 +62,11 @@ class OAApp:
     def add_notice(self, message: str) -> None:
         if not message:
             return
-        self.notice = f"{self.notice}\n{message}".strip() if self.notice else message
+        self.notice = (
+            f"{self.notice}\n{message}".strip()
+            if self.notice
+            else message
+        )
 
     def draw_question(
         self,
@@ -72,8 +75,6 @@ class OAApp:
         example: str = "",
         extra_lines: list[str] | None = None,
     ) -> None:
-        # IMPORTANT: Do not clear the terminal automatically.
-        # The user may type /clc whenever they want a clean screen.
         print()
         print("=" * 72)
         print("GUIDED OPERATIONAL MODEL BUILDER")
@@ -97,7 +98,6 @@ class OAApp:
         print()
 
     def show_command_page(self, title: str, body: str) -> None:
-        # Preserve terminal history. /clc is the only command that clears it.
         print()
         print("=" * 72)
         print(title)
@@ -105,9 +105,6 @@ class OAApp:
         print(body)
         self.pause()
 
-    # ------------------------------------------------------------------
-    # Global commands
-    # ------------------------------------------------------------------
     def command(self, value: str) -> bool:
         cmd = value.strip().lower()
         if not cmd.startswith("/"):
@@ -126,7 +123,10 @@ class OAApp:
             )
             self.show_command_page("MODEL CHECK", body)
         elif cmd == "/why":
-            self.show_command_page("WHY THIS QUESTION MATTERS", self.current_why)
+            self.show_command_page(
+                "WHY THIS QUESTION MATTERS",
+                self.current_why,
+            )
         elif cmd == "/save":
             path = self.model.save(str(DEFAULT_SAVE_PATH))
             self.add_notice(f"Saved: {path}")
@@ -151,9 +151,6 @@ class OAApp:
             self.add_notice("Unknown command. Type /help.")
         return True
 
-    # ------------------------------------------------------------------
-    # Small user-facing input helpers
-    # ------------------------------------------------------------------
     def ask_yes_no(self, question: str, why: str) -> bool:
         self.current_why = why
         while True:
@@ -217,8 +214,8 @@ class OAApp:
 
         while True:
             self.draw_question(question, explanation, example)
-
             value = input("> ").strip()
+
             if self.command(value):
                 continue
             if value.startswith("/"):
@@ -261,21 +258,21 @@ class OAApp:
 
     def ask_participant(self) -> tuple[str, str]:
         self.current_why = (
-            "A good operational picture needs the people, roles, organizations, groups, "
-            "facilities, or other real-world parties that take part in the operation."
+            "The model needs the people, roles, organizations, groups, facilities, "
+            "places, areas, and other real-world elements involved in the operation."
         )
 
         while True:
             self.draw_question(
                 "Who or what is involved?",
                 explanation=(
-                    "Name one person, role, organization, group, facility, "
-                    "or other real-world participant."
+                    "Name one person, role, organization, group, facility, place, "
+                    "area, or other real-world element involved."
                 ),
                 example="Air Traffic Controller",
             )
-
             value = input("> ").strip()
+
             if self.command(value):
                 continue
             if value.startswith("/"):
@@ -313,11 +310,18 @@ class OAApp:
             message += "\nNothing was added to the model."
             self.add_notice(message)
 
-    # ------------------------------------------------------------------
-    # Graph write helpers
-    # ------------------------------------------------------------------
-    def add_node(self, node_type: str, name: str) -> str:
-        ok, node_id, error = self.model.add_node(node_type, name)
+    def add_node(
+        self,
+        node_type: str,
+        name: str,
+        *,
+        expects_activity: bool | None = None,
+    ) -> str:
+        ok, node_id, error = self.model.add_node(
+            node_type,
+            name,
+            expects_activity=expects_activity,
+        )
         if not ok:
             self.add_notice(f"Not added: {error}")
             return node_id
@@ -350,9 +354,6 @@ class OAApp:
                 f"Could not connect the action to the goal: {error}"
             )
 
-    # ------------------------------------------------------------------
-    # Guided construction
-    # ------------------------------------------------------------------
     def capture_goals(self) -> None:
         first = True
 
@@ -386,20 +387,37 @@ class OAApp:
 
         while first_participant or self.ask_yes_no(
             "Is anyone or anything else involved?",
-            "This helps discover the other parties needed to understand "
-            "the operation end to end.",
+            "This helps discover the other people, organizations, facilities, "
+            "places, and environmental elements needed to understand the operation.",
         ):
             node_type, participant_name = self.ask_participant()
+
+            expects_activity = True
+            if node_type == "OperationalEntity":
+                expects_activity = self.ask_yes_no(
+                    f"Does {participant_name} actively do something in this operation?",
+                    "Some organizations perform actions, while places, areas, buildings, "
+                    "and other environmental elements may only provide context.",
+                )
+
             participant_id = self.add_node(
                 node_type,
                 participant_name,
+                expects_activity=expects_activity,
             )
+
+            if not expects_activity:
+                self.add_notice(
+                    f"{participant_name} will be kept as operational context. "
+                    "No action is required for it."
+                )
+                first_participant = False
+                continue
 
             first_action = True
             while first_action or self.ask_yes_no(
                 f"Does {participant_name} do anything else?",
-                "A participant may perform more than one important "
-                "operational action.",
+                "A participant may perform more than one important operational action.",
             ):
                 action = self.ask_validated(
                     question=f"What does {participant_name} do?",
@@ -410,7 +428,7 @@ class OAApp:
                     example="Assess incoming threat information",
                     expected_concept="OperationalActivity",
                     why=(
-                        "Actions show how each participant contributes "
+                        "Actions show how each active participant contributes "
                         "to the operational goal."
                     ),
                     context=(
@@ -437,6 +455,89 @@ class OAApp:
                 first_action = False
 
             first_participant = False
+
+    def capture_structure_and_environment(self) -> None:
+        participants = self.model.participants()
+        entities = self.model.nodes_of_type("OperationalEntity")
+
+        if len(participants) < 2 or not entities:
+            return
+
+        print()
+        print("-" * 72)
+        print(
+            "I will now ask a few simple questions about how the participants "
+            "are organized and where they operate."
+        )
+
+        for participant_id in list(participants):
+            participant_name = self.model.name(participant_id)
+            entity_candidates = [
+                node_id
+                for node_id in entities
+                if node_id != participant_id
+            ]
+
+            if not entity_candidates:
+                continue
+
+            if self.model.structural_parent(participant_id) is None:
+                if self.ask_yes_no(
+                    f"Is {participant_name} part of another group, organization, "
+                    "facility, or larger element already mentioned?",
+                    "This captures organizational or structural membership. "
+                    "For example, a controller may be part of a control center.",
+                ):
+                    parent_id = self.ask_number(
+                        f"What is {participant_name} part of?",
+                        entity_candidates,
+                        self.model.name,
+                        "Choose the larger group, organization, facility, or element "
+                        "that structurally contains it.",
+                    )
+                    ok, error = self.model.add_relation(
+                        parent_id,
+                        "CONTAINS",
+                        participant_id,
+                    )
+                    if ok:
+                        self.add_notice(
+                            f"Added structure: {self.model.name(parent_id)} "
+                            f"contains {participant_name}"
+                        )
+                    else:
+                        self.add_notice(
+                            f"Could not add the structural relation: {error}"
+                        )
+
+            if not self.model.locations_for(participant_id):
+                if self.ask_yes_no(
+                    f"Does {participant_name} operate in or inside a place or area "
+                    "already mentioned?",
+                    "Location is kept separate from organizational membership. "
+                    "For example, a soldier may belong to a patrol team but operate "
+                    "inside a restricted area.",
+                ):
+                    location_id = self.ask_number(
+                        f"Where does {participant_name} operate?",
+                        entity_candidates,
+                        self.model.name,
+                        "Choose the place, facility, area, or environment.",
+                    )
+                    ok, error = self.model.add_relation(
+                        participant_id,
+                        "LOCATED_IN",
+                        location_id,
+                    )
+                    if ok:
+                        self.add_notice(
+                            f"Added location: {participant_name} operates in "
+                            f"{self.model.name(location_id)}"
+                        )
+                    else:
+                        self.add_notice(
+                            f"Could not add the location: {error}"
+                        )
 
     def capture_interactions(self) -> None:
         actions = self.model.nodes_of_type("OperationalActivity")
@@ -571,6 +672,7 @@ class OAApp:
     def run(self) -> None:
         self.capture_goals()
         self.capture_participants_and_actions()
+        self.capture_structure_and_environment()
         self.capture_interactions()
         self.capture_communication()
 
