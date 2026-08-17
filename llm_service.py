@@ -79,7 +79,17 @@ Rules:
    - 'Coordinate air traffic'
    - 'Maintain safe separation'
    Do not relabel such verb phrases as a goal, role description, or exchange just because their object describes an outcome or information.
-6. Goals should describe outcomes, not product features or solution components.
+6. Goals should describe an operational outcome or desired state, not product features or solution components.
+   Short outcome phrases beginning with verbs such as keep, protect, ensure, maintain,
+   preserve, prevent, reduce, secure, or enable are valid when they describe stakeholder
+   needs and contain no implementation choice.
+   Examples that MUST be treated as OperationalCapability when the user is asked for the goal:
+   - 'Keep restricted airspace safe'
+   - 'Keep infrastructure and soldiers safe'
+   - 'Protect civilians and critical infrastructure'
+   - 'Maintain safe airport operations'
+   - 'Reduce response time to hostile activity'
+   These are NOT solution descriptions merely because they mention real-world assets or people.
 7. Keep reasons short and user-friendly. Do not mention Arcadia terminology in the reason.
 8. If invalid, give one simple English suggestion only when it preserves the user's intended meaning. Never invent a different fact.
 9. normalized_value may fix grammar/capitalization but must preserve the same verb/object meaning.
@@ -139,8 +149,6 @@ class LocalLLM:
     def _json_chat(self, messages: list[dict], schema: dict) -> dict:
         last_error: Exception | None = None
 
-        # A small local model can occasionally produce malformed JSON even with a
-        # schema. Retry once before surfacing an error to the user.
         for attempt in range(2):
             current_messages = list(messages)
             if attempt:
