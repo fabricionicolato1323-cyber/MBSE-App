@@ -14,7 +14,7 @@ BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "config.json"
 DEFAULT_SAVE_PATH = BASE_DIR / "oa_model.json"
 
-COMMAND_BAR = "/help  /show  /check  /why  /save  /undo  /done  /quit"
+COMMAND_BAR = "/help  /show  /check  /why  /save  /undo  /clc  /done  /quit"
 
 HELP_TEXT = """
 Commands:
@@ -24,6 +24,7 @@ Commands:
   /why    Explain why the current question matters
   /save   Save the model now
   /undo   Undo the last accepted model change
+  /clc    Clear the terminal screen
   /done   Finish and save
   /quit   Exit
 """.strip()
@@ -71,7 +72,9 @@ class OAApp:
         example: str = "",
         extra_lines: list[str] | None = None,
     ) -> None:
-        self.clear_screen()
+        # IMPORTANT: Do not clear the terminal automatically.
+        # The user may type /clc whenever they want a clean screen.
+        print()
         print("=" * 72)
         print("GUIDED OPERATIONAL MODEL BUILDER")
         print("=" * 72)
@@ -94,7 +97,8 @@ class OAApp:
         print()
 
     def show_command_page(self, title: str, body: str) -> None:
-        self.clear_screen()
+        # Preserve terminal history. /clc is the only command that clears it.
+        print()
         print("=" * 72)
         print(title)
         print("=" * 72)
@@ -115,7 +119,11 @@ class OAApp:
             self.show_command_page("MODEL SO FAR", self.model.friendly_show())
         elif cmd == "/check":
             notes = self.model.completeness_messages()
-            body = "\n".join(f"- {note}" for note in notes) if notes else "No obvious gap was found in the current model."
+            body = (
+                "\n".join(f"- {note}" for note in notes)
+                if notes
+                else "No obvious gap was found in the current model."
+            )
             self.show_command_page("MODEL CHECK", body)
         elif cmd == "/why":
             self.show_command_page("WHY THIS QUESTION MATTERS", self.current_why)
@@ -123,16 +131,21 @@ class OAApp:
             path = self.model.save(str(DEFAULT_SAVE_PATH))
             self.add_notice(f"Saved: {path}")
         elif cmd == "/undo":
-            self.add_notice("Last change undone." if self.model.undo() else "There is nothing to undo.")
+            self.add_notice(
+                "Last change undone."
+                if self.model.undo()
+                else "There is nothing to undo."
+            )
+        elif cmd == "/clc":
+            self.clear_screen()
+            self.notice = ""
         elif cmd == "/done":
             path = self.model.save(str(DEFAULT_SAVE_PATH))
-            self.clear_screen()
-            print(f"Saved: {path}")
+            print(f"\nSaved: {path}")
             print("Finished.")
             raise SystemExit(0)
         elif cmd == "/quit":
-            self.clear_screen()
-            print("Exiting.")
+            print("\nExiting.")
             raise SystemExit(0)
         else:
             self.add_notice("Unknown command. Type /help.")
@@ -151,11 +164,13 @@ class OAApp:
             value = input("> ").strip()
             if self.command(value):
                 continue
+
             lowered = value.casefold()
             if lowered in {"yes", "y"}:
                 return True
             if lowered in {"no", "n"}:
                 return False
+
             self.add_notice("Please answer only 'yes' or 'no'.")
 
     def ask_number(
@@ -167,7 +182,10 @@ class OAApp:
     ) -> str:
         self.current_why = why
         while True:
-            lines = [f"  {index}. {label(node_id)}" for index, node_id in enumerate(node_ids, start=1)]
+            lines = [
+                f"  {index}. {label(node_id)}"
+                for index, node_id in enumerate(node_ids, start=1)
+            ]
             self.draw_question(
                 question,
                 explanation="Choose one of the numbers below.",
@@ -176,12 +194,14 @@ class OAApp:
             value = input("> ").strip()
             if self.command(value):
                 continue
+
             try:
                 selected = int(value) - 1
                 if 0 <= selected < len(node_ids):
                     return node_ids[selected]
             except ValueError:
                 pass
+
             self.add_notice("Please select one of the numbers shown.")
 
     def ask_validated(
@@ -194,6 +214,7 @@ class OAApp:
         context: str = "",
     ) -> str:
         self.current_why = why
+
         while True:
             self.draw_question(question, explanation, example)
 
@@ -217,7 +238,12 @@ class OAApp:
                 )
                 continue
 
-            result = validate_llm_candidate(value, expected_concept, llm_result)
+            result = validate_llm_candidate(
+                value,
+                expected_concept,
+                llm_result,
+            )
+
             if result.accepted:
                 normalized = result.normalized_value
                 if normalized and normalized.casefold() != value.casefold():
@@ -238,6 +264,7 @@ class OAApp:
             "A good operational picture needs the people, roles, organizations, groups, "
             "facilities, or other real-world parties that take part in the operation."
         )
+
         while True:
             self.draw_question(
                 "Who or what is involved?",
@@ -247,6 +274,7 @@ class OAApp:
                 ),
                 example="Air Traffic Controller",
             )
+
             value = input("> ").strip()
             if self.command(value):
                 continue
@@ -255,7 +283,10 @@ class OAApp:
                 continue
 
             try:
-                llm_result = self.llm.validate_participant(value, self.model.short_context())
+                llm_result = self.llm.validate_participant(
+                    value,
+                    self.model.short_context(),
+                )
             except Exception:
                 self.add_notice(
                     "I had trouble reading the local model response.\n"
@@ -264,8 +295,12 @@ class OAApp:
                 continue
 
             result = validate_participant_candidate(value, llm_result)
+
             if result.accepted:
-                if result.normalized_value and result.normalized_value.casefold() != value.casefold():
+                if (
+                    result.normalized_value
+                    and result.normalized_value.casefold() != value.casefold()
+                ):
                     self.add_notice(
                         f'English suggestion: "{result.normalized_value}"\n'
                         "Your meaning was clear, so I will use the corrected wording."
@@ -286,6 +321,7 @@ class OAApp:
         if not ok:
             self.add_notice(f"Not added: {error}")
             return node_id
+
         self.add_notice(f"Added: {name}")
         return node_id
 
@@ -293,6 +329,7 @@ class OAApp:
         goals = self.model.nodes_of_type("OperationalCapability")
         if not goals:
             return
+
         if len(goals) == 1:
             goal_id = goals[0]
         else:
@@ -302,42 +339,67 @@ class OAApp:
                 self.model.name,
                 "This connects each action to the outcome it helps achieve.",
             )
-        ok, error = self.model.add_relation(action_id, "SUPPORTS_CAPABILITY", goal_id)
+
+        ok, error = self.model.add_relation(
+            action_id,
+            "SUPPORTS_CAPABILITY",
+            goal_id,
+        )
         if not ok:
-            self.add_notice(f"Could not connect the action to the goal: {error}")
+            self.add_notice(
+                f"Could not connect the action to the goal: {error}"
+            )
 
     # ------------------------------------------------------------------
     # Guided construction
     # ------------------------------------------------------------------
     def capture_goals(self) -> None:
         first = True
+
         while first or self.ask_yes_no(
             "Is there another important goal?",
-            "Some operations have more than one important outcome. Add another only if it is genuinely distinct.",
+            "Some operations have more than one important outcome. "
+            "Add another only if it is genuinely distinct.",
         ):
             goal = self.ask_validated(
-                question="What is the main goal?" if first else "What is the other goal?",
-                explanation="Describe the outcome people need, not the system or solution to be built.",
+                question=(
+                    "What is the main goal?"
+                    if first
+                    else "What is the other goal?"
+                ),
+                explanation=(
+                    "Describe the outcome people need, "
+                    "not the system or solution to be built."
+                ),
                 example="Keep restricted airspace safe",
                 expected_concept="OperationalCapability",
-                why="The goal gives the rest of the model a clear purpose and helps prevent premature solution design.",
+                why=(
+                    "The goal gives the rest of the model a clear purpose "
+                    "and helps prevent premature solution design."
+                ),
             )
             self.add_node("OperationalCapability", goal)
             first = False
 
     def capture_participants_and_actions(self) -> None:
         first_participant = True
+
         while first_participant or self.ask_yes_no(
             "Is anyone or anything else involved?",
-            "This helps discover the other parties needed to understand the operation end to end.",
+            "This helps discover the other parties needed to understand "
+            "the operation end to end.",
         ):
             node_type, participant_name = self.ask_participant()
-            participant_id = self.add_node(node_type, participant_name)
+            participant_id = self.add_node(
+                node_type,
+                participant_name,
+            )
 
             first_action = True
             while first_action or self.ask_yes_no(
                 f"Does {participant_name} do anything else?",
-                "A participant may perform more than one important operational action.",
+                "A participant may perform more than one important "
+                "operational action.",
             ):
                 action = self.ask_validated(
                     question=f"What does {participant_name} do?",
@@ -347,13 +409,30 @@ class OAApp:
                     ),
                     example="Assess incoming threat information",
                     expected_concept="OperationalActivity",
-                    why="Actions show how each participant contributes to the operational goal.",
-                    context=f"Participant: {participant_name}. {self.model.short_context()}",
+                    why=(
+                        "Actions show how each participant contributes "
+                        "to the operational goal."
+                    ),
+                    context=(
+                        f"Participant: {participant_name}. "
+                        f"{self.model.short_context()}"
+                    ),
                 )
-                action_id = self.add_node("OperationalActivity", action)
-                ok, error = self.model.add_relation(participant_id, "PERFORMS", action_id)
+
+                action_id = self.add_node(
+                    "OperationalActivity",
+                    action,
+                )
+                ok, error = self.model.add_relation(
+                    participant_id,
+                    "PERFORMS",
+                    action_id,
+                )
                 if not ok:
-                    self.add_notice(f"Could not connect the action: {error}")
+                    self.add_notice(
+                        f"Could not connect the action: {error}"
+                    )
+
                 self.link_action_to_goal(action_id)
                 first_action = False
 
@@ -366,9 +445,12 @@ class OAApp:
 
         for source_id in list(actions):
             source_label = self.model.action_label(source_id)
+
             if not self.ask_yes_no(
-                f"Does '{source_label}' send, provide, request, or transfer anything to another action?",
-                "Interactions reveal information, material, requests, or other items that flow through the operation.",
+                f"Does '{source_label}' send, provide, request, "
+                "or transfer anything to another action?",
+                "Interactions reveal information, material, requests, "
+                "or other items that flow through the operation.",
             ):
                 continue
 
@@ -376,19 +458,34 @@ class OAApp:
             while add_more:
                 item = self.ask_validated(
                     question="What is exchanged?",
-                    explanation="Name the information, material, request, or item in a few words.",
+                    explanation=(
+                        "Name the information, material, request, "
+                        "or item in a few words."
+                    ),
                     example="Threat assessment",
                     expected_concept="OperationalExchange",
-                    why="Naming what is exchanged makes the operational interaction explicit.",
-                    context=f"Source action: {source_label}. {self.model.short_context()}",
+                    why=(
+                        "Naming what is exchanged makes the operational "
+                        "interaction explicit."
+                    ),
+                    context=(
+                        f"Source action: {source_label}. "
+                        f"{self.model.short_context()}"
+                    ),
                 )
-                targets = [node_id for node_id in actions if node_id != source_id]
+
+                targets = [
+                    node_id
+                    for node_id in actions
+                    if node_id != source_id
+                ]
                 target_id = self.ask_number(
                     "Which action receives it?",
                     targets,
                     self.model.action_label,
                     "The receiver identifies where this interaction goes next.",
                 )
+
                 ok, error = self.model.add_relation(
                     source_id,
                     "OPERATIONAL_EXCHANGE",
@@ -398,40 +495,64 @@ class OAApp:
                 if ok:
                     self.add_notice(f"Added interaction: {item}")
                 else:
-                    self.add_notice(f"Could not add the interaction: {error}")
+                    self.add_notice(
+                        f"Could not add the interaction: {error}"
+                    )
 
                 add_more = self.ask_yes_no(
                     f"Is anything else exchanged from '{source_label}'?",
-                    "Add another item only when it is a distinct operational interaction.",
+                    "Add another item only when it is a distinct "
+                    "operational interaction.",
                 )
 
     def capture_communication(self) -> None:
         for source_action, target_action, exchange_name in self.model.exchanges():
-            source_participant = self.model.participant_for_activity(source_action)
-            target_participant = self.model.participant_for_activity(target_action)
+            source_participant = self.model.participant_for_activity(
+                source_action
+            )
+            target_participant = self.model.participant_for_activity(
+                target_action
+            )
+
             if not source_participant or not target_participant:
                 continue
             if source_participant == target_participant:
                 continue
-            if self.model.has_communication_between(source_participant, target_participant):
+            if self.model.has_communication_between(
+                source_participant,
+                target_participant,
+            ):
                 continue
 
             source_name = self.model.name(source_participant)
             target_name = self.model.name(target_participant)
+
             if not self.ask_yes_no(
-                f"Do {source_name} and {target_name} use a communication method for '{exchange_name}'?",
-                "If the interaction crosses between different participants, the communication method may be important operationally.",
+                f"Do {source_name} and {target_name} use a communication "
+                f"method for '{exchange_name}'?",
+                "If the interaction crosses between different participants, "
+                "the communication method may be important operationally.",
             ):
                 continue
 
             medium = self.ask_validated(
                 question="How do they communicate?",
-                explanation="Name the real-world communication method, not software or implementation details.",
+                explanation=(
+                    "Name the real-world communication method, "
+                    "not software or implementation details."
+                ),
                 example="Voice communication",
                 expected_concept="CommunicationMean",
-                why="This records how two operational participants are able to interact.",
-                context=f"Participants: {source_name} and {target_name}. Interaction: {exchange_name}.",
+                why=(
+                    "This records how two operational participants "
+                    "are able to interact."
+                ),
+                context=(
+                    f"Participants: {source_name} and {target_name}. "
+                    f"Interaction: {exchange_name}."
+                ),
             )
+
             ok, error = self.model.add_relation(
                 source_participant,
                 "COMMUNICATION_MEAN",
@@ -439,9 +560,13 @@ class OAApp:
                 name=medium,
             )
             if ok:
-                self.add_notice(f"Added communication method: {medium}")
+                self.add_notice(
+                    f"Added communication method: {medium}"
+                )
             else:
-                self.add_notice(f"Could not add the communication method: {error}")
+                self.add_notice(
+                    f"Could not add the communication method: {error}"
+                )
 
     def run(self) -> None:
         self.capture_goals()
@@ -449,11 +574,12 @@ class OAApp:
         self.capture_interactions()
         self.capture_communication()
 
-        self.clear_screen()
+        print()
         print("=" * 72)
         print("MODEL COMPLETE")
         print("=" * 72)
         print(self.model.friendly_show())
+
         notes = self.model.completeness_messages()
         if notes:
             print("\nA few things may still need attention:")
