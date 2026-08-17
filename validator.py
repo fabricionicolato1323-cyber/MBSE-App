@@ -65,17 +65,49 @@ TECHNICAL_SOLUTION_WORDS = {
 # a deterministic signal that a short phrase is action-like. Third-person forms
 # are accepted too, because users often answer "provides ..." or "detects ...".
 ACTION_VERBS = {
-    "assess", "assesses", "authorize", "authorizes", "check", "checks",
-    "communicate", "communicates", "control", "controls", "coordinate", "coordinates",
+    # Core observation / information actions
+    "assess", "assesses", "check", "checks", "classify", "classifies",
     "detect", "detects", "determine", "determines", "evaluate", "evaluates",
-    "identify", "identifies", "inform", "informs", "inspect", "inspects",
-    "maintain", "maintains", "manage", "manages", "monitor", "monitors",
-    "notify", "notifies", "observe", "observes", "provide", "provides",
-    "receive", "receives", "report", "reports", "request", "requests",
-    "respond", "responds", "send", "sends", "share", "shares", "track", "tracks",
-    "transfer", "transfers", "update", "updates", "verify", "verifies", "warn", "warns",
-    "protect", "protects", "supervise", "supervises", "support", "supports",
-    "plan", "plans", "prioritize", "prioritizes", "classify", "classifies",
+    "gather", "gathers", "identify", "identifies", "inform", "informs",
+    "inspect", "inspects", "locate", "locates", "monitor", "monitors",
+    "notify", "notifies", "observe", "observes", "record", "records",
+    "report", "reports", "track", "tracks", "verify", "verifies",
+
+    # Coordination / command / decision actions
+    "advise", "advises", "alert", "alerts", "allow", "allows",
+    "approve", "approves", "assign", "assigns", "authorize", "authorizes",
+    "command", "commands", "communicate", "communicates", "confirm", "confirms",
+    "control", "controls", "coordinate", "coordinates", "decide", "decides",
+    "deny", "denies", "direct", "directs", "dispatch", "dispatches",
+    "guide", "guides", "instruct", "instructs", "issue", "issues",
+    "lead", "leads", "manage", "manages", "permit", "permits",
+    "plan", "plans", "prioritize", "prioritizes", "request", "requests",
+    "route", "routes", "select", "selects", "supervise", "supervises",
+    "synchronize", "synchronizes", "task", "tasks",
+
+    # Operational execution actions
+    "act", "acts", "activate", "activates", "adapt", "adapts",
+    "adjust", "adjusts", "avoid", "avoids", "cancel", "cancels",
+    "capture", "captures", "clear", "clears", "contain", "contains",
+    "continue", "continues", "deploy", "deploys", "engage", "engages",
+    "ensure", "ensures", "escort", "escorts", "establish", "establishes",
+    "execute", "executes", "facilitate", "facilitates", "follow", "follows",
+    "handle", "handles", "initiate", "initiates", "intercept", "intercepts",
+    "investigate", "investigates", "keep", "keeps", "maintain", "maintains",
+    "operate", "operates", "organize", "organizes", "patrol", "patrols",
+    "prevent", "prevents", "process", "processes", "protect", "protects",
+    "recover", "recovers", "redirect", "redirects", "release", "releases",
+    "remove", "removes", "resolve", "resolves", "respond", "responds",
+    "secure", "secures", "separate", "separates", "stop", "stops",
+    "support", "supports", "suppress", "suppresses", "terminate", "terminates",
+    "transport", "transports", "validate", "validates", "warn", "warns",
+
+    # Exchange actions
+    "provide", "provides", "receive", "receives", "send", "sends",
+    "share", "shares", "transfer", "transfers", "update", "updates",
+
+    # Common generic verb starts that still describe an action when followed by an object
+    "make", "makes", "take", "takes", "perform", "performs",
 }
 
 # Very common non-English markers used only as a high-confidence short-input guard.
@@ -119,7 +151,14 @@ def participant_type_hint(value: str) -> str | None:
 
 def starts_with_action_verb(value: str) -> bool:
     tokens = _tokens(value)
-    return bool(tokens and tokens[0] in ACTION_VERBS)
+    if not tokens:
+        return False
+
+    # Users often answer with an infinitive form such as "to monitor traffic".
+    if tokens[0] == "to" and len(tokens) > 1:
+        return tokens[1] in ACTION_VERBS
+
+    return tokens[0] in ACTION_VERBS
 
 
 def obvious_non_english_short_text(value: str) -> bool:
