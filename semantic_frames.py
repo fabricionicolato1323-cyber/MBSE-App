@@ -161,7 +161,10 @@ def normalize_semantic_frames(
     raw_clauses = raw_result.get("clauses", [])
     if not isinstance(raw_clauses, list):
         result["valid"] = False
-        result["reason"] = result["reason"] or "I could not identify a usable action structure."
+        result["reason"] = (
+            result["reason"]
+            or "I could not identify a usable action structure."
+        )
         return result
 
     inherited_subjects = [default_subject] if default_subject else []
@@ -189,14 +192,19 @@ def normalize_semantic_frames(
             "locations": _clean_list(raw_clause.get("locations")),
             "conditions": _clean_list(raw_clause.get("conditions")),
             "time": _clean_list(raw_clause.get("time")),
-            "other_complements": _clean_list(raw_clause.get("other_complements")),
+            "other_complements": _clean_list(
+                raw_clause.get("other_complements")
+            ),
             "activity_text": activity_text,
         }
         result["clauses"].append(clause)
 
     if result["valid"] and not result["clauses"]:
         result["valid"] = False
-        result["reason"] = result["reason"] or "I could not identify a usable action structure."
+        result["reason"] = (
+            result["reason"]
+            or "I could not identify a usable action structure."
+        )
 
     return result
 
@@ -229,8 +237,12 @@ and time expressions separately.
             {"role": "user", "content": prompt},
         ],
         SEMANTIC_FRAME_SCHEMA,
+        max_tokens=760,
     )
-    return normalize_semantic_frames(raw, default_subject=default_subject)
+    return normalize_semantic_frames(
+        raw,
+        default_subject=default_subject,
+    )
 
 
 def frame_is_complex(frame_result: dict) -> bool:
@@ -242,10 +254,23 @@ def frame_is_complex(frame_result: dict) -> bool:
     clause = clauses[0]
     return any(
         len(clause.get(field, [])) > 1
-        for field in ("subjects", "objects", "recipients", "locations", "conditions", "time")
+        for field in (
+            "subjects",
+            "objects",
+            "recipients",
+            "locations",
+            "conditions",
+            "time",
+        )
     ) or any(
         clause.get(field)
-        for field in ("recipients", "locations", "conditions", "time", "other_complements")
+        for field in (
+            "recipients",
+            "locations",
+            "conditions",
+            "time",
+            "other_complements",
+        )
     )
 
 
@@ -253,20 +278,36 @@ def format_frame_summary(frame_result: dict) -> str:
     clauses = frame_result.get("clauses", [])
     lines = ["I understood the following action structure:"]
     for index, clause in enumerate(clauses, start=1):
-        lines.append(f"  {index}. Action: {clause.get('activity_text', '')}")
+        lines.append(
+            f"  {index}. Action: {clause.get('activity_text', '')}"
+        )
         lines.append(
             "     Subject(s): "
-            + (", ".join(clause.get("subjects", [])) or "(not identified)")
+            + (
+                ", ".join(clause.get("subjects", []))
+                or "(not identified)"
+            )
         )
         lines.append(f"     Verb: {clause.get('verb', '')}")
         if clause.get("objects"):
-            lines.append("     Object(s): " + ", ".join(clause["objects"]))
+            lines.append(
+                "     Object(s): " + ", ".join(clause["objects"])
+            )
         if clause.get("recipients"):
-            lines.append("     Recipient(s): " + ", ".join(clause["recipients"]))
+            lines.append(
+                "     Recipient(s): "
+                + ", ".join(clause["recipients"])
+            )
         if clause.get("locations"):
-            lines.append("     Location(s): " + ", ".join(clause["locations"]))
+            lines.append(
+                "     Location(s): "
+                + ", ".join(clause["locations"])
+            )
         if clause.get("conditions"):
-            lines.append("     Condition(s): " + ", ".join(clause["conditions"]))
+            lines.append(
+                "     Condition(s): "
+                + ", ".join(clause["conditions"])
+            )
         if clause.get("time"):
             lines.append("     Time: " + ", ".join(clause["time"]))
         if clause.get("other_complements"):
