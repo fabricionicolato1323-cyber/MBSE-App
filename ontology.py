@@ -12,14 +12,13 @@ Structural convention:
   decomposition is not confused with physical/operational location.
 
 Guided-elicitation convention:
-- CandidateMention is a TRANSIENT helper concept used only by the assistant.
-- A CandidateMention is an exact noun phrase found in user wording (for example,
-  a goal). It is never written to the NetworkX model by itself.
+- CandidateMention is a transient helper concept used only by the assistant.
+- A CandidateMention is an exact noun phrase found in user wording.
+- It is never written to the NetworkX model by itself.
 - The user must explicitly confirm the candidate before it can become an
   OperationalActor or OperationalEntity.
-- Example: "Keep infrastructure and soldiers safe" may yield the transient
-  candidates "infrastructure" -> OperationalEntity and "soldiers" ->
-  OperationalActor. The words are only candidates until the user confirms them.
+- Candidate discovery is domain-independent and must never depend on scenario-
+  specific names, roles, assets, industries, or actions.
 """
 
 NODE_TYPES = {
@@ -31,8 +30,7 @@ NODE_TYPES = {
 
 PARTICIPANT_TYPES = {"OperationalActor", "OperationalEntity"}
 
-# These helper concepts belong to the guided elicitation layer, not to the
-# persistent Arcadia OA graph.
+# Helper concepts belong to the elicitation layer, not the persistent OA graph.
 TRANSIENT_HELPER_CONCEPTS = {"CandidateMention"}
 CANDIDATE_TARGET_TYPES = {"OperationalActor", "OperationalEntity"}
 
@@ -65,26 +63,26 @@ CONCEPT_GUIDANCE = {
         ),
         "friendly_name": "goal",
         "expected_format": "One short English outcome phrase.",
-        "example": "Keep restricted airspace safe",
+        "example": "Maintain safe and effective operations",
         "language_required": True,
     },
     "OperationalActor": {
         "definition": "A human operational participant or human role.",
         "friendly_name": "human participant",
-        "expected_format": "One human role or person name.",
-        "example": "Air Traffic Controller",
+        "expected_format": "One human role, person, or human group name.",
+        "example": "Operations Coordinator",
         "language_required": False,
     },
     "OperationalEntity": {
         "definition": (
             "A non-human real-world participant or contextual element involved in the "
-            "operation, such as an organization, group, facility, building, area, "
-            "environment, location, infrastructure, resource, or external party. An "
-            "Operational Entity may contain other Operational Entities or Operational Actors."
+            "operation, such as an organization, group, facility, resource, place, area, "
+            "environment, location, or external party. An Operational Entity may contain "
+            "other Operational Entities or Operational Actors."
         ),
         "friendly_name": "non-human participant or context",
-        "expected_format": "One real-world participant, place, area, resource, or context name.",
-        "example": "Airport Operations Center",
+        "expected_format": "One real-world participant, place, resource, or context name.",
+        "example": "Operations Facility",
         "language_required": False,
     },
     "OperationalActivity": {
@@ -94,7 +92,7 @@ CONCEPT_GUIDANCE = {
         ),
         "friendly_name": "action",
         "expected_format": "One short English action phrase, preferably starting with a verb.",
-        "example": "Assess incoming threat information",
+        "example": "Coordinate operational response",
         "language_required": True,
     },
     "OperationalExchange": {
@@ -104,7 +102,7 @@ CONCEPT_GUIDANCE = {
         ),
         "friendly_name": "interaction",
         "expected_format": "One short English noun phrase naming what is exchanged.",
-        "example": "Threat assessment",
+        "example": "Status information",
         "language_required": True,
     },
     "CommunicationMean": {
@@ -114,11 +112,13 @@ CONCEPT_GUIDANCE = {
         ),
         "friendly_name": "communication method",
         "expected_format": "One short English phrase naming the communication method.",
-        "example": "Voice communication",
+        "example": "Direct communication",
         "language_required": True,
     },
 }
 
+# High-confidence implementation terms used only as a deterministic safety net.
+# They are technology categories, not scenario-specific examples.
 SOLUTION_BIAS_TERMS = {
     "microservice",
     "database schema",
