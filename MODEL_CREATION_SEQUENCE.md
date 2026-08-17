@@ -8,7 +8,7 @@ Example:
 
 ```text
 What is the main goal?
-> Keep infrastructure and soldiers safe
+> Maintain safe and effective operations
 ```
 
 Internally this becomes an `OperationalCapability`.
@@ -16,57 +16,88 @@ Internally this becomes an `OperationalCapability`.
 ## 2. Discover candidates from the user's wording
 
 The local LLM extracts only noun phrases that occur explicitly in the goal.
-The extraction is advisory and is protected by a deterministic exact-span filter.
-
-Example internal candidates:
-
-```text
-infrastructure -> candidate OperationalEntity
-soldiers       -> candidate OperationalActor
-```
+The extraction is advisory and protected by an exact-span / duplicate / type
+barrier.
 
 A `CandidateMention` is transient. It is not written to NetworkX.
 
 ## 3. Ask the user to confirm each candidate
-
-```text
-You mentioned "infrastructure".
-Should it be included in the operational picture? (yes/no)
-```
-
-and:
-
-```text
-You mentioned "soldiers".
-Should it be included in the operational picture? (yes/no)
-```
 
 Only a confirmed candidate becomes a persistent `OperationalActor` or
 `OperationalEntity`.
 
 ## 4. Determine whether an entity acts or only provides context
 
-For a non-human entity/context element:
+A non-human participant/context element may actively perform behavior or may only
+provide operational context. Human actors are treated as active participants.
+
+## 5. Capture and parse operational behavior
+
+For each active participant the application asks:
 
 ```text
-Does infrastructure actively do something in this operation? (yes/no)
+What does <participant> do?
 ```
 
-If `no`, it remains contextual and no activity is required.
+The answer may contain one or several subjects, verbs, objects, recipients,
+locations, conditions, time expressions, and other complements.
 
-Human actors are treated as active participants.
-
-## 5. Capture actions
-
-For each active participant:
+Before writing to the graph, the answer is parsed into transient semantic frames:
 
 ```text
-What do soldiers do?
+SemanticFrame
+  |
+  +-- SemanticClause
+  |     subjects[]
+  |     verb
+  |     objects[]
+  |     recipients[]
+  |     locations[]
+  |     conditions[]
+  |     time[]
+  |     other_complements[]
+  |     activity_text
+  |
+  +-- SemanticClause ...
 ```
 
-The answer becomes an `OperationalActivity` after validation.
+General decomposition rules:
 
-## 6. Ask for anything not mentioned in the goals
+```text
+one verb + several objects
+    -> one OperationalActivity
+
+several independent verbs
+    -> several OperationalActivities
+
+several subjects + same action
+    -> one OperationalActivity with several PERFORMS relations
+
+subject stated once + following coordinated actions
+    -> subject is inherited by the following clauses
+```
+
+If the sentence is structurally complex, the application shows the interpreted
+subjects/actions/objects/complements and asks the user to confirm the
+interpretation. Nothing is written before confirmation.
+
+The persistent OperationalActivity may store semantic attributes such as:
+
+```text
+semantic_verb
+semantic_objects[]
+semantic_recipients[]
+semantic_locations[]
+semantic_conditions[]
+semantic_time[]
+semantic_other_complements[]
+source_text
+```
+
+`SemanticFrame` and `SemanticClause` themselves are not persisted as Arcadia
+nodes.
+
+## 6. Ask for anything not mentioned earlier
 
 ```text
 Is anyone or anything else involved? (yes/no)
@@ -95,11 +126,36 @@ Actions may exchange information, material, requests, or other operational items
 ## 9. Capture communication means
 
 When an interaction crosses participant boundaries, the assistant can ask how
-the participants communicate.
+the relevant participants communicate. Shared activities with multiple performers
+are supported.
 
 ## Write barrier
 
-The flow is:
+The activity flow is:
+
+```text
+User wording
+    |
+    v
+Semantic frame parsing
+    |
+    v
+Subjects / verbs / objects / complements
+    |
+    v
+User confirmation for complex interpretations
+    |
+    v
+OA semantic validation
+    |
+    v
+Deterministic graph rules
+    |
+    v
+NetworkX
+```
+
+The candidate flow is:
 
 ```text
 User wording
