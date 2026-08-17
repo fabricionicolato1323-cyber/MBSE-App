@@ -1,0 +1,2 @@
+Place your instruct/chat GGUF model in this folder.
+Rename it to model.gguf or update model_path in ../config.json.
