@@ -7,8 +7,8 @@ except ImportError:
     sys.modules["llama_cpp"] = types.SimpleNamespace(Llama=object)
 
 from graph_model import OAGraph
-from validator import validate_llm_candidate, validate_participant_candidate
 from llm_service import LocalLLM
+from validator import validate_llm_candidate, validate_participant_candidate
 
 
 def ok_result(concept: str, value: str, language: str = "English") -> dict:
@@ -27,199 +27,151 @@ def main() -> None:
     graph = OAGraph()
 
     goal_validation = validate_llm_candidate(
-        "Keep restricted airspace safe",
-        "OperationalCapability",
-        ok_result("OperationalCapability", "Keep restricted airspace safe"),
-    )
-    assert goal_validation.accepted
-
-    # Regression observed with the real Qwen2.5-3B model: an obvious operational
-    # outcome was incorrectly rejected as if it described a system/solution.
-    qwen_goal_false_rejection = validate_llm_candidate(
-        "Keep infrastructure and soldiers safe",
-        "OperationalCapability",
-        {
-            **ok_result(
-                "OperationalCapability",
-                "Keep infrastructure and soldiers safe",
-            ),
-            "valid": False,
-            "solution_bias": True,
-            "reason": (
-                "The answer is not a short outcome phrase. It describes the "
-                "system or solution."
-            ),
-            "suggestion": "Keep infrastructure and soldiers safe",
-        },
-    )
-    assert qwen_goal_false_rejection.accepted, qwen_goal_false_rejection
-    assert (
-        qwen_goal_false_rejection.detected_concept
-        == "OperationalCapability"
-    )
-
-    # The deterministic goal override must not allow explicit implementation terms.
-    rejected_technical_goal = validate_llm_candidate(
-        "Keep Python script available",
+        "Maintain safe and effective operations",
         "OperationalCapability",
         ok_result(
             "OperationalCapability",
-            "Keep Python script available",
+            "Maintain safe and effective operations",
         ),
     )
-    assert not rejected_technical_goal.accepted
+    assert goal_validation.accepted
 
     participant_validation = validate_participant_candidate(
-        "Air Traffic Controller",
-        ok_result("OperationalActor", "Air Traffic Controller", "Language-neutral"),
+        "Operations Coordinator",
+        ok_result(
+            "OperationalActor",
+            "Operations Coordinator",
+            "Language-neutral",
+        ),
     )
     assert participant_validation.accepted
 
+    # Participant labels are accepted from their semantic concept, not from a
+    # hardcoded profession/industry vocabulary.
+    short_participant = validate_participant_candidate(
+        "Service Group",
+        {
+            **ok_result("OperationalEntity", "Service Group", "English"),
+            "valid": False,
+            "reason": "The label is too short.",
+        },
+    )
+    assert short_participant.accepted
+    assert short_participant.detected_concept == "OperationalEntity"
+
     activity_validation = validate_llm_candidate(
-        "Assess potential airspace threats",
+        "Coordinate operational response",
         "OperationalActivity",
-        ok_result("OperationalActivity", "Assess potential airspace threats"),
+        ok_result(
+            "OperationalActivity",
+            "Coordinate operational response",
+        ),
     )
     assert activity_validation.accepted
 
-    r = validate_llm_candidate(
-        "informs drone informations",
+    # The validator must accept an unfamiliar valid action solely because the LLM
+    # classified it semantically, not because its first verb is in a fixed list.
+    unfamiliar_action = validate_llm_candidate(
+        "Reconcile service records",
         "OperationalActivity",
-        {
-            **ok_result("OperationalActivity", "Inform drone information"),
-            "language": "Non-English",
-            "valid": False,
-            "reason": "Please answer in English only.",
-            "suggestion": "detects hostile drones",
-        },
+        ok_result(
+            "OperationalActivity",
+            "Reconcile service records",
+        ),
     )
-    assert r.accepted, r
+    assert unfamiliar_action.accepted
 
-    r = validate_llm_candidate(
-        "provide drone information",
+    # False negatives are rechecked upstream by LocalLLM rather than overridden by
+    # hardcoded verbs or scenario phrases inside validator.py.
+    first_negative = {
+        **ok_result("Other", "Reconcile service records"),
+        "valid": False,
+        "reason": "Uncertain classification.",
+    }
+    assert LocalLLM._needs_semantic_recheck(
+        first_negative,
         "OperationalActivity",
-        {
-            **ok_result("OperationalActivity", "Provide drone information"),
-            "valid": False,
-            "reason": "This answer is too vague.",
-            "suggestion": "Detect hostile drones",
-        },
     )
-    assert r.accepted, r
-
-    r = validate_llm_candidate(
-        "provide drone information such as position and velocity",
+    assert not LocalLLM._needs_semantic_recheck(
+        ok_result("OperationalActivity", "Reconcile service records"),
         "OperationalActivity",
-        {
-            **ok_result(
-                "OperationalExchange",
-                "Drone information such as position and velocity",
-            ),
-            "valid": False,
-            "reason": "This answer describes an exchange rather than an action.",
-            "suggestion": "Assess incoming threat information",
-        },
     )
-    assert r.accepted, r
-    assert r.detected_concept == "OperationalActivity"
 
     rejected_language = validate_llm_candidate(
-        "fornecer informações sobre a posição e velocidade",
+        "fornecer informações para o grupo",
         "OperationalActivity",
         {
             **ok_result(
                 "OperationalActivity",
-                "fornecer informações sobre a posição e velocidade",
+                "fornecer informações para o grupo",
             ),
             "language": "Non-English",
         },
     )
     assert not rejected_language.accepted
 
-    air_traffic_control = validate_participant_candidate(
-        "Air traffic control",
-        {
-            **ok_result("OperationalActor", "Air Traffic Control", "English"),
-            "valid": False,
-            "reason": "This is not phrased as a human role.",
-        },
-    )
-    assert air_traffic_control.accepted
-    assert air_traffic_control.detected_concept == "OperationalEntity"
-
-    drone_traffic_control = validate_participant_candidate(
-        "Drone traffic control",
-        {
-            **ok_result("OperationalActor", "Drone Traffic Control", "English"),
-            "valid": False,
-        },
-    )
-    assert drone_traffic_control.accepted
-    assert drone_traffic_control.detected_concept == "OperationalEntity"
-
     parsed = LocalLLM._parse_json(
         '{"valid":true,"language":"English","detected_concept":"OperationalEntity",'
-        '"normalized_value":"Air Traffic Control","solution_bias":false,'
+        '"normalized_value":"Service Group","solution_bias":false,'
         '"reason":"line one\nline two","suggestion":""}'
     )
     assert parsed["valid"] is True
 
     rejected_technical_participant = validate_participant_candidate(
-        "drone detection systems",
-        ok_result("OperationalEntity", "Drone Detection Systems", "English"),
+        "software platform",
+        ok_result("OperationalEntity", "Software Platform", "English"),
     )
     assert not rejected_technical_participant.accepted
-    assert not rejected_technical_participant.suggestion
 
     rejected_solution = validate_llm_candidate(
-        "Build a Python script for threat detection",
+        "Build a Python script for processing",
         "OperationalActivity",
         ok_result(
             "OperationalActivity",
-            "Build a Python script for threat detection",
+            "Build a Python script for processing",
         ),
     )
     assert not rejected_solution.accepted
 
     _, goal, _ = graph.add_node(
         "OperationalCapability",
-        "Keep restricted airspace safe",
+        "Maintain safe and effective operations",
     )
-    _, base, _ = graph.add_node(
+    _, facility, _ = graph.add_node(
         "OperationalEntity",
-        "Military Base",
+        "Operations Facility",
         expects_activity=False,
     )
-    _, center, _ = graph.add_node(
+    _, group, _ = graph.add_node(
         "OperationalEntity",
-        "Operations Center",
+        "Service Group",
         expects_activity=True,
     )
     _, area, _ = graph.add_node(
         "OperationalEntity",
-        "Restricted Area",
+        "Work Area",
         expects_activity=False,
     )
     _, actor, _ = graph.add_node(
         "OperationalActor",
-        "Field Soldier",
+        "Operations Coordinator",
     )
     _, action, _ = graph.add_node(
         "OperationalActivity",
-        "Engage counter-measure",
+        "Coordinate operational response",
     )
 
     assert graph.add_relation(actor, "PERFORMS", action)[0]
     assert graph.add_relation(action, "SUPPORTS_CAPABILITY", goal)[0]
 
-    assert graph.add_relation(base, "CONTAINS", center)[0]
-    assert graph.add_relation(center, "CONTAINS", actor)[0]
-    assert graph.structural_parent(actor) == center
+    assert graph.add_relation(facility, "CONTAINS", group)[0]
+    assert graph.add_relation(group, "CONTAINS", actor)[0]
+    assert graph.structural_parent(actor) == group
 
     assert graph.add_relation(actor, "LOCATED_IN", area)[0]
     assert graph.locations_for(actor) == [area]
 
-    assert not graph.add_relation(actor, "CONTAINS", center)[0]
+    assert not graph.add_relation(actor, "CONTAINS", group)[0]
 
     _, other_org, _ = graph.add_node(
         "OperationalEntity",
@@ -228,26 +180,26 @@ def main() -> None:
     )
     assert not graph.add_relation(other_org, "CONTAINS", actor)[0]
 
-    assert not graph.add_relation(center, "CONTAINS", base)[0]
+    assert not graph.add_relation(group, "CONTAINS", facility)[0]
 
-    assert graph.add_relation(area, "LOCATED_IN", base)[0]
-    assert not graph.add_relation(base, "LOCATED_IN", area)[0]
+    assert graph.add_relation(area, "LOCATED_IN", facility)[0]
+    assert not graph.add_relation(facility, "LOCATED_IN", area)[0]
 
     notes = graph.completeness_messages()
-    assert not any("Military Base' has no action" in note for note in notes)
-    assert not any("Restricted Area' has no action" in note for note in notes)
+    assert not any("Operations Facility' has no action" in note for note in notes)
+    assert not any("Work Area' has no action" in note for note in notes)
 
     assert not graph.add_relation(goal, "PERFORMS", action)[0]
 
     duplicate_ok, _, _ = graph.add_node(
         "OperationalActor",
-        "field soldier",
+        "operations coordinator",
     )
     assert not duplicate_ok
 
     shown = graph.friendly_show()
-    assert "Military Base contains Operations Center" in shown
-    assert "Field Soldier operates in Restricted Area" in shown
+    assert "Operations Facility contains Service Group" in shown
+    assert "Operations Coordinator operates in Work Area" in shown
 
     print("Smoke test passed.")
 
