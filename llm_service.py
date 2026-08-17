@@ -70,7 +70,15 @@ Rules:
 4. The system-of-interest must not be introduced as the future solution in Operational Analysis.
 5. Actions should describe WHAT a participant does, preferably using a short verb phrase.
    Accept broad but meaningful action phrases. Do NOT reject an action merely because it is short or broad.
-   A phrase like 'Provide drone information' or 'Provide drone information such as position and velocity' is an action, not an exchange, because it begins with an action verb.
+   Decisions, approvals, authorizations, commands, and engagements ARE operational actions when a participant performs them.
+   Examples that MUST be treated as OperationalActivity when asked what a participant does:
+   - 'Provide drone information'
+   - 'Provide drone information such as position and velocity'
+   - 'Decide to engage a countermeasure'
+   - 'Engage a countermeasure'
+   - 'Coordinate air traffic'
+   - 'Maintain safe separation'
+   Do not relabel such verb phrases as a goal, role description, or exchange just because their object describes an outcome or information.
 6. Goals should describe outcomes, not product features or solution components.
 7. Keep reasons short and user-friendly. Do not mention Arcadia terminology in the reason.
 8. If invalid, give one simple English suggestion only when it preserves the user's intended meaning. Never invent a different fact.
