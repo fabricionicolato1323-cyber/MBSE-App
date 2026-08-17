@@ -137,7 +137,13 @@ class LocalLLM:
 
         return json.loads(cleaned, strict=False)
 
-    def _json_chat(self, messages: list[dict], schema: dict) -> dict:
+    def _json_chat(
+        self,
+        messages: list[dict],
+        schema: dict,
+        *,
+        max_tokens: int = 320,
+    ) -> dict:
         last_error: Exception | None = None
 
         for attempt in range(2):
@@ -156,12 +162,14 @@ class LocalLLM:
             response = self.llm.create_chat_completion(
                 messages=current_messages,
                 temperature=0,
-                max_tokens=320,
+                max_tokens=max_tokens,
                 response_format={"type": "json_object", "schema": schema},
             )
             content = response["choices"][0]["message"]["content"]
             if not content:
-                last_error = RuntimeError("The local LLM returned an empty response.")
+                last_error = RuntimeError(
+                    "The local LLM returned an empty response."
+                )
                 continue
 
             try:
@@ -259,8 +267,6 @@ and free of Arcadia jargon.
                 context,
                 result,
             )
-            # A positive independent recheck can recover a compact-model false
-            # negative. Deterministic write-barrier checks still run afterwards.
             if (
                 second.get("valid", False)
                 and second.get("detected_concept") == expected_concept
@@ -270,7 +276,11 @@ and free of Arcadia jargon.
 
         return result
 
-    def validate_participant(self, candidate: str, context: str = "") -> dict:
+    def validate_participant(
+        self,
+        candidate: str,
+        context: str = "",
+    ) -> dict:
         prompt = f"""
 The user was asked to name one real-world element involved in an operation.
 
