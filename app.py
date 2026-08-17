@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Callable
@@ -12,6 +13,8 @@ from validator import validate_llm_candidate, validate_participant_candidate
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "config.json"
 DEFAULT_SAVE_PATH = BASE_DIR / "oa_model.json"
+
+COMMAND_BAR = "/help  /show  /check  /why  /save  /undo  /done  /quit"
 
 HELP_TEXT = """
 Commands:
@@ -43,7 +46,60 @@ class OAApp:
         )
         self.model = OAGraph()
         self.current_why = "This helps build the operational picture one small step at a time."
-        print("Ready.\n")
+        self.notice = ""
+
+    # ------------------------------------------------------------------
+    # Terminal UI
+    # ------------------------------------------------------------------
+    @staticmethod
+    def clear_screen() -> None:
+        os.system("cls" if os.name == "nt" else "clear")
+
+    @staticmethod
+    def pause() -> None:
+        input("\nPress Enter to return to the current question...")
+
+    def add_notice(self, message: str) -> None:
+        if not message:
+            return
+        self.notice = f"{self.notice}\n{message}".strip() if self.notice else message
+
+    def draw_question(
+        self,
+        question: str,
+        explanation: str = "",
+        example: str = "",
+        extra_lines: list[str] | None = None,
+    ) -> None:
+        self.clear_screen()
+        print("=" * 72)
+        print("GUIDED OPERATIONAL MODEL BUILDER")
+        print("=" * 72)
+        print(f"Commands: {COMMAND_BAR}")
+        print("-" * 72)
+
+        if self.notice:
+            print(self.notice)
+            print("-" * 72)
+            self.notice = ""
+
+        print(question)
+        if explanation:
+            print(f"  {explanation}")
+        if example:
+            print(f"  Example: {example}")
+        if extra_lines:
+            for line in extra_lines:
+                print(line)
+        print()
+
+    def show_command_page(self, title: str, body: str) -> None:
+        self.clear_screen()
+        print("=" * 72)
+        print(title)
+        print("=" * 72)
+        print(body)
+        self.pause()
 
     # ------------------------------------------------------------------
     # Global commands
@@ -54,36 +110,32 @@ class OAApp:
             return False
 
         if cmd == "/help":
-            print("\n" + HELP_TEXT + "\n")
+            self.show_command_page("HELP", HELP_TEXT)
         elif cmd == "/show":
-            print(self.model.friendly_show())
+            self.show_command_page("MODEL SO FAR", self.model.friendly_show())
         elif cmd == "/check":
             notes = self.model.completeness_messages()
-            print("\nMODEL CHECK")
-            print("-" * 64)
-            if notes:
-                for note in notes:
-                    print(f"- {note}")
-            else:
-                print("No obvious gap was found in the current model.")
-            print()
+            body = "\n".join(f"- {note}" for note in notes) if notes else "No obvious gap was found in the current model."
+            self.show_command_page("MODEL CHECK", body)
         elif cmd == "/why":
-            print(f"\nWhy this matters: {self.current_why}\n")
+            self.show_command_page("WHY THIS QUESTION MATTERS", self.current_why)
         elif cmd == "/save":
             path = self.model.save(str(DEFAULT_SAVE_PATH))
-            print(f"Saved: {path}\n")
+            self.add_notice(f"Saved: {path}")
         elif cmd == "/undo":
-            print("Last change undone.\n" if self.model.undo() else "There is nothing to undo.\n")
+            self.add_notice("Last change undone." if self.model.undo() else "There is nothing to undo.")
         elif cmd == "/done":
             path = self.model.save(str(DEFAULT_SAVE_PATH))
+            self.clear_screen()
             print(f"Saved: {path}")
             print("Finished.")
             raise SystemExit(0)
         elif cmd == "/quit":
+            self.clear_screen()
             print("Exiting.")
             raise SystemExit(0)
         else:
-            print("Unknown command. Type /help.\n")
+            self.add_notice("Unknown command. Type /help.")
         return True
 
     # ------------------------------------------------------------------
@@ -92,7 +144,10 @@ class OAApp:
     def ask_yes_no(self, question: str, why: str) -> bool:
         self.current_why = why
         while True:
-            print(f"\n{question} (yes/no)")
+            self.draw_question(
+                f"{question} (yes/no)",
+                explanation="Answer only 'yes' or 'no'.",
+            )
             value = input("> ").strip()
             if self.command(value):
                 continue
@@ -101,14 +156,23 @@ class OAApp:
                 return True
             if lowered in {"no", "n"}:
                 return False
-            print("Please answer only 'yes' or 'no'.")
+            self.add_notice("Please answer only 'yes' or 'no'.")
 
-    def ask_number(self, question: str, node_ids: list[str], label: Callable[[str], str], why: str) -> str:
+    def ask_number(
+        self,
+        question: str,
+        node_ids: list[str],
+        label: Callable[[str], str],
+        why: str,
+    ) -> str:
         self.current_why = why
         while True:
-            print(f"\n{question}")
-            for index, node_id in enumerate(node_ids, start=1):
-                print(f"  {index}. {label(node_id)}")
+            lines = [f"  {index}. {label(node_id)}" for index, node_id in enumerate(node_ids, start=1)]
+            self.draw_question(
+                question,
+                explanation="Choose one of the numbers below.",
+                extra_lines=lines,
+            )
             value = input("> ").strip()
             if self.command(value):
                 continue
@@ -118,7 +182,7 @@ class OAApp:
                     return node_ids[selected]
             except ValueError:
                 pass
-            print("Please select one of the numbers shown above.")
+            self.add_notice("Please select one of the numbers shown.")
 
     def ask_validated(
         self,
@@ -131,17 +195,13 @@ class OAApp:
     ) -> str:
         self.current_why = why
         while True:
-            print(f"\n{question}")
-            if explanation:
-                print(f"  {explanation}")
-            if example:
-                print(f"  Example: {example}")
+            self.draw_question(question, explanation, example)
 
             value = input("> ").strip()
             if self.command(value):
                 continue
             if value.startswith("/"):
-                print("That command is not available here.")
+                self.add_notice("That command is not available here.")
                 continue
 
             try:
@@ -151,19 +211,27 @@ class OAApp:
                     context=context or self.model.short_context(),
                 )
             except Exception:
-                print("I had trouble reading the local model response. Please try the same answer once more.")
-                print("Nothing was added.")
+                self.add_notice(
+                    "I had trouble reading the local model response.\n"
+                    "Please try the same answer once more. Nothing was added."
+                )
                 continue
 
             result = validate_llm_candidate(value, expected_concept, llm_result)
             if result.accepted:
-                return result.normalized_value
+                normalized = result.normalized_value
+                if normalized and normalized.casefold() != value.casefold():
+                    self.add_notice(
+                        f'English suggestion: "{normalized}"\n'
+                        "Your meaning was clear, so I will use the corrected wording."
+                    )
+                return normalized
 
-            print("I cannot use that answer yet.")
-            print(f"Reason: {result.reason}")
+            message = f"I cannot use that answer yet.\nReason: {result.reason}"
             if result.suggestion:
-                print(f"Try: {result.suggestion}")
-            print("Nothing was added to the model.")
+                message += f"\nTry: {result.suggestion}"
+            message += "\nNothing was added to the model."
+            self.add_notice(message)
 
     def ask_participant(self) -> tuple[str, str]:
         self.current_why = (
@@ -171,32 +239,44 @@ class OAApp:
             "facilities, or other real-world parties that take part in the operation."
         )
         while True:
-            print("\nWho or what is involved?")
-            print("  Name one person, role, organization, group, facility, or other real-world participant.")
-            print("  Example: Air Traffic Controller")
+            self.draw_question(
+                "Who or what is involved?",
+                explanation=(
+                    "Name one person, role, organization, group, facility, "
+                    "or other real-world participant."
+                ),
+                example="Air Traffic Controller",
+            )
             value = input("> ").strip()
             if self.command(value):
                 continue
             if value.startswith("/"):
-                print("That command is not available here.")
+                self.add_notice("That command is not available here.")
                 continue
 
             try:
                 llm_result = self.llm.validate_participant(value, self.model.short_context())
             except Exception:
-                print("I had trouble reading the local model response. Please try the same answer once more.")
-                print("Nothing was added.")
+                self.add_notice(
+                    "I had trouble reading the local model response.\n"
+                    "Please try the same answer once more. Nothing was added."
+                )
                 continue
 
             result = validate_participant_candidate(value, llm_result)
             if result.accepted:
+                if result.normalized_value and result.normalized_value.casefold() != value.casefold():
+                    self.add_notice(
+                        f'English suggestion: "{result.normalized_value}"\n'
+                        "Your meaning was clear, so I will use the corrected wording."
+                    )
                 return result.detected_concept, result.normalized_value
 
-            print("I cannot use that answer yet.")
-            print(f"Reason: {result.reason}")
+            message = f"I cannot use that answer yet.\nReason: {result.reason}"
             if result.suggestion:
-                print(f"Try: {result.suggestion}")
-            print("Nothing was added to the model.")
+                message += f"\nTry: {result.suggestion}"
+            message += "\nNothing was added to the model."
+            self.add_notice(message)
 
     # ------------------------------------------------------------------
     # Graph write helpers
@@ -204,9 +284,9 @@ class OAApp:
     def add_node(self, node_type: str, name: str) -> str:
         ok, node_id, error = self.model.add_node(node_type, name)
         if not ok:
-            print(f"Not added: {error}")
+            self.add_notice(f"Not added: {error}")
             return node_id
-        print(f"Added: {name}")
+        self.add_notice(f"Added: {name}")
         return node_id
 
     def link_action_to_goal(self, action_id: str) -> None:
@@ -224,7 +304,7 @@ class OAApp:
             )
         ok, error = self.model.add_relation(action_id, "SUPPORTS_CAPABILITY", goal_id)
         if not ok:
-            print(f"Could not connect the action to the goal: {error}")
+            self.add_notice(f"Could not connect the action to the goal: {error}")
 
     # ------------------------------------------------------------------
     # Guided construction
@@ -261,7 +341,10 @@ class OAApp:
             ):
                 action = self.ask_validated(
                     question=f"What does {participant_name} do?",
-                    explanation="Use one short action. Describe what happens, not how a technical solution works.",
+                    explanation=(
+                        "Use one short action in English. Simple wording is fine; "
+                        "grammar does not need to be perfect."
+                    ),
                     example="Assess incoming threat information",
                     expected_concept="OperationalActivity",
                     why="Actions show how each participant contributes to the operational goal.",
@@ -270,7 +353,7 @@ class OAApp:
                 action_id = self.add_node("OperationalActivity", action)
                 ok, error = self.model.add_relation(participant_id, "PERFORMS", action_id)
                 if not ok:
-                    print(f"Could not connect the action: {error}")
+                    self.add_notice(f"Could not connect the action: {error}")
                 self.link_action_to_goal(action_id)
                 first_action = False
 
@@ -281,7 +364,6 @@ class OAApp:
         if len(actions) < 2:
             return
 
-        print("\nNow I will check whether the actions exchange anything with each other.")
         for source_id in list(actions):
             source_label = self.model.action_label(source_id)
             if not self.ask_yes_no(
@@ -314,9 +396,9 @@ class OAApp:
                     name=item,
                 )
                 if ok:
-                    print(f"Added interaction: {item}")
+                    self.add_notice(f"Added interaction: {item}")
                 else:
-                    print(f"Could not add the interaction: {error}")
+                    self.add_notice(f"Could not add the interaction: {error}")
 
                 add_more = self.ask_yes_no(
                     f"Is anything else exchanged from '{source_label}'?",
@@ -357,24 +439,20 @@ class OAApp:
                 name=medium,
             )
             if ok:
-                print(f"Added communication method: {medium}")
+                self.add_notice(f"Added communication method: {medium}")
             else:
-                print(f"Could not add the communication method: {error}")
+                self.add_notice(f"Could not add the communication method: {error}")
 
     def run(self) -> None:
-        print("=" * 72)
-        print("GUIDED OPERATIONAL MODEL BUILDER")
-        print("=" * 72)
-        print("I will ask one small question at a time.")
-        print("Answer in English only. Proper names may stay as written.")
-        print("You do not need to know any modeling terminology.")
-        print("Type /help at any time for commands.")
-
         self.capture_goals()
         self.capture_participants_and_actions()
         self.capture_interactions()
         self.capture_communication()
 
+        self.clear_screen()
+        print("=" * 72)
+        print("MODEL COMPLETE")
+        print("=" * 72)
         print(self.model.friendly_show())
         notes = self.model.completeness_messages()
         if notes:
