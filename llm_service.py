@@ -71,12 +71,11 @@ General rules:
    operational participant.
 5. Validate actions semantically, not by matching a scenario-specific action list.
    A meaningful English verb phrase can be a valid OperationalActivity in any
-   domain. Decisions, approvals, authorizations, commands, observations,
-   communications, physical actions, coordination, and information-handling actions
-   can all be valid when they describe what a participant does operationally.
+   domain. Decisions, approvals, authorizations, observations, communication,
+   coordination, information handling, service actions, and physical actions may
+   all be valid when they describe what a participant does operationally.
 6. Do not reject an action merely because it is short, broad, unfamiliar, or from
-   a domain not represented in the prompt. Judge whether it expresses behavior,
-   not whether it resembles an example.
+   a domain not represented in the prompt. Judge whether it expresses behavior.
 7. Goals should describe an operational outcome or desired state, not a product
    feature or solution component. Judge the semantics rather than a fixed scenario.
 8. Participant classification must be domain-independent. A human person, role, or
@@ -90,8 +89,8 @@ General rules:
 11. normalized_value may fix grammar/capitalization but must preserve the same meaning.
 12. Output JSON only using the supplied schema.
 
-The rules above are intentionally domain-neutral. Do not assume aviation, defense,
-transportation, healthcare, manufacturing, software, or any other specific domain.
+The rules above are intentionally domain-neutral. Do not assume any specific
+industry, mission, organization, asset type, profession, or action vocabulary.
 """.strip()
 
 
@@ -174,6 +173,54 @@ class LocalLLM:
             f"The local model returned invalid structured data twice: {last_error}"
         )
 
+    @staticmethod
+    def _needs_semantic_recheck(result: dict, expected_concept: str) -> bool:
+        """Decide whether a compact-model negative deserves one neutral second look."""
+        return (
+            not bool(result.get("valid", False))
+            or result.get("detected_concept") != expected_concept
+            or bool(result.get("solution_bias", False))
+        )
+
+    def _semantic_recheck(
+        self,
+        candidate: str,
+        expected_concept: str,
+        context: str,
+        first_result: dict,
+    ) -> dict:
+        guidance = CONCEPT_GUIDANCE[expected_concept]
+        prompt = f"""
+Perform an independent second semantic check.
+
+Expected internal concept: {expected_concept}
+Definition: {guidance['definition']}
+Expected answer form: {guidance['expected_format']}
+Current context: {context or 'No additional context.'}
+Candidate answer: {candidate}
+
+The first check returned:
+- valid: {first_result.get('valid')}
+- detected concept: {first_result.get('detected_concept')}
+- solution bias: {first_result.get('solution_bias')}
+- reason: {first_result.get('reason', '')}
+
+Do not defend the first answer. Re-evaluate from scratch. The candidate may come
+from any application domain and may use an unfamiliar but valid verb, role, asset,
+resource, organization, or place name. Do not require it to match any memorized
+example or fixed vocabulary. Reject it only when its meaning genuinely fails the
+expected concept, is non-English where English is required, or introduces a
+premature technical solution.
+""".strip()
+
+        return self._json_chat(
+            [
+                {"role": "system", "content": SYSTEM_VALIDATOR},
+                {"role": "user", "content": prompt},
+            ],
+            VALIDATION_SCHEMA,
+        )
+
     def validate_candidate(
         self,
         candidate: str,
@@ -193,13 +240,35 @@ Assess only this answer using the concept definition and general rules. Do not
 require the candidate to resemble the example. Keep any user-facing reason simple
 and free of Arcadia jargon.
 """.strip()
-        return self._json_chat(
+
+        result = self._json_chat(
             [
                 {"role": "system", "content": SYSTEM_VALIDATOR},
                 {"role": "user", "content": prompt},
             ],
             VALIDATION_SCHEMA,
         )
+
+        if (
+            expected_concept in {"OperationalActivity", "OperationalCapability"}
+            and self._needs_semantic_recheck(result, expected_concept)
+        ):
+            second = self._semantic_recheck(
+                candidate,
+                expected_concept,
+                context,
+                result,
+            )
+            # A positive independent recheck can recover a compact-model false
+            # negative. Deterministic write-barrier checks still run afterwards.
+            if (
+                second.get("valid", False)
+                and second.get("detected_concept") == expected_concept
+                and not second.get("solution_bias", False)
+            ):
+                return second
+
+        return result
 
     def validate_participant(self, candidate: str, context: str = "") -> dict:
         prompt = f"""
