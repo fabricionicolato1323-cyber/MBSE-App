@@ -13,12 +13,14 @@ Structural convention:
 
 Guided-elicitation convention:
 - CandidateMention is a transient helper concept used only by the assistant.
-- A CandidateMention is an exact noun phrase found in user wording.
-- It is never written to the NetworkX model by itself.
-- The user must explicitly confirm the candidate before it can become an
-  OperationalActor or OperationalEntity.
-- Candidate discovery is domain-independent and must never depend on scenario-
-  specific names, roles, assets, industries, or actions.
+- SemanticFrame and SemanticClause are transient parsing concepts used to
+  decompose natural-language activity answers into subjects, verbs, objects,
+  recipients, locations, conditions, time, and other complements.
+- Transient helper concepts are never written as Arcadia nodes in NetworkX.
+- The user must confirm candidate participants and complex activity
+  decompositions before the corresponding OA elements are persisted.
+- Candidate discovery and semantic parsing are domain-independent and must never
+  depend on scenario-specific names, roles, assets, industries, or actions.
 """
 
 NODE_TYPES = {
@@ -30,8 +32,12 @@ NODE_TYPES = {
 
 PARTICIPANT_TYPES = {"OperationalActor", "OperationalEntity"}
 
-# Helper concepts belong to the elicitation layer, not the persistent OA graph.
-TRANSIENT_HELPER_CONCEPTS = {"CandidateMention"}
+# Helper concepts belong to the elicitation/parsing layer, not the persistent OA graph.
+TRANSIENT_HELPER_CONCEPTS = {
+    "CandidateMention",
+    "SemanticFrame",
+    "SemanticClause",
+}
 CANDIDATE_TARGET_TYPES = {"OperationalActor", "OperationalEntity"}
 
 ALLOWED_RELATIONS = {
@@ -87,12 +93,17 @@ CONCEPT_GUIDANCE = {
     },
     "OperationalActivity": {
         "definition": (
-            "An operational action performed by a participant. It describes what happens "
-            "in the operation, not software, hardware, architecture, or implementation."
+            "An operational action performed by one or more participants. It describes "
+            "what happens in the operation, not software, hardware, architecture, or "
+            "implementation. One natural-language answer may be decomposed into several "
+            "Operational Activities when it contains several independent actions."
         ),
         "friendly_name": "action",
-        "expected_format": "One short English action phrase, preferably starting with a verb.",
-        "example": "Coordinate operational response",
+        "expected_format": (
+            "One English action phrase or a natural sentence containing one or more "
+            "subjects, actions, objects, and complements."
+        ),
+        "example": "Coordinate service requests and report status",
         "language_required": True,
     },
     "OperationalExchange": {
