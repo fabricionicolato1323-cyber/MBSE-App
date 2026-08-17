@@ -10,16 +10,29 @@ from typing import Iterator
 EXPECTED_STRUCTURES = {
     "yes_no": "yes / no",
     "number": "one number from the list",
-    "participant": "noun phrase — person, role, group, organization, place, resource, or context",
-    "OperationalCapability": "verb + desired state/object [+ optional complement]",
-    "OperationalActivity": "verb + object/complement — prefer one main action per answer",
-    "OperationalExchange": "noun phrase — information, material, request, or exchanged item",
-    "CommunicationMean": "noun phrase — real-world communication method",
+    "participant": (
+        "noun phrase — person, role, group, organization, place, resource, or context"
+    ),
+    "OperationalCapability": (
+        "verb + desired state/object [+ optional complement]"
+    ),
+    "OperationalActivity": (
+        "subject(s) optional + verb(s) + object(s)/complement(s); "
+        "multiple actions are allowed in one natural sentence"
+    ),
+    "OperationalExchange": (
+        "noun phrase — information, material, request, or exchanged item"
+    ),
+    "CommunicationMean": (
+        "noun phrase — real-world communication method"
+    ),
 }
 
 
 @contextmanager
-def processing_indicator(message: str = "Processing with local AI") -> Iterator[None]:
+def processing_indicator(
+    message: str = "Processing with local AI",
+) -> Iterator[None]:
     """Show animated dots while a blocking local-AI call runs.
 
     Uses only carriage returns and ASCII so it works reliably in Windows
@@ -39,7 +52,9 @@ def processing_indicator(message: str = "Processing with local AI") -> Iterator[
     def animate() -> None:
         while not stop_event.is_set():
             dots = next(frames)
-            sys.stdout.write("\r" + f"{prefix}{dots}".ljust(line_width))
+            sys.stdout.write(
+                "\r" + f"{prefix}{dots}".ljust(line_width)
+            )
             sys.stdout.flush()
             if stop_event.wait(0.35):
                 break
