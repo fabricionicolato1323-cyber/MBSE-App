@@ -10,6 +10,16 @@ Structural convention:
 - PART_OF is the inverse meaning of CONTAINS and is not stored as a second edge.
 - LOCATED_IN is separate from structural containment so organizational
   decomposition is not confused with physical/operational location.
+
+Guided-elicitation convention:
+- CandidateMention is a TRANSIENT helper concept used only by the assistant.
+- A CandidateMention is an exact noun phrase found in user wording (for example,
+  a goal). It is never written to the NetworkX model by itself.
+- The user must explicitly confirm the candidate before it can become an
+  OperationalActor or OperationalEntity.
+- Example: "Keep infrastructure and soldiers safe" may yield the transient
+  candidates "infrastructure" -> OperationalEntity and "soldiers" ->
+  OperationalActor. The words are only candidates until the user confirms them.
 """
 
 NODE_TYPES = {
@@ -20,6 +30,11 @@ NODE_TYPES = {
 }
 
 PARTICIPANT_TYPES = {"OperationalActor", "OperationalEntity"}
+
+# These helper concepts belong to the guided elicitation layer, not to the
+# persistent Arcadia OA graph.
+TRANSIENT_HELPER_CONCEPTS = {"CandidateMention"}
+CANDIDATE_TARGET_TYPES = {"OperationalActor", "OperationalEntity"}
 
 ALLOWED_RELATIONS = {
     ("OperationalActor", "PERFORMS", "OperationalActivity"),
@@ -64,11 +79,11 @@ CONCEPT_GUIDANCE = {
         "definition": (
             "A non-human real-world participant or contextual element involved in the "
             "operation, such as an organization, group, facility, building, area, "
-            "environment, location, or external party. An Operational Entity may contain "
-            "other Operational Entities or Operational Actors."
+            "environment, location, infrastructure, resource, or external party. An "
+            "Operational Entity may contain other Operational Entities or Operational Actors."
         ),
         "friendly_name": "non-human participant or context",
-        "expected_format": "One real-world participant, place, area, or context name.",
+        "expected_format": "One real-world participant, place, area, resource, or context name.",
         "example": "Airport Operations Center",
         "language_required": False,
     },
