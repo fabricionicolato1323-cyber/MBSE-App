@@ -46,8 +46,6 @@ def main() -> None:
     )
     assert activity_validation.accepted
 
-    # Regression cases observed with the real Qwen2.5-3B model.
-    # 1) Small model incorrectly labels a short English phrase as Non-English.
     r = validate_llm_candidate(
         "informs drone informations",
         "OperationalActivity",
@@ -61,7 +59,6 @@ def main() -> None:
     )
     assert r.accepted, r
 
-    # 2) Small model calls a valid broad action too vague.
     r = validate_llm_candidate(
         "provide drone information",
         "OperationalActivity",
@@ -74,12 +71,14 @@ def main() -> None:
     )
     assert r.accepted, r
 
-    # 3) Small model mistakes an action for an exchanged item because its object is information.
     r = validate_llm_candidate(
         "provide drone information such as position and velocity",
         "OperationalActivity",
         {
-            **ok_result("OperationalExchange", "Drone information such as position and velocity"),
+            **ok_result(
+                "OperationalExchange",
+                "Drone information such as position and velocity",
+            ),
             "valid": False,
             "reason": "This answer describes an exchange rather than an action.",
             "suggestion": "Assess incoming threat information",
@@ -88,12 +87,14 @@ def main() -> None:
     assert r.accepted, r
     assert r.detected_concept == "OperationalActivity"
 
-    # Obvious Portuguese should still be rejected.
     rejected_language = validate_llm_candidate(
         "fornecer informações sobre a posição e velocidade",
         "OperationalActivity",
         {
-            **ok_result("OperationalActivity", "fornecer informações sobre a posição e velocidade"),
+            **ok_result(
+                "OperationalActivity",
+                "fornecer informações sobre a posição e velocidade",
+            ),
             "language": "Non-English",
         },
     )
@@ -137,20 +138,80 @@ def main() -> None:
     rejected_solution = validate_llm_candidate(
         "Build a Python script for threat detection",
         "OperationalActivity",
-        ok_result("OperationalActivity", "Build a Python script for threat detection"),
+        ok_result(
+            "OperationalActivity",
+            "Build a Python script for threat detection",
+        ),
     )
     assert not rejected_solution.accepted
 
-    _, goal, _ = graph.add_node("OperationalCapability", "Keep restricted airspace safe")
-    _, actor, _ = graph.add_node("OperationalActor", "Air Traffic Controller")
-    _, action, _ = graph.add_node("OperationalActivity", "Assess potential airspace threats")
+    _, goal, _ = graph.add_node(
+        "OperationalCapability",
+        "Keep restricted airspace safe",
+    )
+    _, base, _ = graph.add_node(
+        "OperationalEntity",
+        "Military Base",
+        expects_activity=False,
+    )
+    _, center, _ = graph.add_node(
+        "OperationalEntity",
+        "Operations Center",
+        expects_activity=True,
+    )
+    _, area, _ = graph.add_node(
+        "OperationalEntity",
+        "Restricted Area",
+        expects_activity=False,
+    )
+    _, actor, _ = graph.add_node(
+        "OperationalActor",
+        "Field Soldier",
+    )
+    _, action, _ = graph.add_node(
+        "OperationalActivity",
+        "Engage counter-measure",
+    )
 
     assert graph.add_relation(actor, "PERFORMS", action)[0]
     assert graph.add_relation(action, "SUPPORTS_CAPABILITY", goal)[0]
+
+    assert graph.add_relation(base, "CONTAINS", center)[0]
+    assert graph.add_relation(center, "CONTAINS", actor)[0]
+    assert graph.structural_parent(actor) == center
+
+    assert graph.add_relation(actor, "LOCATED_IN", area)[0]
+    assert graph.locations_for(actor) == [area]
+
+    assert not graph.add_relation(actor, "CONTAINS", center)[0]
+
+    _, other_org, _ = graph.add_node(
+        "OperationalEntity",
+        "Other Organization",
+        expects_activity=True,
+    )
+    assert not graph.add_relation(other_org, "CONTAINS", actor)[0]
+
+    assert not graph.add_relation(center, "CONTAINS", base)[0]
+
+    assert graph.add_relation(area, "LOCATED_IN", base)[0]
+    assert not graph.add_relation(base, "LOCATED_IN", area)[0]
+
+    notes = graph.completeness_messages()
+    assert not any("Military Base' has no action" in note for note in notes)
+    assert not any("Restricted Area' has no action" in note for note in notes)
+
     assert not graph.add_relation(goal, "PERFORMS", action)[0]
 
-    duplicate_ok, _, _ = graph.add_node("OperationalActor", "air traffic controller")
+    duplicate_ok, _, _ = graph.add_node(
+        "OperationalActor",
+        "field soldier",
+    )
     assert not duplicate_ok
+
+    shown = graph.friendly_show()
+    assert "Military Base contains Operations Center" in shown
+    assert "Field Soldier operates in Restricted Area" in shown
 
     print("Smoke test passed.")
 
