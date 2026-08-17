@@ -239,10 +239,23 @@ and time expressions separately.
         SEMANTIC_FRAME_SCHEMA,
         max_tokens=760,
     )
-    return normalize_semantic_frames(
+    result = normalize_semantic_frames(
         raw,
         default_subject=default_subject,
     )
+
+    # Compact models sometimes mislabel a very short ASCII action phrase as
+    # Non-English. Do not make that single label authoritative; the normal
+    # deterministic language/write barrier still validates each activity_text.
+    words = re.findall(r"[A-Za-z]+", text)
+    if (
+        result.get("language") == "Non-English"
+        and text.isascii()
+        and len(words) <= 5
+    ):
+        result["language"] = "Language-neutral"
+
+    return result
 
 
 def frame_is_complex(frame_result: dict) -> bool:
