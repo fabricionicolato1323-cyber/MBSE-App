@@ -33,6 +33,42 @@ def main() -> None:
     )
     assert goal_validation.accepted
 
+    # Regression observed with the real Qwen2.5-3B model: an obvious operational
+    # outcome was incorrectly rejected as if it described a system/solution.
+    qwen_goal_false_rejection = validate_llm_candidate(
+        "Keep infrastructure and soldiers safe",
+        "OperationalCapability",
+        {
+            **ok_result(
+                "OperationalCapability",
+                "Keep infrastructure and soldiers safe",
+            ),
+            "valid": False,
+            "solution_bias": True,
+            "reason": (
+                "The answer is not a short outcome phrase. It describes the "
+                "system or solution."
+            ),
+            "suggestion": "Keep infrastructure and soldiers safe",
+        },
+    )
+    assert qwen_goal_false_rejection.accepted, qwen_goal_false_rejection
+    assert (
+        qwen_goal_false_rejection.detected_concept
+        == "OperationalCapability"
+    )
+
+    # The deterministic goal override must not allow explicit implementation terms.
+    rejected_technical_goal = validate_llm_candidate(
+        "Keep Python script available",
+        "OperationalCapability",
+        ok_result(
+            "OperationalCapability",
+            "Keep Python script available",
+        ),
+    )
+    assert not rejected_technical_goal.accepted
+
     participant_validation = validate_participant_candidate(
         "Air Traffic Controller",
         ok_result("OperationalActor", "Air Traffic Controller", "Language-neutral"),
