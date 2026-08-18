@@ -3,20 +3,30 @@ from __future__ import annotations
 import json
 import os
 import sys
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterator
 
 from candidate_discovery import extract_goal_candidates
+from fast_input import fast_operational_goal_result
 from graph_model import OAGraph
-from llm_service import LocalLLM
+from llm_service import OllamaLLM
+from participant_rules import ENTITY_NATURES, ParticipantSuggestion, classify_participant
 from semantic_frames import (
     format_frame_summary,
     frame_is_complex,
     looks_structurally_complex,
     parse_activity_frames,
+    parse_simple_activity_frame,
 )
 from terminal_ui import EXPECTED_STRUCTURES, processing_indicator
-from validator import validate_llm_candidate, validate_participant_candidate
+from validator import (
+    normalize_whitespace,
+    obvious_non_english_short_text,
+    reconcile_activity_frame_solution_bias,
+    validate_llm_candidate,
+    validate_participant_candidate,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "config.json"
@@ -46,24 +56,39 @@ Complex activity sentences are decomposed before anything is written to the mode
 class OAApp:
     def __init__(self) -> None:
         config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-        model_path = Path(config["model_path"])
-        if not model_path.is_absolute():
-            model_path = BASE_DIR / model_path
-
-        with processing_indicator("Loading local AI model"):
-            self.llm = LocalLLM(
-                model_path=str(model_path),
-                n_ctx=config.get("n_ctx", 4096),
-                n_threads=config.get("n_threads"),
-                n_gpu_layers=config.get("n_gpu_layers", 0),
-                chat_format=config.get("chat_format") or None,
-            )
-
         self.model = OAGraph()
         self.current_why = (
             "This helps build the operational picture one small step at a time."
         )
         self.notice = ""
+        self.llm: OllamaLLM | None = None
+
+        ollama = config.get("ollama", {})
+        if ollama.get("enabled", True):
+            try:
+                with processing_indicator("Connecting to Ollama"):
+                    self.llm = OllamaLLM(
+                        base_url=ollama.get(
+                            "base_url",
+                            "http://localhost:11434",
+                        ),
+                        model=ollama.get("model") or None,
+                        model_env=ollama.get(
+                            "model_env",
+                            "MBSE_OLLAMA_MODEL",
+                        ),
+                        timeout_seconds=ollama.get("timeout_seconds", 120),
+                        keep_alive=ollama.get("keep_alive"),
+                        num_ctx=ollama.get("num_ctx"),
+                    )
+                self.add_notice(
+                    f"Ollama connected. Selected model: {self.llm.model}"
+                )
+            except Exception as exc:
+                self.add_notice(
+                    "Ollama is unavailable, so the app will continue with "
+                    f"deterministic rules. Details: {exc}"
+                )
 
     # ------------------------------------------------------------------
     # Terminal UI
@@ -84,6 +109,18 @@ class OAApp:
             if self.notice
             else message
         )
+
+    @contextmanager
+    def ollama_operation(self, message: str) -> Iterator[OllamaLLM]:
+        """Measure every Ollama response and expose both wall/API time."""
+        if self.llm is None:
+            raise RuntimeError("Ollama is not available.")
+        start_index = self.llm.metric_count()
+        try:
+            with processing_indicator(message):
+                yield self.llm
+        finally:
+            self.add_notice(self.llm.timing_summary_since(start_index))
 
     def draw_question(
         self,
@@ -230,6 +267,178 @@ class OAApp:
 
             self.add_notice("Please select one of the numbers shown.")
 
+    def ask_choice(
+        self,
+        question: str,
+        choices: list[tuple[str, str]],
+        why: str,
+        extra_lines: list[str] | None = None,
+    ) -> str:
+        self.current_why = why
+        while True:
+            lines = list(extra_lines or [])
+            lines.extend(
+                f"  {index}. {label}"
+                for index, (_, label) in enumerate(choices, start=1)
+            )
+            self.draw_question(
+                question,
+                explanation="Choose one of the numbers below.",
+                expected_structure=EXPECTED_STRUCTURES["number"],
+                extra_lines=lines,
+            )
+            value = input("> ").strip()
+            if self.command(value):
+                continue
+            try:
+                selected = int(value) - 1
+                if 0 <= selected < len(choices):
+                    return choices[selected][0]
+            except ValueError:
+                pass
+            self.add_notice("Please select one of the numbers shown.")
+
+    def ask_entity_nature(self, suggested: str = "unspecified") -> str:
+        labels = {
+            "organization": "Organization",
+            "organizational_unit": "Organizational unit",
+            "team_or_collective": "Team or collective",
+            "existing_technical_system": "Existing external technical system",
+            "infrastructure_or_facility": "Infrastructure or facility",
+            "external_operational_service": "External operational service",
+            "population_or_community": "Population or community",
+            "environmental_participant": "Environmental participant",
+            "unspecified": "Other / not yet specified",
+        }
+        ordered = [suggested] if suggested in ENTITY_NATURES else []
+        ordered.extend(item for item in ENTITY_NATURES if item not in ordered)
+        return self.ask_choice(
+            "What kind of Operational Entity is it?",
+            [(item, labels[item]) for item in ordered],
+            "Participant type and participant nature are separate ontology dimensions.",
+        )
+
+    def confirm_participant_classification(
+        self,
+        value: str,
+        *,
+        advisory_type: str | None = None,
+        advisory_reason: str = "",
+        advisory_source: str = "",
+    ) -> tuple[str, str, dict] | None:
+        """Present advice, but make the user choose the persisted classification."""
+        normalized = normalize_whitespace(value)
+        suggestion: ParticipantSuggestion = classify_participant(normalized)
+
+        concept = suggestion.concept
+        nature = suggestion.nature
+        reason = suggestion.reason
+        source = "deterministic_rules"
+        evidence = suggestion.evidence_level
+        rule_ids = list(suggestion.rule_ids)
+
+        if (
+            not suggestion.actionable
+            and not suggestion.solution_bias
+            and suggestion.evidence_level in {"insufficient", "ambiguous"}
+            and advisory_type in {"OperationalActor", "OperationalEntity"}
+        ):
+            concept = advisory_type
+            nature = (
+                "human_individual"
+                if advisory_type == "OperationalActor"
+                else "unspecified"
+            )
+            reason = advisory_reason or "Advisory classification from local AI."
+            source = advisory_source or "ollama_advisory"
+            evidence = "advisory"
+            rule_ids = []
+
+        while True:
+            details = [
+                f"  Candidate: {normalized}",
+                f"  Suggestion: {concept or 'no deterministic classification'}",
+                f"  Nature: {nature}",
+                f"  Evidence: {evidence}",
+                f"  Reason: {reason}",
+                "  The suggestion is advisory; you are responsible for the final choice.",
+            ]
+            choices: list[tuple[str, str]] = []
+            if concept in {"OperationalActor", "OperationalEntity"}:
+                choices.append(("confirm", "Confirm the suggestion"))
+            choices.extend(
+                [
+                    ("actor", "Classify as Operational Actor"),
+                    ("entity", "Classify as Operational Entity"),
+                ]
+            )
+            if self.llm is not None:
+                choices.append(("ollama", "Ask Ollama for another opinion"))
+            choices.append(("reject", "Do not add this as a participant"))
+
+            choice = self.ask_choice(
+                "How should this candidate be classified?",
+                choices,
+                "Only the classification explicitly chosen by the user is written to the model.",
+                extra_lines=details,
+            )
+
+            if choice == "ollama":
+                try:
+                    with self.ollama_operation(
+                        "Requesting advisory classification from Ollama"
+                    ) as llm:
+                        result = validate_participant_candidate(
+                            normalized,
+                            llm.validate_participant(normalized),
+                        )
+                except Exception as exc:
+                    self.add_notice(f"Ollama advice was unavailable: {exc}")
+                    continue
+                if not result.accepted:
+                    self.add_notice(
+                        "Ollama did not produce a usable participant classification."
+                    )
+                    continue
+                concept = result.detected_concept
+                nature = (
+                    "human_individual"
+                    if concept == "OperationalActor"
+                    else "unspecified"
+                )
+                reason = "Advisory semantic classification from Ollama."
+                source = "ollama_advisory"
+                evidence = "advisory"
+                rule_ids = []
+                continue
+
+            if choice == "reject":
+                return None
+            if choice == "actor":
+                concept = "OperationalActor"
+                nature = "human_individual"
+                source = "user_override"
+                evidence = "user_confirmed"
+            elif choice == "entity":
+                concept = "OperationalEntity"
+                nature = self.ask_entity_nature(nature)
+                source = "user_override"
+                evidence = "user_confirmed"
+            elif choice == "confirm" and concept == "OperationalEntity":
+                if nature == "unspecified":
+                    nature = self.ask_entity_nature(nature)
+
+            attributes = {
+                "nature": nature,
+                "classification_source": source,
+                "classification_evidence": evidence,
+                "classification_reason": reason,
+                "classification_rules": rule_ids,
+                "status": "confirmed",
+                "confirmed_by": "user",
+            }
+            return str(concept), normalized, attributes
+
     def ask_validated(
         self,
         question: str,
@@ -259,19 +468,55 @@ class OAApp:
                 self.add_notice("That command is not available here.")
                 continue
 
-            try:
-                with processing_indicator("Processing answer with local AI"):
-                    llm_result = self.llm.validate_candidate(
-                        candidate=value,
-                        expected_concept=expected_concept,
-                        context=context or self.model.short_context(),
+            llm_result = None
+            if expected_concept == "OperationalCapability":
+                llm_result = fast_operational_goal_result(value)
+            elif expected_concept in {
+                "OperationalExchange",
+                "CommunicationMean",
+            }:
+                # The question already establishes the expected concept. The
+                # deterministic write barrier remains authoritative, and the
+                # user owns the semantic decision.
+                llm_result = {
+                    "valid": True,
+                    "language": "Language-neutral",
+                    "detected_concept": expected_concept,
+                    "normalized_value": normalize_whitespace(value),
+                    "solution_bias": False,
+                    "reason": "",
+                    "suggestion": "",
+                    "validation_source": "question_context_rules",
+                }
+
+            if llm_result is None and self.llm is not None:
+                try:
+                    with self.ollama_operation(
+                        "Processing advisory response with Ollama"
+                    ) as llm:
+                        llm_result = llm.validate_candidate(
+                            candidate=value,
+                            expected_concept=expected_concept,
+                            context=context or self.model.short_context(),
+                        )
+                except Exception as exc:
+                    self.add_notice(
+                        f"Ollama advice was unavailable: {exc}\n"
+                        "Nothing was added. You may retry or disable Ollama."
                     )
-            except Exception:
-                self.add_notice(
-                    "I had trouble reading the local model response.\n"
-                    "Please try the same answer once more. Nothing was added."
-                )
-                continue
+                    continue
+
+            if llm_result is None:
+                llm_result = {
+                    "valid": True,
+                    "language": "Language-neutral",
+                    "detected_concept": expected_concept,
+                    "normalized_value": normalize_whitespace(value),
+                    "solution_bias": False,
+                    "reason": "",
+                    "suggestion": "",
+                    "validation_source": "offline_rules",
+                }
 
             result = validate_llm_candidate(
                 value,
@@ -296,7 +541,7 @@ class OAApp:
             message += "\nNothing was added to the model."
             self.add_notice(message)
 
-    def ask_participant(self) -> tuple[str, str]:
+    def ask_participant(self) -> tuple[str, str, dict]:
         self.current_why = (
             "The model needs the people, roles, organizations, groups, "
             "facilities, places, resources, and other real-world elements "
@@ -321,39 +566,21 @@ class OAApp:
                 self.add_notice("That command is not available here.")
                 continue
 
-            try:
-                with processing_indicator("Classifying with local AI"):
-                    llm_result = self.llm.validate_participant(
-                        value,
-                        self.model.short_context(),
-                    )
-            except Exception:
-                self.add_notice(
-                    "I had trouble reading the local model response.\n"
-                    "Please try the same answer once more. Nothing was added."
-                )
+            value = normalize_whitespace(value)
+            if not value:
+                self.add_notice("The answer cannot be empty.")
+                continue
+            if len(value) > 80:
+                self.add_notice("Please provide one short participant name.")
+                continue
+            if obvious_non_english_short_text(value):
+                self.add_notice("Please answer in English only.")
                 continue
 
-            result = validate_participant_candidate(value, llm_result)
-            if result.accepted:
-                if (
-                    result.normalized_value
-                    and result.normalized_value.casefold() != value.casefold()
-                ):
-                    self.add_notice(
-                        f'English suggestion: "{result.normalized_value}"\n'
-                        "Your meaning was clear, so I will use the corrected wording."
-                    )
-                return result.detected_concept, result.normalized_value
-
-            message = (
-                f"I cannot use that answer yet.\n"
-                f"Reason: {result.reason}"
-            )
-            if result.suggestion:
-                message += f"\nTry: {result.suggestion}"
-            message += "\nNothing was added to the model."
-            self.add_notice(message)
+            decision = self.confirm_participant_classification(value)
+            if decision is not None:
+                return decision
+            self.add_notice("Candidate rejected. Nothing was added to the model.")
 
     # ------------------------------------------------------------------
     # Graph helpers
@@ -366,6 +593,8 @@ class OAApp:
         expects_activity: bool | None = None,
         **attributes,
     ) -> str:
+        attributes.setdefault("status", "confirmed")
+        attributes.setdefault("confirmed_by", "user")
         ok, node_id, error = self.model.add_node(
             node_type,
             name,
@@ -470,23 +699,40 @@ class OAApp:
                 for node_id in self.model.participants()
             ]
 
-            try:
-                with processing_indicator(
-                    "Analyzing action structure with local AI"
-                ):
-                    frame_result = parse_activity_frames(
-                        self.llm,
-                        value,
-                        default_subject=participant_name,
-                        known_subjects=known_subjects,
-                        context=self.model.short_context(),
-                    )
-            except Exception:
+            if not looks_structurally_complex(value):
+                frame_result = parse_simple_activity_frame(
+                    value,
+                    default_subject=participant_name,
+                )
+            elif self.llm is None:
                 self.add_notice(
-                    "I had trouble analyzing the action structure.\n"
-                    "Please try the same answer once more. Nothing was added."
+                    "This sentence contains multiple actions or complements. "
+                    "Ollama is unavailable, so please enter one simple action at a time."
                 )
                 continue
+            else:
+                try:
+                    with self.ollama_operation(
+                        "Analyzing action structure with Ollama"
+                    ) as llm:
+                        frame_result = parse_activity_frames(
+                            llm,
+                            value,
+                            default_subject=participant_name,
+                            known_subjects=known_subjects,
+                            context=self.model.short_context(),
+                        )
+                except Exception as exc:
+                    self.add_notice(
+                        f"I could not analyze the action structure: {exc}\n"
+                        "Please rewrite it as one simple action. Nothing was added."
+                    )
+                    continue
+
+            frame_result = reconcile_activity_frame_solution_bias(
+                value,
+                frame_result,
+            )
 
             if frame_result.get("language") == "Non-English":
                 self.add_notice(
@@ -576,25 +822,6 @@ class OAApp:
                     resolved.append(existing)
                 continue
 
-            try:
-                with processing_indicator(
-                    "Classifying additional subject with local AI"
-                ):
-                    llm_result = self.llm.validate_participant(
-                        subject,
-                        self.model.short_context(),
-                    )
-                result = validate_participant_candidate(subject, llm_result)
-            except Exception:
-                result = None
-
-            if result is None or not result.accepted:
-                self.add_notice(
-                    f'I could not classify the additional subject "{subject}". '
-                    "It was not added as a performer."
-                )
-                continue
-
             if not self.ask_yes_no(
                 f'You mentioned "{subject}" as another performer. '
                 "Should it be included in the operational picture?",
@@ -603,11 +830,20 @@ class OAApp:
             ):
                 continue
 
+            decision = self.confirm_participant_classification(subject)
+            if decision is None:
+                self.add_notice(
+                    f'The additional subject "{subject}" was not added.'
+                )
+                continue
+            node_type, normalized_name, classification = decision
+
             subject_id = self.add_node(
-                result.detected_concept,
-                result.normalized_value,
+                node_type,
+                normalized_name,
                 expects_activity=True,
                 discovery_source="activity_subject",
+                **classification,
             )
             if subject_id not in resolved:
                 resolved.append(subject_id)
@@ -729,6 +965,13 @@ class OAApp:
         self,
         goals: list[tuple[str, str]],
     ) -> None:
+        if self.llm is None:
+            self.add_notice(
+                "Automatic candidate discovery was skipped because Ollama is "
+                "unavailable. Participants can still be added manually."
+            )
+            return
+
         for goal_id, goal_text in goals:
             existing_names = [
                 self.model.name(node_id)
@@ -736,11 +979,11 @@ class OAApp:
             ]
 
             try:
-                with processing_indicator(
-                    "Inspecting goal with local AI"
-                ):
+                with self.ollama_operation(
+                    "Inspecting goal with Ollama"
+                ) as llm:
                     candidates = extract_goal_candidates(
-                        self.llm,
+                        llm,
                         goal_text,
                         existing_names=existing_names,
                     )
@@ -765,28 +1008,15 @@ class OAApp:
                 ):
                     continue
 
-                node_type = proposed_type
-                normalized_name = mention
-
-                try:
-                    with processing_indicator(
-                        "Classifying candidate with local AI"
-                    ):
-                        llm_result = self.llm.validate_participant(
-                            mention,
-                            self.model.short_context(),
-                        )
-                    result = validate_participant_candidate(
-                        mention,
-                        llm_result,
-                    )
-                    if result.accepted:
-                        node_type = result.detected_concept
-                        normalized_name = result.normalized_value
-                except Exception:
-                    # Candidate extraction already passed the exact-span barrier
-                    # and the user confirmed it. Keep the proposed type.
-                    pass
+                decision = self.confirm_participant_classification(
+                    mention,
+                    advisory_type=proposed_type,
+                    advisory_reason=candidate.get("reason", ""),
+                    advisory_source="ollama_goal_extraction",
+                )
+                if decision is None:
+                    continue
+                node_type, normalized_name, classification = decision
 
                 expects_activity = self.activity_expectation_for(
                     node_type,
@@ -799,6 +1029,7 @@ class OAApp:
                     discovery_source="goal_text",
                     discovered_from_goal=goal_id,
                     original_mention=mention,
+                    **classification,
                 )
                 if node_id:
                     self.add_notice(
@@ -846,7 +1077,7 @@ class OAApp:
             first_action = False
 
     def add_manual_participant(self) -> str:
-        node_type, participant_name = self.ask_participant()
+        node_type, participant_name, classification = self.ask_participant()
         expects_activity = self.activity_expectation_for(
             node_type,
             participant_name,
@@ -855,6 +1086,7 @@ class OAApp:
             node_type,
             participant_name,
             expects_activity=expects_activity,
+            **classification,
         )
 
         if not expects_activity:
@@ -1110,6 +1342,9 @@ class OAApp:
                         )
 
     def run(self) -> None:
+        print()
+        print("The app provides advisory classifications and validation checks.")
+        print("You are responsible for confirming the quality of the final model.")
         goals = self.capture_goals()
         self.capture_goal_candidates(goals)
         self.capture_participants_and_actions()

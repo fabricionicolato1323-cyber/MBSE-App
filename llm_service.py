@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 import re
-from pathlib import Path
+import time
+import urllib.error
+import urllib.request
+from dataclasses import dataclass
 from typing import Any
-
-from llama_cpp import Llama
 
 from fast_input import fast_operational_goal_result
 from ontology import CONCEPT_GUIDANCE
@@ -49,8 +51,6 @@ VALIDATION_SCHEMA = {
 }
 
 
-# Participant classification uses a smaller schema because generating fields that
-# are irrelevant to this decision costs noticeable time on CPU-only local models.
 PARTICIPANT_SCHEMA = {
     "type": "object",
     "properties": {
@@ -77,94 +77,243 @@ PARTICIPANT_SCHEMA = {
 }
 
 
-# Keep this prompt compact: prompt-evaluation time is significant on CPU-only
-# local models. The deterministic Python write barrier remains authoritative.
 SYSTEM_VALIDATOR = """
-You validate one answer for a guided Arcadia Operational Analysis assistant.
-Do not modify the graph and do not invent facts.
+You provide advisory semantic validation for a guided Arcadia Operational
+Analysis assistant. Do not modify the graph and do not invent facts. The user is
+the final authority for model quality.
 
 Internal concepts:
 - OperationalCapability: desired operational outcome/state.
-- OperationalActor: human person, role, or human group.
-- OperationalEntity: non-human real-world participant/context element.
+- OperationalActor: one indivisible human person or human role.
+- OperationalEntity: a collective or non-human real-world participant/context.
 - OperationalActivity: behavior performed by a participant.
 - OperationalExchange: information/material/request/item exchanged between actions.
 - CommunicationMean: real-world operational communication method.
 
 Rules:
 1. Natural-language answers must be English; proper names may be language-neutral.
-2. Reject premature software/hardware/architecture/algorithm/implementation choices.
+2. Flag premature software/hardware/architecture/algorithm choices.
 3. Judge meaning, not similarity to examples or fixed domain vocabulary.
 4. A short unfamiliar verb phrase may still be a valid operational activity.
 5. A goal is a desired outcome/state, not a future solution component.
-6. Keep corrections semantically faithful; never invent a different action or fact.
-7. Keep reasons short and user-friendly; do not expose Arcadia jargon.
+6. Never invent or silently correct a different fact.
+7. Keep reasons short and user-friendly.
 8. Output JSON only using the supplied schema.
 """.strip()
 
 
 PARTICIPANT_SYSTEM = """
-Classify one noun phrase for an operational-model builder.
+Provide an advisory classification for one noun phrase.
 
-OperationalActor = a human person, profession, occupation, job title, human role,
-or human group. A role is valid even when it is not a named individual.
-OperationalEntity = a non-human real-world organization, group, facility, resource,
-place, area, environment, location, or external party/context element.
-Other = neither of those, or clearly a proposed technical solution.
+OperationalActor = one human person, profession, occupation, job title, or
+indivisible human role. OperationalEntity = a collective, organization,
+organizational unit, team, existing external technical participant, facility,
+operational service, population, community, or environmental participant.
+Other = neither of those, a communication/information/location item that does
+not participate operationally, or a proposed solution.
 
 Important rules:
-- A profession/job title is a human role, so classify it as OperationalActor.
-- Do NOT reject something because it was not mentioned earlier or because the
-  current goal/context does not explicitly name it. This step classifies type only.
-- Do not require a named physical instance; operational roles are legitimate.
-- Classify from meaning without fixed profession, industry, or asset vocabulary.
-- Never invent or rewrite the meaning.
+- A profession or job title is an OperationalActor.
+- A team, crew, staff, department, or organization is an OperationalEntity.
+- Do not require a named individual; a human role is legitimate.
+- Do not reject an existing external technical participant merely because it is
+  technical. Do flag a proposed or future System of Interest.
+- Classify from meaning without inventing facts.
+- The result is only advice; the user will make the final decision.
 - Output JSON only.
 """.strip()
 
 
-class LocalLLM:
+class OllamaError(RuntimeError):
+    pass
+
+
+class ModelSelectionError(OllamaError):
+    pass
+
+
+@dataclass(frozen=True)
+class ResponseMetrics:
+    client_seconds: float
+    ollama_seconds: float | None = None
+    load_seconds: float | None = None
+    prompt_tokens: int | None = None
+    output_tokens: int | None = None
+
+
+def _nanoseconds_to_seconds(value: object) -> float | None:
+    if not isinstance(value, (int, float)):
+        return None
+    return float(value) / 1_000_000_000
+
+
+class OllamaLLM:
+    """Small Ollama HTTP client with structured output and response telemetry."""
+
     def __init__(
         self,
-        model_path: str,
-        n_ctx: int = 4096,
-        n_threads: int | None = None,
-        n_gpu_layers: int = 0,
-        chat_format: str | None = None,
+        *,
+        base_url: str = "http://localhost:11434",
+        model: str | None = None,
+        model_env: str = "MBSE_OLLAMA_MODEL",
+        timeout_seconds: float = 120,
+        keep_alive: str | int | None = None,
+        num_ctx: int | None = None,
     ) -> None:
-        path = Path(model_path)
-        if not path.exists():
-            raise FileNotFoundError(
-                f"GGUF model not found: {path}\n"
-                "Place the model in the models folder and update config.json if needed."
+        self.base_url = base_url.rstrip("/")
+        if self.base_url.endswith("/api"):
+            self.base_url = self.base_url[:-4]
+        self.timeout_seconds = timeout_seconds
+        self.keep_alive = keep_alive
+        self.num_ctx = num_ctx
+        self.metrics: list[ResponseMetrics] = []
+
+        configured_model = str(model or os.getenv(model_env, "")).strip()
+        installed = self.list_models()
+        self.model = self._resolve_model(configured_model, installed, model_env)
+
+    @staticmethod
+    def _resolve_model(
+        configured_model: str,
+        installed_models: list[str],
+        model_env: str,
+    ) -> str:
+        if configured_model:
+            if configured_model not in installed_models:
+                available = ", ".join(installed_models) or "none"
+                raise ModelSelectionError(
+                    f"Configured Ollama model '{configured_model}' is not installed. "
+                    f"Available models: {available}."
+                )
+            return configured_model
+
+        if len(installed_models) == 1:
+            return installed_models[0]
+        if not installed_models:
+            raise ModelSelectionError(
+                "No Ollama model is installed. Install one, then set "
+                f"{model_env} or config.json."
             )
 
-        kwargs: dict[str, Any] = {
-            "model_path": str(path),
-            "n_ctx": n_ctx,
-            "n_gpu_layers": n_gpu_layers,
-            "verbose": False,
-        }
-        if n_threads is not None:
-            kwargs["n_threads"] = n_threads
-        if chat_format:
-            kwargs["chat_format"] = chat_format
+        available = ", ".join(installed_models)
+        raise ModelSelectionError(
+            "More than one Ollama model is installed and no model was selected. "
+            f"Set {model_env} or config.json. Available models: {available}."
+        )
 
-        self.llm = Llama(**kwargs)
+    def _request(
+        self,
+        path: str,
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        data = None
+        headers = {"Accept": "application/json"}
+        method = "GET"
+        if payload is not None:
+            data = json.dumps(payload).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+            method = "POST"
+
+        request = urllib.request.Request(
+            f"{self.base_url}{path}",
+            data=data,
+            headers=headers,
+            method=method,
+        )
+        try:
+            with urllib.request.urlopen(
+                request,
+                timeout=self.timeout_seconds,
+            ) as response:
+                raw = response.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise OllamaError(
+                f"Ollama HTTP {exc.code}: {detail or exc.reason}"
+            ) from exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            raise OllamaError(
+                f"Cannot reach Ollama at {self.base_url}: {exc}"
+            ) from exc
+
+        try:
+            decoded = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise OllamaError("Ollama returned invalid JSON.") from exc
+        if not isinstance(decoded, dict):
+            raise OllamaError("Ollama returned an unexpected response shape.")
+        return decoded
+
+    def list_models(self) -> list[str]:
+        response = self._request("/api/tags")
+        names: list[str] = []
+        for item in response.get("models", []):
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or item.get("model") or "").strip()
+            if name and name not in names:
+                names.append(name)
+        return names
 
     @staticmethod
     def _parse_json(content: str) -> dict:
-        """Parse small-model JSON robustly without weakening the schema contract."""
         cleaned = content.strip()
         cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r"\s*```$", "", cleaned)
-
         start = cleaned.find("{")
         end = cleaned.rfind("}")
         if start >= 0 and end > start:
             cleaned = cleaned[start : end + 1]
+        parsed = json.loads(cleaned, strict=False)
+        if not isinstance(parsed, dict):
+            raise ValueError("Expected one JSON object.")
+        return parsed
 
-        return json.loads(cleaned, strict=False)
+    def metric_count(self) -> int:
+        return len(self.metrics)
+
+    def timing_summary_since(self, start_index: int) -> str:
+        items = self.metrics[start_index:]
+        if not items:
+            return "No Ollama response was required."
+        wall = sum(item.client_seconds for item in items)
+        ollama_values = [
+            item.ollama_seconds
+            for item in items
+            if item.ollama_seconds is not None
+        ]
+        ollama_text = (
+            f" | Ollama: {sum(ollama_values):.2f} s"
+            if ollama_values
+            else ""
+        )
+        return (
+            f"Ollama responses: {len(items)} | client time: {wall:.2f} s"
+            f"{ollama_text}"
+        )
+
+    def _record_metrics(self, response: dict[str, Any], elapsed: float) -> None:
+        self.metrics.append(
+            ResponseMetrics(
+                client_seconds=elapsed,
+                ollama_seconds=_nanoseconds_to_seconds(
+                    response.get("total_duration")
+                ),
+                load_seconds=_nanoseconds_to_seconds(
+                    response.get("load_duration")
+                ),
+                prompt_tokens=(
+                    int(response["prompt_eval_count"])
+                    if isinstance(response.get("prompt_eval_count"), int)
+                    else None
+                ),
+                output_tokens=(
+                    int(response["eval_count"])
+                    if isinstance(response.get("eval_count"), int)
+                    else None
+                ),
+            )
+        )
 
     def _json_chat(
         self,
@@ -188,15 +337,32 @@ class LocalLLM:
                     }
                 )
 
-            response = self.llm.create_chat_completion(
-                messages=current_messages,
-                temperature=0,
-                max_tokens=max_tokens,
-                response_format={"type": "json_object", "schema": schema},
-            )
-            content = response["choices"][0]["message"]["content"]
-            if not content:
-                last_error = RuntimeError("The local LLM returned an empty response.")
+            options: dict[str, Any] = {
+                "temperature": 0,
+                "num_predict": max_tokens,
+            }
+            if self.num_ctx is not None:
+                options["num_ctx"] = self.num_ctx
+
+            payload: dict[str, Any] = {
+                "model": self.model,
+                "messages": current_messages,
+                "stream": False,
+                "format": schema,
+                "options": options,
+            }
+            if self.keep_alive is not None:
+                payload["keep_alive"] = self.keep_alive
+
+            started = time.perf_counter()
+            response = self._request("/api/chat", payload)
+            elapsed = time.perf_counter() - started
+            self._record_metrics(response, elapsed)
+
+            message = response.get("message", {})
+            content = message.get("content") if isinstance(message, dict) else None
+            if not isinstance(content, str) or not content.strip():
+                last_error = OllamaError("Ollama returned an empty response.")
                 continue
 
             try:
@@ -204,13 +370,12 @@ class LocalLLM:
             except (json.JSONDecodeError, TypeError, ValueError) as exc:
                 last_error = exc
 
-        raise RuntimeError(
-            f"The local model returned invalid structured data twice: {last_error}"
+        raise OllamaError(
+            f"Ollama returned invalid structured data twice: {last_error}"
         )
 
     @staticmethod
     def _needs_semantic_recheck(result: dict, expected_concept: str) -> bool:
-        """Decide whether a compact-model negative deserves one neutral second look."""
         return (
             not bool(result.get("valid", False))
             or result.get("detected_concept") != expected_concept
@@ -233,11 +398,9 @@ Context: {context or 'No additional context.'}
 Candidate: {candidate}
 First result: valid={first_result.get('valid')}, concept={first_result.get('detected_concept')}, solution_bias={first_result.get('solution_bias')}
 
-Re-evaluate from scratch. The wording may use an unfamiliar but valid operational
-verb or domain term. Reject only if the meaning genuinely fails the expected
-concept, violates the language rule, or introduces a technical solution.
+Re-evaluate from scratch. Reject only when the meaning genuinely fails the
+expected concept, violates the language rule, or introduces a technical solution.
 """.strip()
-
         return self._json_chat(
             [
                 {"role": "system", "content": SYSTEM_VALIDATOR},
@@ -268,7 +431,6 @@ Candidate: {candidate}
 
 Assess only this answer from meaning. Do not require it to resemble an example.
 """.strip()
-
         result = self._json_chat(
             [
                 {"role": "system", "content": SYSTEM_VALIDATOR},
@@ -294,7 +456,6 @@ Assess only this answer from meaning. Do not require it to resemble an example.
                 and not second.get("solution_bias", False)
             ):
                 return second
-
         return result
 
     def validate_participant(
@@ -302,10 +463,7 @@ Assess only this answer from meaning. Do not require it to resemble an example.
         candidate: str,
         context: str = "",
     ) -> dict:
-        # Context is intentionally not sent to the classifier. At this point the
-        # user is explicitly introducing a possible participant/context element;
-        # classification must not reject it merely because it was absent from the
-        # goal or previous model state.
+        del context
         prompt = f"Candidate: {candidate}\nClassify its type only."
         compact = self._json_chat(
             [
@@ -313,32 +471,10 @@ Assess only this answer from meaning. Do not require it to resemble an example.
                 {"role": "user", "content": prompt},
             ],
             PARTICIPANT_SCHEMA,
-            max_tokens=90,
+            max_tokens=100,
         )
-
         detected = compact.get("detected_concept", "Other")
         solution_bias = bool(compact.get("solution_bias", False))
-        reason = str(compact.get("reason", ""))
-
-        # Generic repair for a compact-model contradiction such as:
-        # "This is a profession, not a participant." In this ontology a
-        # profession/job title/human role is exactly an OperationalActor.
-        reason_lower = reason.casefold()
-        role_cues = (
-            "profession",
-            "occupation",
-            "job title",
-            "human role",
-            "professional role",
-        )
-        if (
-            detected == "Other"
-            and not solution_bias
-            and any(cue in reason_lower for cue in role_cues)
-        ):
-            detected = "OperationalActor"
-            reason = ""
-
         normalized = str(compact.get("normalized_value") or candidate).strip()
         return {
             "valid": detected in {"OperationalActor", "OperationalEntity"}
@@ -347,6 +483,6 @@ Assess only this answer from meaning. Do not require it to resemble an example.
             "detected_concept": detected,
             "normalized_value": normalized,
             "solution_bias": solution_bias,
-            "reason": reason,
+            "reason": str(compact.get("reason", "")),
             "suggestion": "",
         }

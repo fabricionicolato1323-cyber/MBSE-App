@@ -42,18 +42,27 @@ def main() -> None:
     assert result.accepted, result
     assert result.detected_concept == "OperationalActor", result
 
-    # A technical solution must still be rejected.
+    # A proposed technical solution must still be rejected.
     technical = {
         "valid": True,
         "language": "English",
         "detected_concept": "OperationalEntity",
-        "normalized_value": "Software platform",
+        "normalized_value": "Proposed platform",
         "solution_bias": False,
         "reason": "",
         "suggestion": "",
     }
-    result = validate_participant_candidate("Software platform", technical)
+    result = validate_participant_candidate("Proposed platform", technical)
     assert not result.accepted, result
+
+    # An explicitly existing external technical participant is not automatically
+    # solution bias in Operational Analysis.
+    existing = {
+        **technical,
+        "normalized_value": "Existing external radar",
+    }
+    result = validate_participant_candidate("Existing external radar", existing)
+    assert result.accepted, result
 
     print("Participant classification test passed.")
 

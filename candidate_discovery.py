@@ -4,6 +4,7 @@ import re
 from typing import Iterable
 
 from ontology import CANDIDATE_TARGET_TYPES
+from participant_rules import classify_participant
 
 
 GOAL_CANDIDATE_SCHEMA = {
@@ -40,9 +41,10 @@ user's goal. A candidate is only a possible model element; the user will confirm
 it before anything is added to the model.
 
 Classify each extracted mention as one of:
-- OperationalActor: a person, human role, or human group.
-- OperationalEntity: a non-human real-world stakeholder, organization, group,
-  facility, resource, place, area, environment, or contextual element.
+- OperationalActor: one indivisible person or human role.
+- OperationalEntity: a collective, organization, team, existing external
+  technical participant, facility, resource, place, area, environment, or
+  contextual element.
 - Other: an abstract quality, event, action, property, or phrase that should not
   become a participant/context candidate.
 
@@ -90,6 +92,12 @@ def _classify_part(local_llm, part: str, context: str) -> str | None:
     No role names, asset names, industries, or scenario-specific nouns are embedded
     here. If the compact model is uncertain, no split is forced.
     """
+    rule_advice = classify_participant(part)
+    if rule_advice.actionable:
+        return rule_advice.concept
+    if rule_advice.solution_bias:
+        return None
+
     try:
         result = local_llm.validate_participant(part, context)
     except Exception:
@@ -134,8 +142,8 @@ def _split_coordinated_candidate(local_llm, raw: dict, goal: str) -> list[dict]:
             part,
             context=(
                 "This phrase was explicitly mentioned inside the operational goal. "
-                "Classify only whether it is a real-world human participant or a "
-                "non-human participant/context element."
+                "Classify only whether it is one indivisible human participant "
+                "or a collective/non-human participant or context element."
             ),
         )
         for part in parts
