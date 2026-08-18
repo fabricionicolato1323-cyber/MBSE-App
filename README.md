@@ -1,35 +1,82 @@
 # Arcadia OA Guided Builder
 
-A local **Arcadia Operational Analysis** prototype built with:
+A local, human-in-the-loop assistant for guided construction of an Arcadia
+Operational Analysis model.
 
-- Python
-- `llama-cpp-python`
-- a local GGUF instruct/chat model
-- NetworkX `MultiDiGraph`
+The application is a support tool. It detects candidates, presents transparent
+rules, requests optional advice from a local Ollama model, and checks the graph.
+The user remains responsible for every classification and for the quality of the
+final model.
 
-The application is focused on **guided construction** of an Operational Analysis model. The user does not need to know Arcadia terminology.
+## Design principles
 
-## User-facing dialogue
+- The deterministic Python layer is the write barrier.
+- Ollama is advisory and is not required for simple participant classification.
+- No candidate becomes a model element without an explicit user decision.
+- Operational Actor means one indivisible human person or human role.
+- Human collectives and non-human operational participants are Operational Entities.
+- Participant type, nature, and operational role are separate dimensions.
+- The future System of Interest is not introduced in Operational Analysis.
+- Every Ollama operation reports wall-clock response time; Ollama's own API
+  duration is also reported when available.
+- No model name is hardcoded in source code or documentation.
 
-The assistant asks small questions such as:
+## Processing flow
 
 ```text
-What is the main goal?
-Who or what is involved?
-Does this place actively do something in the operation?
-What does Field Soldier do?
-Is Field Soldier part of another group or facility?
-Where does Field Soldier operate?
-What is exchanged?
-Which action receives it?
-How do they communicate?
+User text
+   |
+Deterministic extraction/classification rules
+   |
+Advisory suggestion + explanation
+   |                         \
+User decision                Optional Ollama opinion
+   |
+Ontology validation
+   |
+Confirmed NetworkX model
 ```
 
-The dialogue is English-only. Minor English mistakes may be corrected without blocking a semantically clear answer.
+Ollama is mainly used for complex semantic frames, optional goal candidate
+discovery, ambiguous validation, and an explicitly requested second opinion.
+Simple activity phrases and participant classifications have deterministic paths.
 
-## Internal ontology
+## Participant ontology
 
-The user-facing language is intentionally simple, but the graph internally uses:
+```text
+OperationalParticipant
+|- OperationalActor
+`- OperationalEntity
+   |- organization
+   |- organizational_unit
+   |- team_or_collective
+   |- existing_technical_system
+   |- infrastructure_or_facility
+   |- external_operational_service
+   |- population_or_community
+   `- environmental_participant
+```
+
+Rules and editable vocabulary are stored in:
+
+```text
+participant_rules.py
+participant_lexicon.json
+```
+
+Each confirmed participant records:
+
+- `nature`
+- `status=confirmed`
+- `confirmed_by=user`
+- `classification_source`
+- `classification_evidence`
+- `classification_reason`
+- `classification_rules`
+
+## Internal model
+
+The graph uses:
 
 - `OperationalCapability`
 - `OperationalActor`
@@ -38,173 +85,82 @@ The user-facing language is intentionally simple, but the graph internally uses:
 - `OperationalExchange`
 - `CommunicationMean`
 
-### Main relations
+Main relations:
 
 ```text
-OperationalActor  --PERFORMS--> OperationalActivity
-OperationalEntity --PERFORMS--> OperationalActivity
-
+OperationalActor/Entity --PERFORMS--> OperationalActivity
 OperationalActivity --SUPPORTS_CAPABILITY--> OperationalCapability
 OperationalActivity --OPERATIONAL_EXCHANGE--> OperationalActivity
-
 OperationalActor/Entity --COMMUNICATION_MEAN--> OperationalActor/Entity
+OperationalEntity --CONTAINS--> OperationalEntity/Actor
+OperationalActor/Entity --LOCATED_IN--> OperationalEntity
 ```
 
-### Structure and environment
+Operational Actors are structural leaves. `CONTAINS` and `LOCATED_IN` are kept
+separate so organizational membership is not confused with operational location.
 
-Operational Entities may represent organizations, groups, facilities, buildings,
-areas, environments, locations, or other non-human operational elements.
+## Ollama configuration
 
-```text
-OperationalEntity --CONTAINS--> OperationalEntity
-OperationalEntity --CONTAINS--> OperationalActor
+Install and start Ollama, then install an instruct/chat model of your choice.
+The application never assumes a particular model.
 
-OperationalActor  --LOCATED_IN--> OperationalEntity
-OperationalEntity --LOCATED_IN--> OperationalEntity
+List installed models:
+
+```powershell
+ollama list
 ```
 
-`PART_OF` is the inverse meaning of `CONTAINS`; the graph stores only the
-`CONTAINS` edge so the same fact is not duplicated.
+Select a model using either:
 
-`CONTAINS/PART_OF` and `LOCATED_IN` are intentionally separate:
+1. The `MBSE_OLLAMA_MODEL` environment variable; or
+2. `ollama.model` in `config.json`.
 
-```text
-Patrol Team --CONTAINS--> Field Soldier
-Field Soldier --LOCATED_IN--> Restricted Area
+PowerShell example using a placeholder rather than a fixed model:
+
+```powershell
+$env:MBSE_OLLAMA_MODEL = "<installed-model-name>"
+python app.py
 ```
 
-This lets the model distinguish organizational/structural membership from the
-environment or place where something operates.
+If exactly one model is installed and neither setting is supplied, it is selected
+automatically. If zero or several models are installed, the app explains how to
+select one and continues with deterministic rules.
 
-Operational Actors are treated as structural leaves: they can be contained by an
-Operational Entity but cannot contain other participants.
+`config.json`:
 
-## Context-only entities
-
-A place or environmental element does not have to perform an activity.
-
-Example:
-
-```text
-Restricted Area
-Military Base
-Building A
+```json
+{
+  "ollama": {
+    "enabled": true,
+    "base_url": "http://localhost:11434",
+    "model": null,
+    "model_env": "MBSE_OLLAMA_MODEL",
+    "timeout_seconds": 120,
+    "keep_alive": "10m",
+    "num_ctx": 4096
+  }
+}
 ```
 
-When a non-human entity is added, the application asks:
-
-```text
-Does Restricted Area actively do something in this operation? (yes/no)
-```
-
-If the answer is `no`, the entity remains in the model as operational context and
-the completeness checker does not require an action for it.
-
-## Write protection
-
-The LLM never writes directly to NetworkX.
-
-```text
-User answer
-    |
-Local GGUF LLM
-    |
-semantic interpretation
-    |
-deterministic Python validation
-    |
-WRITE BARRIER
-    |
-NetworkX MultiDiGraph
-```
-
-The Python layer blocks invalid ontology relations, duplicates, containment
-cycles, location cycles, obvious solution/implementation bias, and non-English
-natural-language input.
-
-## Commands
-
-The command bar is shown with every question:
-
-```text
-/help  /show  /check  /why  /save  /undo  /clc  /done  /quit
-```
-
-`/clc` is the only command that clears the terminal. The normal question flow
-preserves terminal history.
+Setting `model` to `null` is intentional: it prevents a model from being
+hardcoded in the repository.
 
 ## Windows installation
 
 Use Python 3.12.
 
 ```powershell
-py -3.12 --version
-```
-
-If needed:
-
-```powershell
-winget install -e --id Python.Python.3.12
-```
-
-Clone the repository:
-
-```powershell
 cd D:\AI
 git clone https://github.com/fabricionicolato1323-cyber/MBSE-App.git
 cd MBSE-App
-```
-
-Create and activate the environment:
-
-```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
+pip install -r requirements.txt
 ```
 
-Install the dependencies using the pre-built CPU wheel for `llama-cpp-python`:
-
-```powershell
-pip install -r requirements.txt --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu --prefer-binary
-```
-
-Do **not** use plain `pip install -r requirements.txt` on this Windows setup if it
-starts compiling `llama-cpp-python` with CMake.
-
-## GGUF model
-
-Place the Qwen GGUF at:
-
-```text
-models\model.gguf
-```
-
-Current test model:
-
-```text
-qwen2.5-3b-instruct-q4_k_m.gguf
-```
-
-Test loading:
-
-```powershell
-python -c "from llama_cpp import Llama; llm=Llama(model_path='models/model.gguf', n_ctx=4096, verbose=False); print('MODEL LOADED OK')"
-```
-
-## Tests
-
-Run:
-
-```powershell
-python smoke_test.py
-```
-
-Expected:
-
-```text
-Smoke test passed.
-```
+No GGUF file is copied into this repository and `llama-cpp-python` is not used.
+Ollama owns local model installation and execution.
 
 ## Run
 
@@ -212,11 +168,29 @@ Smoke test passed.
 python app.py
 ```
 
-The graph is saved as:
+The model is saved as `oa_model.json`.
+
+## Commands
 
 ```text
-oa_model.json
+/help  /show  /check  /why  /save  /undo  /clc  /done  /quit
 ```
 
-The GGUF model, `.venv`, Python cache files, and saved user model are excluded
-from Git by `.gitignore`.
+`/clc` is the only command that clears terminal history.
+
+## Tests
+
+Run all regression scripts:
+
+```powershell
+python smoke_test.py
+python goal_fast_path_test.py
+python participant_classification_test.py
+python participant_rules_test.py
+python candidate_discovery_test.py
+python semantic_frames_test.py
+python ollama_service_test.py
+```
+
+The Ollama service test uses a fake HTTP response and does not require a running
+model. A live end-to-end run requires Ollama.

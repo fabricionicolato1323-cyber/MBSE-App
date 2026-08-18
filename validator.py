@@ -15,6 +15,7 @@ except ImportError:
     _HAS_LANGDETECT = False
 
 from ontology import CONCEPT_GUIDANCE, SOLUTION_BIAS_TERMS
+from participant_rules import classify_participant
 
 
 @dataclass
@@ -273,13 +274,14 @@ def validate_participant_candidate(
 ) -> ValidationResult:
     value = normalize_whitespace(raw_value)
 
-    if _contains_technical_solution_term(value):
+    rule_advice = classify_participant(value)
+    if rule_advice.solution_bias:
         return ValidationResult(
             False,
             reason=(
-                "That sounds like a technical system or solution. "
-                "Here I need a real-world person, group, organization, resource, "
-                "place, area, or environmental element."
+                "That wording appears to describe a proposed solution. "
+                "An existing external technical participant may be valid, but the "
+                "future System of Interest must not be introduced in OA."
             ),
         )
 

@@ -124,6 +124,47 @@ def looks_structurally_complex(value: str) -> bool:
     return bool(_COMPLEXITY_MARKERS.search(text))
 
 
+def parse_simple_activity_frame(text: str, *, default_subject: str) -> dict:
+    """Parse one simple action without an LLM.
+
+    This intentionally handles only a conservative form: one short verb phrase
+    without coordination, conditions, timing, or punctuation. Complex input is
+    delegated to Ollama and remains subject to user confirmation.
+    """
+    normalized = re.sub(r"\s+", " ", text.strip())
+    words = re.findall(r"[A-Za-z][A-Za-z'-]*", normalized)
+    if not normalized or not words or looks_structurally_complex(normalized):
+        return {
+            "valid": False,
+            "language": "Language-neutral",
+            "solution_bias": False,
+            "reason": "The deterministic parser only accepts one simple action.",
+            "clauses": [],
+            "parsing_source": "rules",
+        }
+
+    return {
+        "valid": True,
+        "language": "Language-neutral" if normalized.isascii() else "English",
+        "solution_bias": False,
+        "reason": "",
+        "clauses": [
+            {
+                "subjects": [default_subject] if default_subject else [],
+                "verb": words[0],
+                "objects": [],
+                "recipients": [],
+                "locations": [],
+                "conditions": [],
+                "time": [],
+                "other_complements": [],
+                "activity_text": normalized,
+            }
+        ],
+        "parsing_source": "rules",
+    }
+
+
 def _clean(value: object) -> str:
     return re.sub(r"\s+", " ", str(value or "").strip())
 

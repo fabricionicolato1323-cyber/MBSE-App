@@ -32,6 +32,41 @@ NODE_TYPES = {
 
 PARTICIPANT_TYPES = {"OperationalActor", "OperationalEntity"}
 
+# Participant type, participant nature, and operational role are deliberately
+# separate dimensions. Roles are attributes because the same participant may
+# play different roles in different capabilities or scenarios.
+PARTICIPANT_NATURES = {
+    "human_individual",
+    "organization",
+    "organizational_unit",
+    "team_or_collective",
+    "existing_technical_system",
+    "infrastructure_or_facility",
+    "external_operational_service",
+    "population_or_community",
+    "environmental_participant",
+    "unspecified",
+}
+
+OPERATIONAL_ROLES = {
+    "initiator",
+    "requester",
+    "performer",
+    "operator",
+    "coordinator",
+    "decision_authority",
+    "information_provider",
+    "information_consumer",
+    "service_provider",
+    "regulator",
+    "support_or_maintainer",
+    "responder",
+    "beneficiary",
+    "affected_party",
+    "observer",
+    "adversary",
+}
+
 # Helper concepts belong to the elicitation/parsing layer, not the persistent OA graph.
 TRANSIENT_HELPER_CONCEPTS = {
     "CandidateMention",
@@ -73,21 +108,24 @@ CONCEPT_GUIDANCE = {
         "language_required": True,
     },
     "OperationalActor": {
-        "definition": "A human operational participant or human role.",
+        "definition": (
+            "One indivisible human operational participant or human role. "
+            "A collective of humans is modeled as an Operational Entity."
+        ),
         "friendly_name": "human participant",
-        "expected_format": "One human role, person, or human group name.",
+        "expected_format": "One human role or person name.",
         "example": "Operations Coordinator",
         "language_required": False,
     },
     "OperationalEntity": {
         "definition": (
-            "A non-human real-world participant or contextual element involved in the "
-            "operation, such as an organization, group, facility, resource, place, area, "
-            "environment, location, or external party. An Operational Entity may contain "
-            "other Operational Entities or Operational Actors."
+            "A collective or non-human real-world participant/context involved in the "
+            "operation, such as an organization, team, existing external technical "
+            "participant, facility, service, population, community, or environmental "
+            "participant. It may contain Operational Entities or Operational Actors."
         ),
-        "friendly_name": "non-human participant or context",
-        "expected_format": "One real-world participant, place, resource, or context name.",
+        "friendly_name": "collective or non-human participant/context",
+        "expected_format": "One collective or real-world participant/context name.",
         "example": "Operations Facility",
         "language_required": False,
     },

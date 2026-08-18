@@ -15,7 +15,7 @@ Internally this becomes an `OperationalCapability`.
 
 ## 2. Discover candidates from the user's wording
 
-The local LLM extracts only noun phrases that occur explicitly in the goal.
+Ollama may extract only noun phrases that occur explicitly in the goal.
 The extraction is advisory and protected by an exact-span / duplicate / type
 barrier.
 
@@ -23,13 +23,18 @@ A `CandidateMention` is transient. It is not written to NetworkX.
 
 ## 3. Ask the user to confirm each candidate
 
-Only a confirmed candidate becomes a persistent `OperationalActor` or
-`OperationalEntity`.
+Deterministic rules first propose a type, nature, evidence level, reason, and
+rule identifiers. The user may confirm, override, reject, or explicitly request
+an Ollama opinion. Only the user's final choice becomes a persistent
+`OperationalActor` or `OperationalEntity`.
+
+An Operational Actor is one indivisible human person or role. Human collectives
+and non-human operational participants are Operational Entities.
 
 ## 4. Determine whether an entity acts or only provides context
 
-A non-human participant/context element may actively perform behavior or may only
-provide operational context. Human actors are treated as active participants.
+An Operational Entity may actively perform behavior or may only provide
+operational context. Human actors are treated as active participants.
 
 ## 5. Capture and parse operational behavior
 
@@ -42,7 +47,9 @@ What does <participant> do?
 The answer may contain one or several subjects, verbs, objects, recipients,
 locations, conditions, time expressions, and other complements.
 
-Before writing to the graph, the answer is parsed into transient semantic frames:
+One simple action is parsed deterministically. Complex language may be sent to
+Ollama and is then shown to the user for confirmation. Before writing to the
+graph, the answer is represented as transient semantic frames:
 
 ```text
 SemanticFrame
