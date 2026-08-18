@@ -7,6 +7,7 @@ from typing import Any
 
 from llama_cpp import Llama
 
+from fast_input import fast_operational_goal_result
 from ontology import CONCEPT_GUIDANCE
 
 
@@ -48,49 +49,29 @@ VALIDATION_SCHEMA = {
 }
 
 
+# Keep this prompt compact: prompt-evaluation time is significant on CPU-only
+# local models. The deterministic Python write barrier remains authoritative.
 SYSTEM_VALIDATOR = """
-You are a semantic gatekeeper for a guided operational-model builder based on
-Arcadia Operational Analysis. The end user must never need Arcadia terminology.
-You do not modify the graph. You only validate and normalize one candidate answer.
+You validate one answer for a guided Arcadia Operational Analysis assistant.
+Do not modify the graph and do not invent facts.
 
 Internal concepts:
-- OperationalCapability: an operational outcome or ability needed by stakeholders.
-- OperationalActor: a human operational participant or human role.
-- OperationalEntity: a non-human real-world participant or contextual element.
-- OperationalActivity: an action performed by a participant.
-- OperationalExchange: information, material, request, or item exchanged between actions.
-- CommunicationMean: an operational communication method between participants.
+- OperationalCapability: desired operational outcome/state.
+- OperationalActor: human person, role, or human group.
+- OperationalEntity: non-human real-world participant/context element.
+- OperationalActivity: behavior performed by a participant.
+- OperationalExchange: information/material/request/item exchanged between actions.
+- CommunicationMean: real-world operational communication method.
 
-General rules:
-1. Never invent facts.
-2. Natural-language answers must be English. Proper names may be Language-neutral.
-3. Stay in Operational Analysis. Reject premature software, hardware, architecture,
-   component, algorithm, interface, or implementation choices when the same meaning
-   can be stated as an operational need or action.
-4. Do not introduce the future system-of-interest as if it were an existing
-   operational participant.
-5. Validate actions semantically, not by matching a scenario-specific action list.
-   A meaningful English verb phrase can be a valid OperationalActivity in any
-   domain. Decisions, approvals, authorizations, observations, communication,
-   coordination, information handling, service actions, and physical actions may
-   all be valid when they describe what a participant does operationally.
-6. Do not reject an action merely because it is short, broad, unfamiliar, or from
-   a domain not represented in the prompt. Judge whether it expresses behavior.
-7. Goals should describe an operational outcome or desired state, not a product
-   feature or solution component. Judge the semantics rather than a fixed scenario.
-8. Participant classification must be domain-independent. A human person, role, or
-   human group is an OperationalActor. A non-human organization, group, facility,
-   resource, place, area, environment, or other real-world contextual element is an
-   OperationalEntity. A proposed technical solution is Other when it is not an
-   existing operational participant.
-9. Keep reasons short and user-friendly. Do not mention Arcadia terminology in the reason.
-10. If invalid, give one simple English suggestion only when it preserves the user's
-    intended meaning. Never invent a different fact.
-11. normalized_value may fix grammar/capitalization but must preserve the same meaning.
-12. Output JSON only using the supplied schema.
-
-The rules above are intentionally domain-neutral. Do not assume any specific
-industry, mission, organization, asset type, profession, or action vocabulary.
+Rules:
+1. Natural-language answers must be English; proper names may be language-neutral.
+2. Reject premature software/hardware/architecture/algorithm/implementation choices.
+3. Judge meaning, not similarity to examples or fixed domain vocabulary.
+4. A short unfamiliar verb phrase may still be a valid operational activity.
+5. A goal is a desired outcome/state, not a future solution component.
+6. Keep corrections semantically faithful; never invent a different action or fact.
+7. Keep reasons short and user-friendly; do not expose Arcadia jargon.
+8. Output JSON only using the supplied schema.
 """.strip()
 
 
@@ -142,7 +123,7 @@ class LocalLLM:
         messages: list[dict],
         schema: dict,
         *,
-        max_tokens: int = 320,
+        max_tokens: int = 220,
     ) -> dict:
         last_error: Exception | None = None
 
@@ -153,8 +134,8 @@ class LocalLLM:
                     {
                         "role": "user",
                         "content": (
-                            "Return the answer again as one valid JSON object only. "
-                            "Do not use markdown, comments, or literal line breaks inside JSON strings."
+                            "Return one valid JSON object only. No markdown, comments, "
+                            "or literal line breaks inside JSON strings."
                         ),
                     }
                 )
@@ -167,9 +148,7 @@ class LocalLLM:
             )
             content = response["choices"][0]["message"]["content"]
             if not content:
-                last_error = RuntimeError(
-                    "The local LLM returned an empty response."
-                )
+                last_error = RuntimeError("The local LLM returned an empty response.")
                 continue
 
             try:
@@ -199,26 +178,16 @@ class LocalLLM:
     ) -> dict:
         guidance = CONCEPT_GUIDANCE[expected_concept]
         prompt = f"""
-Perform an independent second semantic check.
-
-Expected internal concept: {expected_concept}
+Independent semantic recheck.
+Expected concept: {expected_concept}
 Definition: {guidance['definition']}
-Expected answer form: {guidance['expected_format']}
-Current context: {context or 'No additional context.'}
-Candidate answer: {candidate}
+Context: {context or 'No additional context.'}
+Candidate: {candidate}
+First result: valid={first_result.get('valid')}, concept={first_result.get('detected_concept')}, solution_bias={first_result.get('solution_bias')}
 
-The first check returned:
-- valid: {first_result.get('valid')}
-- detected concept: {first_result.get('detected_concept')}
-- solution bias: {first_result.get('solution_bias')}
-- reason: {first_result.get('reason', '')}
-
-Do not defend the first answer. Re-evaluate from scratch. The candidate may come
-from any application domain and may use an unfamiliar but valid verb, role, asset,
-resource, organization, or place name. Do not require it to match any memorized
-example or fixed vocabulary. Reject it only when its meaning genuinely fails the
-expected concept, is non-English where English is required, or introduces a
-premature technical solution.
+Re-evaluate from scratch. The wording may use an unfamiliar but valid operational
+verb or domain term. Reject only if the meaning genuinely fails the expected
+concept, violates the language rule, or introduces a technical solution.
 """.strip()
 
         return self._json_chat(
@@ -227,6 +196,7 @@ premature technical solution.
                 {"role": "user", "content": prompt},
             ],
             VALIDATION_SCHEMA,
+            max_tokens=180,
         )
 
     def validate_candidate(
@@ -235,18 +205,22 @@ premature technical solution.
         expected_concept: str,
         context: str = "",
     ) -> dict:
+        # High-confidence operational goals do not need an LLM call. This removes
+        # the exact false-negative/latency pattern seen with compact local models.
+        if expected_concept == "OperationalCapability":
+            fast_result = fast_operational_goal_result(candidate)
+            if fast_result is not None:
+                return fast_result
+
         guidance = CONCEPT_GUIDANCE[expected_concept]
         prompt = f"""
-Expected internal concept: {expected_concept}
+Expected concept: {expected_concept}
 Definition: {guidance['definition']}
-Expected answer: {guidance['expected_format']}
-Generic form example: {guidance['example']}
-Current context: {context or 'No additional context.'}
-Candidate answer: {candidate}
+Expected form: {guidance['expected_format']}
+Context: {context or 'No additional context.'}
+Candidate: {candidate}
 
-Assess only this answer using the concept definition and general rules. Do not
-require the candidate to resemble the example. Keep any user-facing reason simple
-and free of Arcadia jargon.
+Assess only this answer from meaning. Do not require it to resemble an example.
 """.strip()
 
         result = self._json_chat(
@@ -255,10 +229,14 @@ and free of Arcadia jargon.
                 {"role": "user", "content": prompt},
             ],
             VALIDATION_SCHEMA,
+            max_tokens=180,
         )
 
+        # Do not perform an expensive second LLM call for goals. Clear goal forms
+        # were already handled by the deterministic fast path. Activity negatives
+        # may still receive one independent semantic recheck.
         if (
-            expected_concept in {"OperationalActivity", "OperationalCapability"}
+            expected_concept == "OperationalActivity"
             and self._needs_semantic_recheck(result, expected_concept)
         ):
             second = self._semantic_recheck(
@@ -282,25 +260,15 @@ and free of Arcadia jargon.
         context: str = "",
     ) -> dict:
         prompt = f"""
-The user was asked to name one real-world element involved in an operation.
+Classify one real-world operational element.
+- OperationalActor: human person, role, or human group.
+- OperationalEntity: non-human organization, group, facility, resource, place,
+  area, environment, location, or external real-world party/context element.
+- Other: neither of those, or clearly a proposed technical solution.
 
-Classify the answer internally as:
-- OperationalActor only when it clearly names a human person, human role, or human group.
-- OperationalEntity when it names a non-human real-world participant or contextual
-  element such as an organization, group, facility, resource, place, area,
-  environment, location, or external party.
-- Other when it is neither of those, or when it is clearly a proposed technical
-  solution rather than an existing real-world participant/context element.
-
-Do not use a fixed vocabulary of professions, industries, assets, places, or
-scenario names. Classify from meaning. Do not reject a plausible short label merely
-because it is not a complete sentence or because its domain is unfamiliar.
-
-Current context: {context or 'No additional context.'}
-Candidate answer: {candidate}
-
-Natural-language answers must be English. Proper names may be Language-neutral.
-Do not expose Arcadia terminology in the reason.
+Classify from meaning without fixed profession/industry/asset vocabulary.
+Context: {context or 'No additional context.'}
+Candidate: {candidate}
 """.strip()
         return self._json_chat(
             [
@@ -308,4 +276,5 @@ Do not expose Arcadia terminology in the reason.
                 {"role": "user", "content": prompt},
             ],
             VALIDATION_SCHEMA,
+            max_tokens=170,
         )
