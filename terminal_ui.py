@@ -3,6 +3,7 @@ from __future__ import annotations
 import itertools
 import sys
 import threading
+import time
 from contextlib import contextmanager
 from typing import Iterator
 
@@ -33,15 +34,21 @@ EXPECTED_STRUCTURES = {
 def processing_indicator(
     message: str = "Processing with local AI",
 ) -> Iterator[None]:
-    """Show animated dots while a blocking local-AI call runs.
+    """Show animated dots and the elapsed processing time.
 
-    Uses only carriage returns and ASCII so it works reliably in Windows
-    PowerShell, cmd.exe, VS Code terminals, and typical Unix terminals.
-    It never clears terminal history.
+    The timer starts when processing begins, immediately after the user's input has
+    been submitted. It therefore measures system/AI latency rather than the time the
+    user spent typing. Uses only carriage returns and ASCII for terminal portability.
     """
+    started = time.perf_counter()
+
     if not sys.stdout.isatty():
         print(f"{message}...")
-        yield
+        try:
+            yield
+        finally:
+            elapsed = time.perf_counter() - started
+            print(f"Elapsed processing time: {elapsed:.2f} s")
         return
 
     stop_event = threading.Event()
@@ -69,7 +76,9 @@ def processing_indicator(
     try:
         yield
     finally:
+        elapsed = time.perf_counter() - started
         stop_event.set()
         thread.join(timeout=1.0)
         sys.stdout.write("\r" + (" " * line_width) + "\r")
         sys.stdout.flush()
+        print(f"Elapsed processing time: {elapsed:.2f} s")
