@@ -23,6 +23,7 @@ from terminal_ui import EXPECTED_STRUCTURES, processing_indicator
 from validator import (
     normalize_whitespace,
     obvious_non_english_short_text,
+    reconcile_activity_frame_solution_bias,
     validate_llm_candidate,
     validate_participant_candidate,
 )
@@ -727,6 +728,11 @@ class OAApp:
                         "Please rewrite it as one simple action. Nothing was added."
                     )
                     continue
+
+            frame_result = reconcile_activity_frame_solution_bias(
+                value,
+                frame_result,
+            )
 
             if frame_result.get("language") == "Non-English":
                 self.add_notice(

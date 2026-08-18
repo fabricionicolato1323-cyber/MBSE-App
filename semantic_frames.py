@@ -106,7 +106,9 @@ General parsing rules:
 9. activity_text must preserve the user's meaning and should be suitable as the
    name of one operational activity.
 10. Mark valid=false for text that does not actually describe operational
-    behavior. Mark solution_bias=true for premature implementation/design content.
+    behavior. Mark solution_bias=true only when the user's text explicitly names
+    a proposed implementation or design artifact. Observing information and
+    communicating results are operational behavior, not solution bias by themselves.
 11. Natural-language content must be English. Proper names can be language-neutral.
 12. Output JSON only using the supplied schema.
 """.strip()
@@ -331,6 +333,16 @@ def frame_is_complex(frame_result: dict) -> bool:
 def format_frame_summary(frame_result: dict) -> str:
     clauses = frame_result.get("clauses", [])
     lines = ["I understood the following action structure:"]
+    advisory_warning = _clean(frame_result.get("advisory_warning"))
+    if advisory_warning:
+        lines.extend(
+            [
+                "  Ollama advisory warning (not authoritative): "
+                + advisory_warning,
+                "  Deterministic rules found no explicit implementation term; "
+                "please confirm the interpretation below.",
+            ]
+        )
     for index, clause in enumerate(clauses, start=1):
         lines.append(
             f"  {index}. Action: {clause.get('activity_text', '')}"
