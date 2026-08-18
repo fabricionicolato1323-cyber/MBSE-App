@@ -31,9 +31,14 @@ def normalize_whitespace(value: str) -> str:
 
 
 def deterministic_english_check(value: str) -> Optional[bool]:
+    """Use statistical language detection only when the phrase is long enough.
+
+    Short operational phrases are exactly where compact/statistical detectors are
+    least reliable, so they are handled by high-confidence marker checks instead.
+    """
     words = re.findall(r"[A-Za-zÀ-ÿ]+", value)
     letters = sum(len(word) for word in words)
-    if len(words) < 6 or letters < 35:
+    if len(words) < 10 or letters < 60:
         return None
     if not _HAS_LANGDETECT or detect is None:
         return None
@@ -44,7 +49,6 @@ def deterministic_english_check(value: str) -> Optional[bool]:
 
 
 # These terms describe implementation categories, not application domains.
-# They are only a deterministic safety net against premature solution design.
 TECHNICAL_SOLUTION_WORDS = {
     "system",
     "software",
@@ -58,19 +62,20 @@ TECHNICAL_SOLUTION_WORDS = {
 }
 
 
-# Very common markers used only to catch high-confidence non-English short input.
-# There is deliberately no domain vocabulary here.
+# High-confidence language markers only. There is deliberately no operational
+# domain vocabulary here.
 NON_ENGLISH_MARKERS = {
     # Portuguese
     "o", "a", "os", "as", "de", "da", "do", "das", "dos", "para", "com", "sem",
     "e", "ou", "que", "como", "avaliar", "fornecer", "informar", "controlar",
+    "manter", "proteger", "reduzir", "garantir", "melhorar",
     "informação", "informações", "posição", "velocidade",
     # German
     "der", "die", "das", "den", "dem", "des", "und", "oder", "mit", "ohne", "für",
-    "über", "melden", "bereitstellen", "steuern", "überwachen",
+    "über", "melden", "bereitstellen", "steuern", "überwachen", "halten", "schützen",
     # Spanish / French
-    "el", "la", "los", "las", "y", "con", "sin", "proporcionar",
-    "le", "les", "et", "avec", "sans", "fournir",
+    "el", "la", "los", "las", "y", "con", "sin", "proporcionar", "mantener",
+    "le", "les", "et", "avec", "sans", "fournir", "maintenir", "protéger",
 }
 
 
@@ -99,21 +104,19 @@ def _language_rejected(
     if obvious_non_english_short_text(value):
         return True
 
+    words = _tokens(value)
+
+    # Short ASCII operational phrases are common and language classifiers often
+    # mislabel them. If there are no strong non-English markers, do not reject
+    # them solely because the compact LLM or langdetect guessed another language.
+    if value.isascii() and len(words) <= 12:
+        return False
+
     statistical = deterministic_english_check(value)
     if statistical is False:
         return True
 
-    llm_language = llm_result.get("language", "")
-    if llm_language != "Non-English":
-        return False
-
-    # Compact language classifiers are unreliable for very short ASCII labels and
-    # phrases. Do not reject those solely because of one LLM language label.
-    words = _tokens(value)
-    if len(words) <= 5 and value.isascii():
-        return False
-
-    return True
+    return llm_result.get("language", "") == "Non-English"
 
 
 def _safe_normalized_value(raw_value: str, llm_result: dict) -> str:
@@ -264,16 +267,12 @@ def validate_participant_candidate(
     adjusted = dict(llm_result)
     detected = adjusted.get("detected_concept", "")
 
-    # Participant labels do not need to be complete sentences. If semantic
-    # classification identifies a valid Actor/Entity and there is no solution bias,
-    # the compact model's separate `valid` flag is not allowed to reject it merely
-    # for wording/style reasons. This rule is concept-based, not vocabulary-based.
     if (
         detected in {"OperationalActor", "OperationalEntity"}
         and not adjusted.get("solution_bias", False)
     ):
         adjusted["valid"] = True
-        if len(_tokens(value)) <= 5 and value.isascii():
+        if len(_tokens(value)) <= 12 and value.isascii():
             adjusted["language"] = "Language-neutral"
 
     result = _validate_common(
