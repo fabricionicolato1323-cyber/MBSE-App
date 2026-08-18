@@ -49,6 +49,34 @@ VALIDATION_SCHEMA = {
 }
 
 
+# Participant classification uses a smaller schema because generating fields that
+# are irrelevant to this decision costs noticeable time on CPU-only local models.
+PARTICIPANT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "language": {
+            "type": "string",
+            "enum": ["English", "Non-English", "Language-neutral"],
+        },
+        "detected_concept": {
+            "type": "string",
+            "enum": ["OperationalActor", "OperationalEntity", "Other"],
+        },
+        "normalized_value": {"type": "string"},
+        "solution_bias": {"type": "boolean"},
+        "reason": {"type": "string"},
+    },
+    "required": [
+        "language",
+        "detected_concept",
+        "normalized_value",
+        "solution_bias",
+        "reason",
+    ],
+    "additionalProperties": False,
+}
+
+
 # Keep this prompt compact: prompt-evaluation time is significant on CPU-only
 # local models. The deterministic Python write barrier remains authoritative.
 SYSTEM_VALIDATOR = """
@@ -72,6 +100,26 @@ Rules:
 6. Keep corrections semantically faithful; never invent a different action or fact.
 7. Keep reasons short and user-friendly; do not expose Arcadia jargon.
 8. Output JSON only using the supplied schema.
+""".strip()
+
+
+PARTICIPANT_SYSTEM = """
+Classify one noun phrase for an operational-model builder.
+
+OperationalActor = a human person, profession, occupation, job title, human role,
+or human group. A role is valid even when it is not a named individual.
+OperationalEntity = a non-human real-world organization, group, facility, resource,
+place, area, environment, location, or external party/context element.
+Other = neither of those, or clearly a proposed technical solution.
+
+Important rules:
+- A profession/job title is a human role, so classify it as OperationalActor.
+- Do NOT reject something because it was not mentioned earlier or because the
+  current goal/context does not explicitly name it. This step classifies type only.
+- Do not require a named physical instance; operational roles are legitimate.
+- Classify from meaning without fixed profession, industry, or asset vocabulary.
+- Never invent or rewrite the meaning.
+- Output JSON only.
 """.strip()
 
 
@@ -205,8 +253,6 @@ concept, violates the language rule, or introduces a technical solution.
         expected_concept: str,
         context: str = "",
     ) -> dict:
-        # High-confidence operational goals do not need an LLM call. This removes
-        # the exact false-negative/latency pattern seen with compact local models.
         if expected_concept == "OperationalCapability":
             fast_result = fast_operational_goal_result(candidate)
             if fast_result is not None:
@@ -232,9 +278,6 @@ Assess only this answer from meaning. Do not require it to resemble an example.
             max_tokens=180,
         )
 
-        # Do not perform an expensive second LLM call for goals. Clear goal forms
-        # were already handled by the deterministic fast path. Activity negatives
-        # may still receive one independent semantic recheck.
         if (
             expected_concept == "OperationalActivity"
             and self._needs_semantic_recheck(result, expected_concept)
@@ -259,22 +302,51 @@ Assess only this answer from meaning. Do not require it to resemble an example.
         candidate: str,
         context: str = "",
     ) -> dict:
-        prompt = f"""
-Classify one real-world operational element.
-- OperationalActor: human person, role, or human group.
-- OperationalEntity: non-human organization, group, facility, resource, place,
-  area, environment, location, or external real-world party/context element.
-- Other: neither of those, or clearly a proposed technical solution.
-
-Classify from meaning without fixed profession/industry/asset vocabulary.
-Context: {context or 'No additional context.'}
-Candidate: {candidate}
-""".strip()
-        return self._json_chat(
+        # Context is intentionally not sent to the classifier. At this point the
+        # user is explicitly introducing a possible participant/context element;
+        # classification must not reject it merely because it was absent from the
+        # goal or previous model state.
+        prompt = f"Candidate: {candidate}\nClassify its type only."
+        compact = self._json_chat(
             [
-                {"role": "system", "content": SYSTEM_VALIDATOR},
+                {"role": "system", "content": PARTICIPANT_SYSTEM},
                 {"role": "user", "content": prompt},
             ],
-            VALIDATION_SCHEMA,
-            max_tokens=170,
+            PARTICIPANT_SCHEMA,
+            max_tokens=90,
         )
+
+        detected = compact.get("detected_concept", "Other")
+        solution_bias = bool(compact.get("solution_bias", False))
+        reason = str(compact.get("reason", ""))
+
+        # Generic repair for a compact-model contradiction such as:
+        # "This is a profession, not a participant." In this ontology a
+        # profession/job title/human role is exactly an OperationalActor.
+        reason_lower = reason.casefold()
+        role_cues = (
+            "profession",
+            "occupation",
+            "job title",
+            "human role",
+            "professional role",
+        )
+        if (
+            detected == "Other"
+            and not solution_bias
+            and any(cue in reason_lower for cue in role_cues)
+        ):
+            detected = "OperationalActor"
+            reason = ""
+
+        normalized = str(compact.get("normalized_value") or candidate).strip()
+        return {
+            "valid": detected in {"OperationalActor", "OperationalEntity"}
+            and not solution_bias,
+            "language": compact.get("language", "Language-neutral"),
+            "detected_concept": detected,
+            "normalized_value": normalized,
+            "solution_bias": solution_bias,
+            "reason": reason,
+            "suggestion": "",
+        }
