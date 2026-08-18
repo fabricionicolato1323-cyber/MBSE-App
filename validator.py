@@ -31,11 +31,7 @@ def normalize_whitespace(value: str) -> str:
 
 
 def deterministic_english_check(value: str) -> Optional[bool]:
-    """Use statistical language detection only when the phrase is long enough.
-
-    Short operational phrases are exactly where compact/statistical detectors are
-    least reliable, so they are handled by high-confidence marker checks instead.
-    """
+    """Use statistical language detection only when the phrase is long enough."""
     words = re.findall(r"[A-Za-zÀ-ÿ]+", value)
     letters = sum(len(word) for word in words)
     if len(words) < 10 or letters < 60:
@@ -105,10 +101,6 @@ def _language_rejected(
         return True
 
     words = _tokens(value)
-
-    # Short ASCII operational phrases are common and language classifiers often
-    # mislabel them. If there are no strong non-English markers, do not reject
-    # them solely because the compact LLM or langdetect guessed another language.
     if value.isascii() and len(words) <= 12:
         return False
 
@@ -245,6 +237,36 @@ def validate_llm_candidate(
     )
 
 
+def _repair_human_role_contradiction(llm_result: dict) -> dict:
+    """Repair a generic compact-model contradiction about professions/roles.
+
+    If the model itself says that a candidate is a profession, occupation, job
+    title, or human role but labels it Other, its explanation already establishes
+    the ontology category: human roles are OperationalActors. No domain vocabulary
+    or specific profession name is used here.
+    """
+    adjusted = dict(llm_result)
+    if adjusted.get("detected_concept") != "Other":
+        return adjusted
+    if adjusted.get("solution_bias", False):
+        return adjusted
+
+    reason = str(adjusted.get("reason", "")).casefold()
+    cues = (
+        "profession",
+        "occupation",
+        "job title",
+        "human role",
+        "professional role",
+    )
+    if any(cue in reason for cue in cues):
+        adjusted["detected_concept"] = "OperationalActor"
+        adjusted["valid"] = True
+        adjusted["reason"] = ""
+        adjusted["suggestion"] = ""
+    return adjusted
+
+
 def validate_participant_candidate(
     raw_value: str,
     llm_result: dict,
@@ -264,7 +286,7 @@ def validate_participant_candidate(
     if obvious_non_english_short_text(value):
         return ValidationResult(False, reason="Please answer in English only.")
 
-    adjusted = dict(llm_result)
+    adjusted = _repair_human_role_contradiction(llm_result)
     detected = adjusted.get("detected_concept", "")
 
     if (
