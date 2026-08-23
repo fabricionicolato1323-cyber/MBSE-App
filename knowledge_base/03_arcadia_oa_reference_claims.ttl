@@ -331,4 +331,3 @@ oa:claim_user_final_001 a oa:KnowledgeClaim ;
     oa:answersIntent "who_approves_model" ;
     oa:assertionText "Extrações e classificações automáticas devem permanecer como candidatos até aprovação do usuário, que é responsável pela qualidade final do modelo."@pt ;
     oa:guidanceStatus oa:ApplicationPolicy .
-

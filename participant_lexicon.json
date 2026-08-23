@@ -1,0 +1,107 @@
+{
+  "actor_heads": [
+    "commander",
+    "controller",
+    "coordinator",
+    "dispatcher",
+    "doctor",
+    "driver",
+    "engineer",
+    "inspector",
+    "maintainer",
+    "medic",
+    "operator",
+    "passenger",
+    "patient",
+    "pilot",
+    "responder",
+    "supervisor",
+    "technician",
+    "user",
+    "victim"
+  ],
+  "collective_heads": [
+    "community",
+    "crew",
+    "group",
+    "population",
+    "staff",
+    "team",
+    "unit"
+  ],
+  "organization_heads": [
+    "agency",
+    "authority",
+    "company",
+    "department",
+    "ministry",
+    "office",
+    "organization",
+    "organisation"
+  ],
+  "facility_heads": [
+    "airport",
+    "base",
+    "building",
+    "center",
+    "centre",
+    "facility",
+    "hospital",
+    "station"
+  ],
+  "technical_heads": [
+    "equipment",
+    "machine",
+    "network",
+    "radar",
+    "satellite",
+    "system",
+    "vehicle"
+  ],
+  "environment_heads": [
+    "airspace",
+    "area",
+    "environment",
+    "region",
+    "river",
+    "sea",
+    "storm",
+    "zone"
+  ],
+  "communication_heads": [
+    "channel",
+    "data-link",
+    "datalink",
+    "email",
+    "radio",
+    "telephone"
+  ],
+  "information_heads": [
+    "alert",
+    "command",
+    "data",
+    "document",
+    "information",
+    "message",
+    "order",
+    "report",
+    "request"
+  ],
+  "existing_markers": [
+    "current",
+    "existing",
+    "external",
+    "legacy"
+  ],
+  "solution_markers": [
+    "future application",
+    "future platform",
+    "new application",
+    "new platform",
+    "proposed application",
+    "proposed platform",
+    "system of interest",
+    "to be built",
+    "to be developed"
+  ]
+}

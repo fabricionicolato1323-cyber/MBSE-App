@@ -8,7 +8,12 @@ from pathlib import Path
 import networkx as nx
 from networkx.readwrite import json_graph
 
-from ontology import ALLOWED_RELATIONS, NODE_TYPES, PARTICIPANT_TYPES
+from ontology import (
+    ALLOWED_RELATIONS,
+    NODE_TYPES,
+    PARTICIPANT_NATURES,
+    PARTICIPANT_TYPES,
+)
 
 
 def _canonical(value: str) -> str:
@@ -86,12 +91,30 @@ class OAGraph:
         node_attributes = {"type": node_type, "name": name}
         if node_type == "OperationalActor":
             node_attributes["expects_activity"] = True
+            node_attributes["nature"] = "human_individual"
         elif node_type == "OperationalEntity":
             node_attributes["expects_activity"] = (
                 True if expects_activity is None else bool(expects_activity)
             )
+            node_attributes["nature"] = "unspecified"
 
         node_attributes.update(attributes)
+        if node_type in PARTICIPANT_TYPES:
+            nature = node_attributes.get("nature", "unspecified")
+            if nature not in PARTICIPANT_NATURES:
+                return False, "", f"Unsupported participant nature: {nature}."
+            if node_type == "OperationalActor" and nature != "human_individual":
+                return (
+                    False,
+                    "",
+                    "An Operational Actor must be one indivisible human participant.",
+                )
+            if node_type == "OperationalEntity" and nature == "human_individual":
+                return (
+                    False,
+                    "",
+                    "A human individual must be modeled as an Operational Actor.",
+                )
         self.graph.add_node(node_id, **node_attributes)
         return True, node_id, ""
 
@@ -239,6 +262,14 @@ class OAGraph:
 
     def name(self, node_id: str) -> str:
         return self.graph.nodes[node_id].get("name", node_id)
+
+    def participant_label(self, node_id: str) -> str:
+        data = self.graph.nodes[node_id]
+        return (
+            f"{self.name(node_id)} "
+            f"[{data.get('type')}; {data.get('nature', 'unspecified')}; "
+            f"{data.get('status', 'confirmed')}]"
+        )
 
     def participants_for_activity(self, activity_id: str) -> list[str]:
         return [
@@ -391,13 +422,13 @@ class OAGraph:
 
         lines.append("\nParticipants")
         lines.extend(
-            [f"  - {self.name(node)}" for node in participants]
+            [f"  - {self.participant_label(node)}" for node in participants]
             or ["  (none)"]
         )
 
         lines.append("\nPlaces / context")
         lines.extend(
-            [f"  - {self.name(node)}" for node in context]
+            [f"  - {self.participant_label(node)}" for node in context]
             or ["  (none)"]
         )
 

@@ -15,6 +15,7 @@ except ImportError:
     _HAS_LANGDETECT = False
 
 from ontology import CONCEPT_GUIDANCE, SOLUTION_BIAS_TERMS
+from participant_rules import classify_participant
 
 
 @dataclass
@@ -129,13 +130,44 @@ def _safe_normalized_value(raw_value: str, llm_result: dict) -> str:
     return candidate
 
 
-def _contains_technical_solution_term(value: str) -> bool:
+def contains_high_confidence_solution_bias(value: str) -> bool:
+    """Return True only for explicit, high-confidence implementation wording."""
     lowered = value.casefold()
     if any(term in lowered for term in TECHNICAL_SOLUTION_WORDS):
         return True
     if any(term in lowered for term in SOLUTION_BIAS_TERMS):
         return True
     return False
+
+
+def reconcile_activity_frame_solution_bias(
+    raw_value: str,
+    frame_result: dict,
+) -> dict:
+    """Keep compact-model solution-bias guesses advisory when rules disagree.
+
+    Ollama is used to decompose complex activity sentences, not as the final
+    write authority. If it returns usable clauses but labels ordinary behavior
+    as implementation bias without any explicit technical marker, retain the
+    warning for the user and allow the normal deterministic clause validation
+    and confirmation flow to continue.
+    """
+    adjusted = dict(frame_result)
+    if not adjusted.get("solution_bias", False):
+        return adjusted
+    if contains_high_confidence_solution_bias(raw_value):
+        return adjusted
+    if not adjusted.get("valid", False) or not adjusted.get("clauses"):
+        return adjusted
+
+    adjusted["solution_bias"] = False
+    adjusted["advisory_warning"] = (
+        normalize_whitespace(str(adjusted.get("reason") or ""))
+        or "Ollama flagged possible implementation bias."
+    )
+    adjusted["reason"] = ""
+    adjusted["solution_bias_source"] = "deterministic_override"
+    return adjusted
 
 
 def _validate_common(
@@ -178,7 +210,7 @@ def _validate_common(
         )
 
     if detected in {"OperationalCapability", "OperationalActivity"}:
-        if _contains_technical_solution_term(value):
+        if contains_high_confidence_solution_bias(value):
             return ValidationResult(
                 False,
                 detected_concept=detected,
@@ -273,13 +305,14 @@ def validate_participant_candidate(
 ) -> ValidationResult:
     value = normalize_whitespace(raw_value)
 
-    if _contains_technical_solution_term(value):
+    rule_advice = classify_participant(value)
+    if rule_advice.solution_bias:
         return ValidationResult(
             False,
             reason=(
-                "That sounds like a technical system or solution. "
-                "Here I need a real-world person, group, organization, resource, "
-                "place, area, or environmental element."
+                "That wording appears to describe a proposed solution. "
+                "An existing external technical participant may be valid, but the "
+                "future System of Interest must not be introduced in OA."
             ),
         )
 

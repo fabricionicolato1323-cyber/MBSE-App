@@ -1,5 +1,4 @@
 networkx>=3.3
 langdetect>=1.0.9
-llama-cpp-python>=0.3.0
 rdflib>=7.0.0
 pyshacl>=0.30.0

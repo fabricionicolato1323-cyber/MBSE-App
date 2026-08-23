@@ -2,9 +2,9 @@
 
 ## Referência conceitual aprofundada e base para um assistente de modelagem
 
-**Versão:** 1.0  
-**Data de consolidação:** 21 de agosto de 2026  
-**Escopo:** Operational Analysis (OA) da metodologia Arcadia, com atenção à semântica necessária para uma base de conhecimento e para a validação assistida de modelos.  
+**Versão:** 1.0
+**Data de consolidação:** 21 de agosto de 2026
+**Escopo:** Operational Analysis (OA) da metodologia Arcadia, com atenção à semântica necessária para uma base de conhecimento e para a validação assistida de modelos.
 **Idioma de trabalho:** português, mantendo os nomes oficiais dos conceitos em inglês quando isso reduz ambiguidade.
 
 ---
@@ -381,7 +381,7 @@ Um **Interaction Item** descreve o conteúdo esperado de uma interação. Pode a
 Exemplo de separação semântica:
 
 - interação: “enviar avaliação de risco”;
-- item: “Avaliação de risco”; 
+- item: “Avaliação de risco”;
 - dados: nível, justificativa, timestamp, identificador da situação.
 
 Essa separação permite validar completude, segurança, propriedade, qualidade e consistência do conteúdo sem confundir o fluxo com sua estrutura interna.
@@ -608,7 +608,7 @@ Não é possível apagar o conhecimento aprendido durante o treinamento de uma L
 - o prompt proíbe completar lacunas;
 - cada sentença material precisa citar IDs de evidência;
 - um verificador checa se as citações realmente sustentam a sentença;
-- sem evidência suficiente, a resposta padrão é “a base não contém informação suficiente”; 
+- sem evidência suficiente, a resposta padrão é “a base não contém informação suficiente”;
 - temperatura baixa e saída estruturada reduzem variação, mas não substituem verificação;
 - perguntas determinísticas podem ser respondidas sem LLM, por templates.
 
@@ -906,4 +906,3 @@ Nova documentação não deve ser ingerida automaticamente como verdade. Fluxo:
 A LLM local via Ollama deve permanecer na periferia do mecanismo de verdade: interpretar linguagem natural, sugerir candidatos e redigir respostas. RDF/SPARQL/SHACL, regras determinísticas, proveniência e aprovação do usuário formam o núcleo confiável.
 
 O resultado não é uma “IA que conhece Arcadia por si mesma”, mas um assistente que **consulta uma base Arcadia explícita, mostra sua evidência, reconhece lacunas e mantém o usuário como autoridade final do modelo**.
-

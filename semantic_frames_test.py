@@ -1,7 +1,9 @@
 from semantic_frames import (
+    format_frame_summary,
     frame_is_complex,
     normalize_semantic_frames,
 )
+from validator import reconcile_activity_frame_solution_bias
 
 
 def base_result(clauses):
@@ -125,6 +127,43 @@ def main() -> None:
     assert parsed["locations"] == ["service area"]
     assert parsed["conditions"] == ["when requested"]
     assert parsed["time"] == ["before operation"]
+
+    # Regression from a live compact-model run: ordinary operational behavior
+    # must not be blocked solely because Ollama mislabels it as implementation.
+    false_solution_bias = base_result(
+        [
+            clause(
+                verb="Detect",
+                objects=["incoming threats"],
+                activity_text="Detect incoming threats",
+            ),
+            clause(
+                verb="Inform",
+                objects=["data of incoming threats"],
+                activity_text="Inform data of incoming threats",
+            ),
+        ]
+    )
+    false_solution_bias["solution_bias"] = True
+    false_solution_bias["reason"] = (
+        "This appears to describe a technical implementation."
+    )
+    reconciled = reconcile_activity_frame_solution_bias(
+        "it detects and informs data of incoming threats",
+        false_solution_bias,
+    )
+    assert reconciled["solution_bias"] is False
+    assert reconciled["solution_bias_source"] == "deterministic_override"
+    assert "technical implementation" in reconciled["advisory_warning"]
+    assert "not authoritative" in format_frame_summary(reconciled)
+
+    # Explicit implementation wording remains blocked by the deterministic
+    # write barrier even if the LLM also produced usable clauses.
+    technical = reconcile_activity_frame_solution_bias(
+        "software platform detects and informs data of incoming threats",
+        false_solution_bias,
+    )
+    assert technical["solution_bias"] is True
 
     print("Semantic frame test passed.")
 

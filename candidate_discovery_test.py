@@ -18,7 +18,7 @@ class FakeLLM:
     def validate_participant(self, candidate, context=""):
         normalized = candidate.strip().casefold()
         if normalized == "staff":
-            concept = "OperationalActor"
+            concept = "OperationalEntity"
             valid = True
         elif normalized == "facilities":
             concept = "OperationalEntity"
@@ -76,8 +76,8 @@ def main() -> None:
     raw = [
         {
             "mention": "staff",
-            "candidate_concept": "OperationalActor",
-            "reason": "Human group explicitly mentioned in the goal.",
+            "candidate_concept": "OperationalEntity",
+            "reason": "Human collective explicitly mentioned in the goal.",
         },
         {
             "mention": "facilities",
@@ -93,7 +93,7 @@ def main() -> None:
 
     candidates = filter_goal_candidates(goal, raw)
     assert [item["mention"] for item in candidates] == ["staff", "facilities"]
-    assert candidates[0]["candidate_concept"] == "OperationalActor"
+    assert candidates[0]["candidate_concept"] == "OperationalEntity"
     assert candidates[1]["candidate_concept"] == "OperationalEntity"
 
     # If a compact model merges coordinated candidates, semantic classification
@@ -101,7 +101,7 @@ def main() -> None:
     merged = extract_goal_candidates(FakeLLM(), goal)
     assert [item["mention"] for item in merged] == ["staff", "facilities"]
     assert [item["candidate_concept"] for item in merged] == [
-        "OperationalActor",
+        "OperationalEntity",
         "OperationalEntity",
     ]
 

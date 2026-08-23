@@ -106,7 +106,9 @@ General parsing rules:
 9. activity_text must preserve the user's meaning and should be suitable as the
    name of one operational activity.
 10. Mark valid=false for text that does not actually describe operational
-    behavior. Mark solution_bias=true for premature implementation/design content.
+    behavior. Mark solution_bias=true only when the user's text explicitly names
+    a proposed implementation or design artifact. Observing information and
+    communicating results are operational behavior, not solution bias by themselves.
 11. Natural-language content must be English. Proper names can be language-neutral.
 12. Output JSON only using the supplied schema.
 """.strip()
@@ -122,6 +124,47 @@ def looks_structurally_complex(value: str) -> bool:
     """Cheap, domain-neutral hint used only for UI/confirmation behavior."""
     text = re.sub(r"\s+", " ", value.strip())
     return bool(_COMPLEXITY_MARKERS.search(text))
+
+
+def parse_simple_activity_frame(text: str, *, default_subject: str) -> dict:
+    """Parse one simple action without an LLM.
+
+    This intentionally handles only a conservative form: one short verb phrase
+    without coordination, conditions, timing, or punctuation. Complex input is
+    delegated to Ollama and remains subject to user confirmation.
+    """
+    normalized = re.sub(r"\s+", " ", text.strip())
+    words = re.findall(r"[A-Za-z][A-Za-z'-]*", normalized)
+    if not normalized or not words or looks_structurally_complex(normalized):
+        return {
+            "valid": False,
+            "language": "Language-neutral",
+            "solution_bias": False,
+            "reason": "The deterministic parser only accepts one simple action.",
+            "clauses": [],
+            "parsing_source": "rules",
+        }
+
+    return {
+        "valid": True,
+        "language": "Language-neutral" if normalized.isascii() else "English",
+        "solution_bias": False,
+        "reason": "",
+        "clauses": [
+            {
+                "subjects": [default_subject] if default_subject else [],
+                "verb": words[0],
+                "objects": [],
+                "recipients": [],
+                "locations": [],
+                "conditions": [],
+                "time": [],
+                "other_complements": [],
+                "activity_text": normalized,
+            }
+        ],
+        "parsing_source": "rules",
+    }
 
 
 def _clean(value: object) -> str:
@@ -290,6 +333,16 @@ def frame_is_complex(frame_result: dict) -> bool:
 def format_frame_summary(frame_result: dict) -> str:
     clauses = frame_result.get("clauses", [])
     lines = ["I understood the following action structure:"]
+    advisory_warning = _clean(frame_result.get("advisory_warning"))
+    if advisory_warning:
+        lines.extend(
+            [
+                "  Ollama advisory warning (not authoritative): "
+                + advisory_warning,
+                "  Deterministic rules found no explicit implementation term; "
+                "please confirm the interpretation below.",
+            ]
+        )
     for index, clause in enumerate(clauses, start=1):
         lines.append(
             f"  {index}. Action: {clause.get('activity_text', '')}"

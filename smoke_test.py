@@ -1,13 +1,5 @@
-import sys
-import types
-
-try:
-    import llama_cpp  # type: ignore
-except ImportError:
-    sys.modules["llama_cpp"] = types.SimpleNamespace(Llama=object)
-
 from graph_model import OAGraph
-from llm_service import LocalLLM
+from llm_service import OllamaLLM
 from validator import validate_llm_candidate, validate_participant_candidate
 
 
@@ -82,11 +74,11 @@ def main() -> None:
         "valid": False,
         "reason": "Uncertain classification.",
     }
-    assert LocalLLM._needs_semantic_recheck(
+    assert OllamaLLM._needs_semantic_recheck(
         first_negative,
         "OperationalActivity",
     )
-    assert not LocalLLM._needs_semantic_recheck(
+    assert not OllamaLLM._needs_semantic_recheck(
         ok_result("OperationalActivity", "Reconcile service records"),
         "OperationalActivity",
     )
@@ -104,7 +96,7 @@ def main() -> None:
     )
     assert not rejected_language.accepted
 
-    parsed = LocalLLM._parse_json(
+    parsed = OllamaLLM._parse_json(
         '{"valid":true,"language":"English","detected_concept":"OperationalEntity",'
         '"normalized_value":"Service Group","solution_bias":false,'
         '"reason":"line one\nline two","suggestion":""}'
@@ -112,8 +104,8 @@ def main() -> None:
     assert parsed["valid"] is True
 
     rejected_technical_participant = validate_participant_candidate(
-        "software platform",
-        ok_result("OperationalEntity", "Software Platform", "English"),
+        "proposed platform",
+        ok_result("OperationalEntity", "Proposed Platform", "English"),
     )
     assert not rejected_technical_participant.accepted
 
@@ -149,11 +141,19 @@ def main() -> None:
     _, actor, _ = graph.add_node(
         "OperationalActor",
         "Operations Coordinator",
+        status="confirmed",
+        confirmed_by="user",
     )
     _, second_actor, _ = graph.add_node(
         "OperationalActor",
         "Shift Supervisor",
     )
+    invalid_actor, _, _ = graph.add_node(
+        "OperationalActor",
+        "Operations Team",
+        nature="team_or_collective",
+    )
+    assert not invalid_actor
     _, action, _ = graph.add_node(
         "OperationalActivity",
         "Coordinate operational response",
