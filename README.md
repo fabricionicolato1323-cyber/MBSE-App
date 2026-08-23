@@ -6,8 +6,49 @@ A local **Arcadia Operational Analysis** prototype built with:
 - `llama-cpp-python`
 - a local GGUF instruct/chat model
 - NetworkX `MultiDiGraph`
+- RDF/OWL knowledge graphs with `rdflib`
+- SHACL model comparison with `pyshacl`
 
 The application is focused on **guided construction** of an Operational Analysis model. The user does not need to know Arcadia terminology.
+
+## Graph-grounded Arcadia help
+
+The repository includes a curated Arcadia Operational Analysis knowledge base in
+[`knowledge_base`](knowledge_base). It contains:
+
+- an in-depth methodology guide;
+- an RDF/OWL ontology;
+- atomic knowledge claims with source, locator, and guidance status;
+- SHACL rules for comparing the user's model with the reference graph;
+- an integration and governance blueprint.
+
+The runtime keeps three concerns separate:
+
+```text
+Arcadia reference graph (read-only facts and provenance)
+Arcadia SHACL graph   (comparison rules)
+User model graph      (only user-approved model elements)
+```
+
+Use the knowledge graph from any question prompt:
+
+```text
+/ask What is the difference between an Operational Actor and an Operational Entity?
+/compare
+```
+
+`/ask` retrieves a small evidence packet before the local LLM runs. The LLM may
+only verbalize those claims in English and must cite their claim IDs. Unknown or
+invalid citations are rejected. If no graph evidence is available, the app
+abstains instead of completing the answer from model memory.
+
+`/compare` converts the current approved NetworkX model to a separate RDF Project
+Graph and runs the curated SHACL rules. Violations, warnings, and information
+items never write back to the user model. The same comparison runs automatically
+at the end of the guided workflow.
+
+Both operations report elapsed time. The LLM remains unable to write directly to
+NetworkX, and the user remains the final authority over model content.
 
 ## User-facing dialogue
 
@@ -127,8 +168,11 @@ natural-language input.
 The command bar is shown with every question:
 
 ```text
-/help  /show  /check  /why  /save  /undo  /clc  /done  /quit
+/help  /ask QUESTION  /compare  /show  /check  /why  /save  /undo  /clc  /done  /quit
 ```
+
+- `/ask QUESTION` — answer from retrieved knowledge-graph evidence only
+- `/compare` — compare the current model against Arcadia SHACL rules
 
 `/clc` is the only command that clears the terminal. The normal question flow
 preserves terminal history.
@@ -198,12 +242,14 @@ Run:
 
 ```powershell
 python smoke_test.py
+python knowledge_graph_test.py
 ```
 
 Expected:
 
 ```text
 Smoke test passed.
+Knowledge graph test passed.
 ```
 
 ## Run

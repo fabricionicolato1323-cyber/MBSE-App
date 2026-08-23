@@ -77,6 +77,21 @@ PARTICIPANT_SCHEMA = {
 }
 
 
+KNOWLEDGE_ANSWER_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "coverage": {"type": "string", "enum": ["SUPPORTED", "NOT_FOUND"]},
+        "answer": {"type": "string"},
+        "claim_ids": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+    },
+    "required": ["coverage", "answer", "claim_ids"],
+    "additionalProperties": False,
+}
+
+
 # Keep this prompt compact: prompt-evaluation time is significant on CPU-only
 # local models. The deterministic Python write barrier remains authoritative.
 SYSTEM_VALIDATOR = """
@@ -120,6 +135,22 @@ Important rules:
 - Classify from meaning without fixed profession, industry, or asset vocabulary.
 - Never invent or rewrite the meaning.
 - Output JSON only.
+""".strip()
+
+
+KNOWLEDGE_ANSWER_SYSTEM = """
+You verbalize evidence retrieved from an Arcadia Operational Analysis knowledge graph.
+
+Source policy:
+- Use only facts explicitly present in EVIDENCE.
+- Do not add facts from memory, training data, or general Arcadia knowledge.
+- Answer in clear English even when evidence text is Portuguese.
+- Preserve the distinction between ArcadiaReference, ModelingRecommendation,
+  ApplicationPolicy, and LinguisticHeuristic.
+- Cite only claim_id values present in EVIDENCE.
+- If EVIDENCE does not answer the question, return coverage NOT_FOUND.
+- Do not suggest or modify any element in the user's operational model.
+- Output JSON only using the supplied schema.
 """.strip()
 
 
@@ -350,3 +381,22 @@ Assess only this answer from meaning. Do not require it to resemble an example.
             "reason": reason,
             "suggestion": "",
         }
+
+    def answer_from_knowledge(
+        self,
+        question: str,
+        evidence: list[dict],
+    ) -> dict:
+        """Verbalize only graph-retrieved claims; never use model memory as a source."""
+        prompt = (
+            f"QUESTION\n{question}\n\n"
+            f"EVIDENCE\n{json.dumps(evidence, ensure_ascii=False, indent=2)}"
+        )
+        return self._json_chat(
+            [
+                {"role": "system", "content": KNOWLEDGE_ANSWER_SYSTEM},
+                {"role": "user", "content": prompt},
+            ],
+            KNOWLEDGE_ANSWER_SCHEMA,
+            max_tokens=420,
+        )

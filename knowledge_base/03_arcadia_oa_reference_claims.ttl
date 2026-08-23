@@ -1,0 +1,334 @@
+@prefix oa: <https://github.com/fabricionicolato1323-cyber/MBSE-App/knowledge/arcadia/oa#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+#################################################################
+# Fontes
+#################################################################
+
+oa:src_arcadia_web a oa:SourceDocument ;
+    dcterms:title "Arcadia — Principles and Perspectives"@en ;
+    dcterms:identifier "SRC-ARC-WEB" ;
+    dcterms:source <https://mbse-capella.org/arcadia.html> ;
+    dcterms:date "2026-08-21"^^xsd:date .
+
+oa:src_user_guide a oa:SourceDocument ;
+    dcterms:title "Arcadia User Guide"@en ;
+    dcterms:creator "Jean-Luc Voirin / Thales" ;
+    dcterms:identifier "SRC-ARC-UG-2023" ;
+    dcterms:source <https://mbse-capella.org/resources/arcadia-reference/Arcadia%20User%20Guide.pdf> ;
+    dcterms:issued "2023"^^xsd:gYear .
+
+oa:src_data_model a oa:SourceDocument ;
+    dcterms:title "Arcadia Reference: Engineering Data Model"@en ;
+    dcterms:creator "Jean-Luc Voirin / Thales" ;
+    dcterms:identifier "SRC-ARC-DM-2023" ;
+    dcterms:source <https://mbse-capella.org/resources/arcadia-reference/Arcadia%20Reference%20-%20Data%20Model.pdf> ;
+    dcterms:issued "2023"^^xsd:gYear .
+
+oa:src_metamodel a oa:SourceDocument ;
+    dcterms:title "Arcadia Language: MetaModel"@en ;
+    dcterms:creator "Jean-Luc Voirin / Thales" ;
+    dcterms:identifier "SRC-ARC-MM-2023" ;
+    dcterms:source <https://mbse-capella.org/resources/arcadia-reference/Arcadia%20Language%20-%20MetaModel.pdf> ;
+    dcterms:issued "2023"^^xsd:gYear .
+
+oa:src_qa a oa:SourceDocument ;
+    dcterms:title "Arcadia Questions & Answers"@en ;
+    dcterms:creator "Jean-Luc Voirin / Thales" ;
+    dcterms:identifier "SRC-ARC-QA-2023" ;
+    dcterms:source <https://mbse-capella.org/resources/arcadia-reference/Arcadia%20Q%26A.pdf> ;
+    dcterms:issued "2023"^^xsd:gYear .
+
+#################################################################
+# Afirmações atômicas para recuperação e resposta
+#################################################################
+
+oa:claim_oa_purpose_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-OA-PURPOSE-001" ;
+    oa:answersIntent "define_operational_analysis" ;
+    oa:answersIntent "purpose_of_operational_analysis" ;
+    oa:assertionText "A Análise Operacional analisa necessidades, objetivos, missões e atividades dos stakeholders antes e além dos requisitos textuais, sem considerar a solução ou o sistema em si."@pt ;
+    oa:aboutElement oa:OperationalAnalysisElement ;
+    oa:guidanceStatus oa:ArcadiaReference ;
+    prov:wasDerivedFrom oa:src_user_guide ;
+    oa:sourceLocator "seção 4.1, p. 12 do PDF" .
+
+oa:claim_oa_output_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-OA-OUTPUT-001" ;
+    oa:answersIntent "outputs_of_operational_analysis" ;
+    oa:assertionText "O principal resultado da OA é uma arquitetura operacional que estrutura a necessidade por atores/usuários, capacidades, atividades, cenários dimensionados e restrições operacionais."@pt ;
+    oa:guidanceStatus oa:ArcadiaReference ;
+    prov:wasDerivedFrom oa:src_user_guide ;
+    oa:sourceLocator "seção 4.1, p. 12 do PDF" .
+
+oa:claim_oa_analysis_value_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-OA-ANALYSIS-001" ;
+    oa:answersIntent "why_operational_analysis" ;
+    oa:assertionText "O valor da OA está na análise crítica, que revela oportunidades, restrições, riscos, contextos e situações não evidentes na captura inicial de requisitos."@pt ;
+    oa:guidanceStatus oa:ArcadiaReference ;
+    prov:wasDerivedFrom oa:src_qa ;
+    oa:sourceLocator "seção 3.1, pp. 8–9 do PDF" .
+
+oa:claim_oa_start_story_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-OA-START-001" ;
+    oa:answersIntent "how_to_start_oa" ;
+    oa:assertionText "Uma abordagem recomendada é começar pela narrativa das necessidades, expectativas e trabalho cotidiano dos stakeholders, usando documentos, observação e entrevistas, antes de formalizar o modelo."@pt ;
+    oa:guidanceStatus oa:ArcadiaReference ;
+    prov:wasDerivedFrom oa:src_qa ;
+    oa:sourceLocator "seção 3.2 do PDF" .
+
+oa:claim_oa_iterative_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-OA-ITERATIVE-001" ;
+    oa:answersIntent "is_arcadia_linear" ;
+    oa:assertionText "As atividades Arcadia são iterativas; seus vínculos representam dependências de consistência e não impõem uma ordem temporal rígida."@pt ;
+    oa:guidanceStatus oa:ArcadiaReference ;
+    prov:wasDerivedFrom oa:src_user_guide ;
+    oa:sourceLocator "seção 4, p. 10 do PDF" .
+
+oa:claim_no_soi_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-OA-NO-SOI-001" ;
+    oa:answersIntent "system_of_interest_in_oa" ;
+    oa:answersIntent "oa_boundary" ;
+    oa:assertionText "O sistema de interesse não deve ser introduzido na OA; a OA procura entender a necessidade sem pressupor como o sistema contribuirá para ela."@pt ;
+    oa:guidanceStatus oa:ArcadiaReference ;
+    prov:wasDerivedFrom oa:src_qa ;
+    oa:sourceLocator "seção 5.1 do PDF; Q&A 'Does the system appear in the operational analysis?'" .
+
+oa:claim_no_soi_rationale_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-OA-NO-SOI-RATIONALE-001" ;
+    oa:answersIntent "why_no_system_in_oa" ;
+    oa:assertionText "Introduzir a solução na OA restringe prematuramente as alternativas e pode duplicar indevidamente o papel da System Need Analysis."@pt ;
+    oa:guidanceStatus oa:ArcadiaReference ;
+    prov:wasDerivedFrom oa:src_qa ;
+    oa:sourceLocator "seção 5.1 do PDF" .
+
+oa:claim_oa_scope_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-OA-SCOPE-001" ;
+    oa:answersIntent "where_to_stop_oa" ;
+    oa:assertionText "A cobertura da OA deve ser limitada ao que é relevante para usuários, sistemas em seu contexto e futuras interações; não é útil formalizar todo o material operacional."@pt ;
+    oa:guidanceStatus oa:ArcadiaReference ;
+    prov:wasDerivedFrom oa:src_qa ;
+    oa:sourceLocator "seção 5.2 do PDF" .
+
+oa:claim_mission_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-OA-MISSION-001" ;
+    oa:answersIntent "define_operational_mission" ;
+    oa:assertionText "Uma missão operacional é um objetivo de alto nível para o qual uma ou mais entidades devem contribuir e que pode influenciar a definição ou o uso do sistema."@pt ;
+    oa:aboutElement oa:OperationalMission ;
+    oa:guidanceStatus oa:ArcadiaReference ;
+    prov:wasDerivedFrom oa:src_metamodel ;
+    oa:sourceLocator "seção 4.1.3.4, p. 15 do PDF" .
+
+oa:claim_capability_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-OA-CAPABILITY-001" ;
+    oa:answersIntent "define_operational_capability" ;
+    oa:assertionText "Uma capacidade operacional é uma habilidade esperada de uma ou mais entidades para prestar um serviço que contribui para uma ou mais missões."@pt ;
+    oa:aboutElement oa:OperationalCapability ;
+    oa:guidanceStatus oa:ArcadiaReference ;
+    prov:wasDerivedFrom oa:src_metamodel ;
+    oa:sourceLocator "seção 4.1.3.2, p. 14 do PDF" .
+
+oa:claim_capability_quantified_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-OA-CAPABILITY-QUANT-001" ;
+    oa:answersIntent "how_to_describe_capability" ;
+    oa:assertionText "Capacidades devem ser vistas como objetivos, resultados ou serviços operacionais globais e, quando relevante, caracterizadas por métricas e parâmetros qualitativos ou quantitativos."@pt ;
+    oa:aboutElement oa:OperationalCapability ;
+    oa:guidanceStatus oa:ArcadiaReference ;
+    prov:wasDerivedFrom oa:src_user_guide ;
+    oa:sourceLocator "seção 4.1.1, pp. 14–15 do PDF" .
+
+oa:claim_capability_described_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-OA-CAPABILITY-DESCRIBED-001" ;
+    oa:answersIntent "how_process_relates_to_capability" ;
+    oa:answersIntent "how_scenario_relates_to_capability" ;
+    oa:assertionText "Processos e cenários operacionais descrevem casos de uma capacidade; eles não são componentes que implementam a capacidade."@pt ;
+    oa:aboutElement oa:OperationalCapability ;
+    oa:guidanceStatus oa:ArcadiaReference ;
+    prov:wasDerivedFrom oa:src_qa ;
+    oa:sourceLocator "seção 4.1 e resposta sobre Operational Processes envolvidos em Operational Capabilities" .
+
+oa:claim_entity_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-OA-ENTITY-001" ;
+    oa:answersIntent "define_operational_entity" ;
+    oa:assertionText "Uma entidade operacional é uma entidade do mundo real, como elemento físico, grupo, organização ou outro sistema, que realiza atividades operacionais ou influencia o sistema futuro."@pt ;
+    oa:aboutElement oa:OperationalEntity ;
+    oa:guidanceStatus oa:ArcadiaReference ;
+    prov:wasDerivedFrom oa:src_metamodel ;
+    oa:sourceLocator "seção 4.2.3.2, p. 24 do PDF" .
+
+oa:claim_actor_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-OA-ACTOR-001" ;
+    oa:answersIntent "define_operational_actor" ;
+    oa:answersIntent "actor_vs_entity" ;
+    oa:assertionText "Um ator operacional é uma entidade operacional não decomponível, usualmente humana."@pt ;
+    oa:aboutElement oa:OperationalActor ;
+    oa:guidanceStatus oa:ArcadiaReference ;
+    prov:wasDerivedFrom oa:src_metamodel ;
+    oa:sourceLocator "seção 4.2.3.1, p. 24 do PDF" .
+
+oa:claim_actor_entity_difference_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-OA-ACTOR-ENTITY-DIFF-001" ;
+    oa:answersIntent "actor_vs_entity" ;
+    oa:assertionText "Operational Actor é uma especialização de Operational Entity; uma organização ou equipe decomponível costuma ser entidade, enquanto um papel humano individual pode ser ator quando esse detalhe é relevante."@pt ;
+    oa:aboutElement oa:OperationalActor ;
+    oa:guidanceStatus oa:ModelingRecommendation ;
+    prov:wasDerivedFrom oa:src_metamodel ;
+    oa:sourceLocator "seção 4.2.3, p. 24 do PDF" .
+
+oa:claim_place_entity_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-OA-PLACE-ENTITY-001" ;
+    oa:answersIntent "can_building_be_operational_entity" ;
+    oa:answersIntent "can_area_be_operational_entity" ;
+    oa:assertionText "Um local, instalação ou área pode ser entidade operacional quando é um elemento real relevante que realiza ou influencia atividades, estados, restrições, interações ou cenários; se apenas localiza algo, pode ser melhor tratá-lo como contexto."@pt ;
+    oa:aboutElement oa:OperationalEntity ;
+    oa:guidanceStatus oa:ModelingRecommendation ;
+    prov:wasDerivedFrom oa:src_metamodel , oa:src_user_guide ;
+    oa:sourceLocator "MetaModel 4.2.3.2; User Guide 4.1.2" .
+
+oa:claim_activity_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-OA-ACTIVITY-001" ;
+    oa:answersIntent "define_operational_activity" ;
+    oa:assertionText "Uma atividade operacional é uma ação, operação ou serviço realizado por uma entidade operacional e capaz de influenciar a definição ou o uso do sistema."@pt ;
+    oa:aboutElement oa:OperationalActivity ;
+    oa:guidanceStatus oa:ArcadiaReference ;
+    prov:wasDerivedFrom oa:src_metamodel ;
+    oa:sourceLocator "seção 4.1.2.2, p. 13 do PDF" .
+
+oa:claim_activity_vs_function_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-OA-ACTIVITY-FUNCTION-001" ;
+    oa:answersIntent "activity_vs_system_function" ;
+    oa:assertionText "Operational Activity representa o que os stakeholders fazem independentemente do sistema; System Function representa o comportamento esperado do sistema ou de atores no escopo da SA e não deve ser copiada mecanicamente da atividade."@pt ;
+    oa:aboutElement oa:OperationalActivity ;
+    oa:guidanceStatus oa:ArcadiaReference ;
+    prov:wasDerivedFrom oa:src_qa , oa:src_user_guide ;
+    oa:sourceLocator "Q&A sobre transição OA–SA; User Guide 4.2.2" .
+
+oa:claim_activity_naming_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-OA-ACTIVITY-NAMING-001" ;
+    oa:answersIntent "how_to_name_activity" ;
+    oa:assertionText "Nomear atividades com verbo e objeto é uma convenção útil, mas a forma gramatical não prova o tipo semântico e não deve substituir a confirmação do usuário."@pt ;
+    oa:aboutElement oa:OperationalActivity ;
+    oa:guidanceStatus oa:LinguisticHeuristic .
+
+oa:claim_interaction_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-OA-INTERACTION-001" ;
+    oa:answersIntent "define_operational_interaction" ;
+    oa:assertionText "Uma interação operacional é uma dependência possível entre uma atividade fonte e uma atividade destino, pela transmissão de elementos."@pt ;
+    oa:aboutElement oa:OperationalInteraction ;
+    oa:guidanceStatus oa:ArcadiaReference ;
+    prov:wasDerivedFrom oa:src_metamodel ;
+    oa:sourceLocator "seção 4.1.2.1, p. 13 do PDF" .
+
+oa:claim_interaction_no_control_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-OA-INTERACTION-CONTROL-001" ;
+    oa:answersIntent "does_interaction_mean_sequence" ;
+    oa:assertionText "Uma interação em dataflow expressa dependência/troca e não prova, sozinha, uma ordem de execução; ordem temporal deve ser explicitada em processo ou cenário."@pt ;
+    oa:aboutElement oa:OperationalInteraction ;
+    oa:guidanceStatus oa:ModelingRecommendation ;
+    prov:wasDerivedFrom oa:src_metamodel ;
+    oa:sourceLocator "seções 4.1.2.1–4.1.2.4" .
+
+oa:claim_item_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-OA-ITEM-001" ;
+    oa:answersIntent "define_interaction_item" ;
+    oa:assertionText "Um item de interação descreve o conteúdo esperado a ser trocado pelas entidades/atores e suas atividades."@pt ;
+    oa:aboutElement oa:InteractionItem ;
+    oa:guidanceStatus oa:ArcadiaReference ;
+    prov:wasDerivedFrom oa:src_data_model ;
+    oa:sourceLocator "seção 4.1.1.8, p. 11 do PDF" .
+
+oa:claim_comm_mean_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-OA-COMM-MEAN-001" ;
+    oa:answersIntent "define_communication_mean" ;
+    oa:answersIntent "interaction_vs_communication_mean" ;
+    oa:assertionText "Um meio de comunicação é o suporte que liga duas entidades operacionais e habilita suas interações; ele não é o mesmo que a interação nem o conteúdo trocado."@pt ;
+    oa:aboutElement oa:CommunicationMean ;
+    oa:guidanceStatus oa:ArcadiaReference ;
+    prov:wasDerivedFrom oa:src_metamodel ;
+    oa:sourceLocator "seção 4.2.3.3, p. 24 do PDF" .
+
+oa:claim_process_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-OA-PROCESS-001" ;
+    oa:answersIntent "define_operational_process" ;
+    oa:assertionText "Um processo operacional é um conjunto ordenado de atividades e interações que descreve um caminho possível no dataflow operacional e ajuda a explicar uma capacidade."@pt ;
+    oa:aboutElement oa:OperationalProcess ;
+    oa:guidanceStatus oa:ArcadiaReference ;
+    prov:wasDerivedFrom oa:src_metamodel , oa:src_data_model ;
+    oa:sourceLocator "MetaModel 4.1.2.4; Data Model 4.1.1.4" .
+
+oa:claim_scenario_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-OA-SCENARIO-001" ;
+    oa:answersIntent "define_operational_scenario" ;
+    oa:answersIntent "process_vs_scenario" ;
+    oa:assertionText "Um cenário operacional é um conjunto temporalmente ordenado de interações entre atividades desempenhadas por entidades, no contexto de uma capacidade."@pt ;
+    oa:aboutElement oa:OperationalScenario ;
+    oa:guidanceStatus oa:ArcadiaReference ;
+    prov:wasDerivedFrom oa:src_data_model ;
+    oa:sourceLocator "seção 4.1.1.5, p. 10 do PDF" .
+
+oa:claim_sunny_rainy_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-OA-SCENARIO-TYPES-001" ;
+    oa:answersIntent "which_scenarios_to_model" ;
+    oa:assertionText "A análise deve considerar cenários representativos desejados e indesejados, incluindo perturbações, incertezas, mudanças de contexto e modos degradados."@pt ;
+    oa:aboutElement oa:OperationalScenario ;
+    oa:guidanceStatus oa:ArcadiaReference ;
+    prov:wasDerivedFrom oa:src_qa ;
+    oa:sourceLocator "seção 3.2 do PDF" .
+
+oa:claim_mode_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-OA-MODE-001" ;
+    oa:answersIntent "mode_vs_state" ;
+    oa:assertionText "Um modo representa comportamento esperado em condições escolhidas."@pt ;
+    oa:aboutElement oa:OperationalMode ;
+    oa:guidanceStatus oa:ArcadiaReference ;
+    prov:wasDerivedFrom oa:src_metamodel ;
+    oa:sourceLocator "seção 4.4.1.7, p. 30 do PDF" .
+
+oa:claim_state_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-OA-STATE-001" ;
+    oa:answersIntent "mode_vs_state" ;
+    oa:assertionText "Um estado representa comportamento ou condição sofrida sob condições impostas pelo ambiente."@pt ;
+    oa:aboutElement oa:OperationalState ;
+    oa:guidanceStatus oa:ArcadiaReference ;
+    prov:wasDerivedFrom oa:src_metamodel ;
+    oa:sourceLocator "seção 4.4.1.6, p. 29 do PDF" .
+
+oa:claim_constraints_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-OA-CONSTRAINTS-001" ;
+    oa:answersIntent "what_constraints_in_oa" ;
+    oa:assertionText "A OA deve relacionar necessidades dimensionantes e restrições não funcionais aos elementos e cenários adequados, incluindo desempenho, paralelismo, fatores humanos, safety e security."@pt ;
+    oa:aboutElement oa:OperationalConstraint ;
+    oa:guidanceStatus oa:ArcadiaReference ;
+    prov:wasDerivedFrom oa:src_user_guide ;
+    oa:sourceLocator "seção 4.1.2, pp. 16–17 do PDF" .
+
+oa:claim_stop_criteria_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-OA-STOP-001" ;
+    oa:answersIntent "oa_stop_criteria" ;
+    oa:assertionText "A OA atinge seu critério de parada quando os stakeholders de nível superior, incluindo o cliente quando possível, concordam com a descrição da necessidade operacional."@pt ;
+    oa:guidanceStatus oa:ArcadiaReference ;
+    prov:wasDerivedFrom oa:src_user_guide ;
+    oa:sourceLocator "seção 4.1, p. 12 do PDF" .
+
+oa:claim_kg_role_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-APP-KG-ROLE-001" ;
+    oa:answersIntent "how_llm_uses_graph" ;
+    oa:assertionText "Na aplicação, o knowledge graph deve ser a fonte autorizada; a LLM interpreta perguntas e verbaliza somente as afirmações recuperadas, com evidência identificável."@pt ;
+    oa:guidanceStatus oa:ApplicationPolicy .
+
+oa:claim_kg_abstain_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-APP-KG-ABSTAIN-001" ;
+    oa:answersIntent "what_if_graph_has_no_answer" ;
+    oa:assertionText "Quando o grafo não contiver evidência suficiente, a aplicação deve declarar a lacuna em vez de completar a resposta com conhecimento não recuperado."@pt ;
+    oa:guidanceStatus oa:ApplicationPolicy .
+
+oa:claim_user_final_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-APP-USER-FINAL-001" ;
+    oa:answersIntent "who_approves_model" ;
+    oa:assertionText "Extrações e classificações automáticas devem permanecer como candidatos até aprovação do usuário, que é responsável pela qualidade final do modelo."@pt ;
+    oa:guidanceStatus oa:ApplicationPolicy .
+

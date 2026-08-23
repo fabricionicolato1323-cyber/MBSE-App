@@ -1,0 +1,314 @@
+@prefix oa: <https://github.com/fabricionicolato1323-cyber/MBSE-App/knowledge/arcadia/oa#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# Regras SHACL para o Project Graph.
+# Violation = incoerência estrutural ou de escopo.
+# Warning = lacuna importante, aceitável durante elaboração.
+# Info = melhoria recomendada/heurística.
+
+oa:ModelElementShape
+    a sh:NodeShape ;
+    sh:targetClass oa:ProjectElement ;
+    sh:property [
+        sh:path oa:identifier ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+        sh:severity sh:Violation ;
+        sh:message "Todo elemento do Project Graph deve possuir exatamente um identificador textual estável."@pt
+    ] ;
+    sh:property [
+        sh:path oa:name ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+        sh:severity sh:Warning ;
+        sh:message "O elemento ainda não possui nome."@pt
+    ] .
+
+oa:NoSystemOfInterestInOAShape
+    a sh:NodeShape ;
+    sh:targetClass oa:OperationalAnalysisElement ;
+    sh:property [
+        sh:path oa:isSystemOfInterest ;
+        sh:not [ sh:hasValue true ] ;
+        sh:severity sh:Violation ;
+        sh:message "O sistema de interesse não deve ser introduzido como elemento da Análise Operacional; sua contribuição e fronteira são definidas na System Need Analysis."@pt
+    ] .
+
+oa:OperationalActorShape
+    a sh:NodeShape ;
+    sh:targetClass oa:OperationalActor ;
+    sh:property [
+        sh:path oa:isDecomposable ;
+        sh:maxCount 1 ;
+        sh:not [ sh:hasValue true ] ;
+        sh:severity sh:Violation ;
+        sh:message "Operational Actor é uma Operational Entity não decomponível."@pt
+    ] ;
+    sh:property [
+        sh:path oa:containsEntity ;
+        sh:maxCount 0 ;
+        sh:severity sh:Violation ;
+        sh:message "Um Operational Actor não deve conter outras entidades operacionais."@pt
+    ] .
+
+oa:OperationalEntityShape
+    a sh:NodeShape ;
+    sh:targetClass oa:OperationalEntity ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:severity sh:Violation ;
+        sh:message "A decomposição de entidades contém um ciclo: uma entidade não pode conter a si própria, direta ou indiretamente."@pt ;
+        sh:select """
+            PREFIX oa: <https://github.com/fabricionicolato1323-cyber/MBSE-App/knowledge/arcadia/oa#>
+            SELECT $this WHERE { $this oa:containsEntity+ $this . }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:severity sh:Warning ;
+        sh:message "A entidade está órfã: não realiza atividade, não participa de capacidade, não é conectada por meio de comunicação e não aparece como parte de outra entidade."@pt ;
+        sh:select """
+            PREFIX oa: <https://github.com/fabricionicolato1323-cyber/MBSE-App/knowledge/arcadia/oa#>
+            SELECT $this WHERE {
+              FILTER NOT EXISTS { $this oa:performsActivity ?a }
+              FILTER NOT EXISTS { $this oa:involvedInCapability ?c }
+              FILTER NOT EXISTS { ?m oa:connectsEntity $this }
+              FILTER NOT EXISTS { ?parent oa:containsEntity $this }
+              FILTER NOT EXISTS { $this oa:containsEntity ?child }
+            }
+        """
+    ] .
+
+oa:OperationalMissionShape
+    a sh:NodeShape ;
+    sh:targetClass oa:OperationalMission ;
+    sh:property [
+        sh:path oa:usesCapability ;
+        sh:minCount 1 ;
+        sh:class oa:OperationalCapability ;
+        sh:severity sh:Warning ;
+        sh:message "A missão não utiliza nenhuma capacidade operacional."@pt
+    ] .
+
+oa:OperationalCapabilityShape
+    a sh:NodeShape ;
+    sh:targetClass oa:OperationalCapability ;
+    sh:property [
+        sh:path [ sh:inversePath oa:usesCapability ] ;
+        sh:minCount 1 ;
+        sh:class oa:OperationalMission ;
+        sh:severity sh:Warning ;
+        sh:message "A capacidade não está relacionada a nenhuma missão operacional."@pt
+    ] ;
+    sh:property [
+        sh:path oa:hasInvolvedEntity ;
+        sh:minCount 1 ;
+        sh:class oa:OperationalEntity ;
+        sh:severity sh:Warning ;
+        sh:message "A capacidade não possui entidade/ator envolvido."@pt
+    ] ;
+    sh:property [
+        sh:path [ sh:inversePath oa:describesCapability ] ;
+        sh:minCount 1 ;
+        sh:or (
+            [ sh:class oa:OperationalProcess ]
+            [ sh:class oa:OperationalScenario ]
+        ) ;
+        sh:severity sh:Warning ;
+        sh:message "A capacidade ainda não é descrita por processo ou cenário operacional."@pt
+    ] .
+
+oa:OperationalActivityShape
+    a sh:NodeShape ;
+    sh:targetClass oa:OperationalActivity ;
+    sh:property [
+        sh:path oa:performedBy ;
+        sh:minCount 1 ;
+        sh:class oa:OperationalEntity ;
+        sh:severity sh:Warning ;
+        sh:message "A atividade não possui entidade/ator responsável. Registre o performer ou uma lacuna explícita."@pt
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:severity sh:Warning ;
+        sh:message "A decomposição de atividades contém um ciclo."@pt ;
+        sh:select """
+            PREFIX oa: <https://github.com/fabricionicolato1323-cyber/MBSE-App/knowledge/arcadia/oa#>
+            SELECT $this WHERE { $this oa:containsActivity+ $this . }
+        """
+    ] .
+
+oa:OperationalInteractionShape
+    a sh:NodeShape ;
+    sh:targetClass oa:OperationalInteraction ;
+    sh:property [
+        sh:path oa:sourceActivity ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class oa:OperationalActivity ;
+        sh:severity sh:Violation ;
+        sh:message "A interação deve possuir exatamente uma atividade fonte."@pt
+    ] ;
+    sh:property [
+        sh:path oa:targetActivity ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class oa:OperationalActivity ;
+        sh:severity sh:Violation ;
+        sh:message "A interação deve possuir exatamente uma atividade destino."@pt
+    ] ;
+    sh:property [
+        sh:path oa:conveys ;
+        sh:minCount 1 ;
+        sh:class oa:InteractionItem ;
+        sh:severity sh:Warning ;
+        sh:message "A interação não identifica o conteúdo trocado."@pt
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:severity sh:Warning ;
+        sh:message "A interação possui a mesma atividade como fonte e destino; confirme se a autorrelação é intencional."@pt ;
+        sh:select """
+            PREFIX oa: <https://github.com/fabricionicolato1323-cyber/MBSE-App/knowledge/arcadia/oa#>
+            SELECT $this WHERE {
+              $this oa:sourceActivity ?a ; oa:targetActivity ?a .
+            }
+        """
+    ] .
+
+oa:InteractionItemShape
+    a sh:NodeShape ;
+    sh:targetClass oa:InteractionItem ;
+    sh:property [
+        sh:path oa:referencesData ;
+        sh:minCount 1 ;
+        sh:class oa:OperationalData ;
+        sh:severity sh:Info ;
+        sh:message "O item de interação ainda não referencia dados/conceitos do domínio; isso pode limitar análise de conteúdo."@pt
+    ] .
+
+oa:CommunicationMeanShape
+    a sh:NodeShape ;
+    sh:targetClass oa:CommunicationMean ;
+    sh:property [
+        sh:path oa:connectsEntity ;
+        sh:minCount 2 ;
+        sh:class oa:OperationalEntity ;
+        sh:severity sh:Violation ;
+        sh:message "Um meio de comunicação deve conectar pelo menos duas entidades/atores."@pt
+    ] ;
+    sh:property [
+        sh:path oa:supportsInteraction ;
+        sh:minCount 1 ;
+        sh:class oa:OperationalInteraction ;
+        sh:severity sh:Warning ;
+        sh:message "O meio de comunicação não está relacionado a nenhuma interação operacional."@pt
+    ] .
+
+oa:OperationalProcessShape
+    a sh:NodeShape ;
+    sh:targetClass oa:OperationalProcess ;
+    sh:property [
+        sh:path oa:describesCapability ;
+        sh:minCount 1 ;
+        sh:class oa:OperationalCapability ;
+        sh:severity sh:Warning ;
+        sh:message "O processo não descreve nenhuma capacidade operacional."@pt
+    ] ;
+    sh:property [
+        sh:path oa:hasProcessElement ;
+        sh:minCount 2 ;
+        sh:severity sh:Warning ;
+        sh:message "O processo possui menos de dois elementos e ainda não representa um caminho operacional significativo."@pt
+    ] .
+
+oa:OperationalScenarioShape
+    a sh:NodeShape ;
+    sh:targetClass oa:OperationalScenario ;
+    sh:property [
+        sh:path oa:describesCapability ;
+        sh:minCount 1 ;
+        sh:class oa:OperationalCapability ;
+        sh:severity sh:Warning ;
+        sh:message "O cenário não descreve nenhuma capacidade operacional."@pt
+    ] ;
+    sh:property [
+        sh:path oa:hasOccurrence ;
+        sh:minCount 2 ;
+        sh:class oa:ScenarioOccurrence ;
+        sh:severity sh:Warning ;
+        sh:message "O cenário ainda não contém uma sequência operacional suficiente."@pt
+    ] .
+
+oa:ScenarioOccurrenceShape
+    a sh:NodeShape ;
+    sh:targetClass oa:ScenarioOccurrence ;
+    sh:property [
+        sh:path oa:occurrenceOf ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:severity sh:Violation ;
+        sh:message "A ocorrência deve referenciar exatamente uma atividade ou interação."@pt
+    ] ;
+    sh:property [
+        sh:path oa:sequenceIndex ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:nonNegativeInteger ;
+        sh:severity sh:Warning ;
+        sh:message "A ocorrência não possui um índice de sequência válido."@pt
+    ] .
+
+oa:OperationalConstraintShape
+    a sh:NodeShape ;
+    sh:targetClass oa:OperationalConstraint ;
+    sh:property [
+        sh:path oa:constrains ;
+        sh:minCount 1 ;
+        sh:class oa:OperationalAnalysisElement ;
+        sh:severity sh:Warning ;
+        sh:message "A restrição não está aplicada a nenhum elemento operacional."@pt
+    ] .
+
+oa:DimensioningParameterShape
+    a sh:NodeShape ;
+    sh:targetClass oa:DimensioningParameter ;
+    sh:property [
+        sh:path oa:parameterValue ;
+        sh:minCount 1 ;
+        sh:severity sh:Warning ;
+        sh:message "O parâmetro dimensionante não possui valor ou critério."@pt
+    ] .
+
+oa:KnowledgeClaimShape
+    a sh:NodeShape ;
+    sh:targetClass oa:KnowledgeClaim ;
+    sh:property [
+        sh:path oa:assertionText ;
+        sh:minCount 1 ;
+        sh:severity sh:Violation ;
+        sh:message "A afirmação de conhecimento não possui texto."@pt
+    ] ;
+    sh:property [
+        sh:path oa:guidanceStatus ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:severity sh:Violation ;
+        sh:message "A afirmação precisa declarar se é referência Arcadia, recomendação, política ou heurística."@pt
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:severity sh:Violation ;
+        sh:message "Uma afirmação marcada como referência Arcadia precisa apontar para uma fonte."@pt ;
+        sh:select """
+            PREFIX oa: <https://github.com/fabricionicolato1323-cyber/MBSE-App/knowledge/arcadia/oa#>
+            PREFIX prov: <http://www.w3.org/ns/prov#>
+            SELECT $this WHERE {
+              $this oa:guidanceStatus oa:ArcadiaReference .
+              FILTER NOT EXISTS { $this prov:wasDerivedFrom ?source }
+            }
+        """
+    ] .

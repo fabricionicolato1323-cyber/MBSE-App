@@ -8,6 +8,7 @@ from typing import Callable
 
 from candidate_discovery import extract_goal_candidates
 from graph_model import OAGraph
+from knowledge_graph import ArcadiaKnowledgeBase
 from llm_service import LocalLLM
 from semantic_frames import (
     format_frame_summary,
@@ -21,12 +22,20 @@ from validator import validate_llm_candidate, validate_participant_candidate
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "config.json"
 DEFAULT_SAVE_PATH = BASE_DIR / "oa_model.json"
+KNOWLEDGE_BASE_DIR = BASE_DIR / "knowledge_base"
 
-COMMAND_BAR = "/help  /show  /check  /why  /save  /undo  /clc  /done  /quit"
+COMMAND_BAR = (
+    "/help  /ask QUESTION  /compare  /show  /check  /why  "
+    "/save  /undo  /clc  /done  /quit"
+)
 
 HELP_TEXT = """
 Commands:
   /help   Show commands
+  /ask QUESTION
+          Ask an Arcadia method question using only knowledge-graph evidence
+  /compare
+          Compare the current model with the RDF/SHACL Arcadia rules
   /show   Show the model so far
   /check  Check for obvious gaps
   /why    Explain why the current question matters
@@ -40,6 +49,8 @@ Each question also shows the preferred answer structure.
 The structure is guidance, not a rigid template.
 Activity answers may contain multiple subjects, objects, complements, or actions.
 Complex activity sentences are decomposed before anything is written to the model.
+Knowledge answers are read-only: they cannot add or change model elements.
+If the graph has no evidence, the assistant abstains instead of using model memory.
 """.strip()
 
 
@@ -49,6 +60,9 @@ class OAApp:
         model_path = Path(config["model_path"])
         if not model_path.is_absolute():
             model_path = BASE_DIR / model_path
+
+        with processing_indicator("Loading Arcadia knowledge graph"):
+            self.knowledge = ArcadiaKnowledgeBase(KNOWLEDGE_BASE_DIR)
 
         with processing_indicator("Loading local AI model"):
             self.llm = LocalLLM(
@@ -130,12 +144,33 @@ class OAApp:
     # Commands
     # ------------------------------------------------------------------
     def command(self, value: str) -> bool:
-        cmd = value.strip().lower()
+        raw = value.strip()
+        cmd = raw.casefold()
         if not cmd.startswith("/"):
             return False
 
         if cmd == "/help":
             self.show_command_page("HELP", HELP_TEXT)
+        elif cmd == "/ask":
+            self.add_notice(
+                "Add an English Arcadia question after the command.\n"
+                "Example: /ask What is the difference between an actor and an entity?"
+            )
+        elif cmd.startswith("/ask "):
+            question = raw[5:].strip()
+            if not question:
+                self.add_notice("Please add a question after /ask.")
+            else:
+                with processing_indicator("Querying the Arcadia knowledge graph"):
+                    answer = self.knowledge.answer(question, self.llm)
+                self.show_command_page("ARCADIA KNOWLEDGE ANSWER", answer)
+        elif cmd == "/compare":
+            with processing_indicator("Comparing model with Arcadia rules"):
+                comparison = self.knowledge.compare_model(self.model)
+            self.show_command_page(
+                "ARCADIA KNOWLEDGE GRAPH COMPARISON",
+                self.knowledge.format_comparison(comparison),
+            )
         elif cmd == "/show":
             self.show_command_page("MODEL SO FAR", self.model.friendly_show())
         elif cmd == "/check":
@@ -1130,6 +1165,11 @@ class OAApp:
                 print(f"- {note}")
         else:
             print("\nThe model has no obvious basic gaps.")
+
+        with processing_indicator("Comparing model with Arcadia rules"):
+            comparison = self.knowledge.compare_model(self.model)
+        print("\nKnowledge graph comparison:")
+        print(self.knowledge.format_comparison(comparison, max_issues=8))
 
         path = self.model.save(str(DEFAULT_SAVE_PATH))
         print(f"\nSaved: {path}")

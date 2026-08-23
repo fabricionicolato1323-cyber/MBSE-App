@@ -1,0 +1,467 @@
+@prefix oa: <https://github.com/fabricionicolato1323-cyber/MBSE-App/knowledge/arcadia/oa#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<https://github.com/fabricionicolato1323-cyber/MBSE-App/knowledge/arcadia/oa>
+    a owl:Ontology ;
+    dcterms:title "Ontologia de Análise Operacional Arcadia para assistência de modelagem"@pt ;
+    dcterms:description "Formalização derivada dos documentos Arcadia para consulta, explicação e validação assistida. Não é uma ontologia oficial publicada pela Thales ou Eclipse Foundation."@pt ;
+    dcterms:created "2026-08-21"^^xsd:date ;
+    dcterms:source
+        <https://mbse-capella.org/resources/arcadia-reference/Arcadia%20Reference%20-%20Data%20Model.pdf> ,
+        <https://mbse-capella.org/resources/arcadia-reference/Arcadia%20Language%20-%20MetaModel.pdf> ,
+        <https://mbse-capella.org/resources/arcadia-reference/Arcadia%20User%20Guide.pdf> ,
+        <https://mbse-capella.org/resources/arcadia-reference/Arcadia%20Q%26A.pdf> ;
+    owl:versionInfo "1.0.0" .
+
+#################################################################
+# Estatuto das orientações
+#################################################################
+
+oa:GuidanceStatus a owl:Class ;
+    rdfs:label "estatuto da orientação"@pt .
+
+oa:ArcadiaReference a oa:GuidanceStatus ;
+    rdfs:label "referência Arcadia"@pt ;
+    skos:definition "Definição ou orientação diretamente sustentada por documento Arcadia citado."@pt .
+
+oa:ModelingRecommendation a oa:GuidanceStatus ;
+    rdfs:label "boa prática de modelagem"@pt ;
+    skos:definition "Recomendação coerente com Arcadia cuja aplicação depende do contexto."@pt .
+
+oa:ApplicationPolicy a oa:GuidanceStatus ;
+    rdfs:label "política da aplicação"@pt ;
+    skos:definition "Regra de produto para orientar o usuário; não deve ser atribuída à metodologia."@pt .
+
+oa:LinguisticHeuristic a oa:GuidanceStatus ;
+    rdfs:label "heurística linguística"@pt ;
+    skos:definition "Indício baseado na linguagem, incapaz de decidir sozinho a semântica do modelo."@pt .
+
+oa:guidanceStatus a owl:AnnotationProperty ;
+    rdfs:label "estatuto da orientação"@pt ;
+    rdfs:range oa:GuidanceStatus .
+
+oa:sourceLocator a owl:AnnotationProperty ;
+    rdfs:label "localizador na fonte"@pt .
+
+oa:rationale a owl:AnnotationProperty ;
+    rdfs:label "justificativa"@pt .
+
+#################################################################
+# Classes-raiz
+#################################################################
+
+oa:ModelElement a owl:Class ;
+    rdfs:label "elemento de modelo"@pt ;
+    skos:definition "Elemento identificável em um modelo ou base de conhecimento."@pt .
+
+oa:ProjectElement a owl:Class ;
+    rdfs:subClassOf oa:ModelElement ;
+    rdfs:label "elemento do projeto"@pt ;
+    skos:definition "Elemento instanciado no Project Graph. A aplicação atribui este tipo além do tipo Arcadia específico para aplicar regras comuns de identificação e nomenclatura."@pt ;
+    oa:guidanceStatus oa:ApplicationPolicy .
+
+oa:OperationalAnalysisElement a owl:Class ;
+    rdfs:subClassOf oa:ModelElement ;
+    rdfs:label "elemento de Análise Operacional"@pt ;
+    skos:definition "Elemento pertencente à perspectiva de necessidade operacional."@pt ;
+    oa:guidanceStatus oa:ApplicationPolicy .
+
+oa:SolutionElement a owl:Class ;
+    rdfs:subClassOf oa:ModelElement ;
+    rdfs:label "elemento de solução"@pt ;
+    skos:definition "Elemento que descreve uma solução, sua contribuição funcional ou arquitetura."@pt ;
+    oa:guidanceStatus oa:ApplicationPolicy .
+
+oa:OperationalAnalysisElement owl:disjointWith oa:SolutionElement .
+
+#################################################################
+# Intenção: missões e capacidades
+#################################################################
+
+oa:OperationalMission a owl:Class ;
+    rdfs:subClassOf oa:OperationalAnalysisElement ;
+    rdfs:label "Operational Mission"@en , "missão operacional"@pt ;
+    skos:definition "Objetivo de alto nível para o qual uma ou mais entidades operacionais devem contribuir e que pode influenciar a definição ou o uso do sistema."@pt ;
+    dcterms:source <https://mbse-capella.org/resources/arcadia-reference/Arcadia%20Language%20-%20MetaModel.pdf> ;
+    oa:sourceLocator "seção 4.1.3.4, p. 15 do PDF" ;
+    oa:guidanceStatus oa:ArcadiaReference .
+
+oa:OperationalCapability a owl:Class ;
+    rdfs:subClassOf oa:OperationalAnalysisElement ;
+    rdfs:label "Operational Capability"@en , "capacidade operacional"@pt ;
+    skos:definition "Habilidade esperada de uma ou mais entidades operacionais para prestar um serviço que contribui para cumprir uma ou mais missões operacionais."@pt ;
+    dcterms:source <https://mbse-capella.org/resources/arcadia-reference/Arcadia%20Language%20-%20MetaModel.pdf> ;
+    oa:sourceLocator "seção 4.1.3.2, p. 14 do PDF" ;
+    oa:guidanceStatus oa:ArcadiaReference .
+
+#################################################################
+# Estrutura operacional
+#################################################################
+
+oa:OperationalEntity a owl:Class ;
+    rdfs:subClassOf oa:OperationalAnalysisElement ;
+    rdfs:label "Operational Entity"@en , "entidade operacional"@pt ;
+    skos:definition "Entidade do mundo real — elemento físico, grupo, organização, outro sistema ou stakeholder — que realiza atividades operacionais às quais o sistema poderá contribuir ou que pode influenciar o sistema."@pt ;
+    dcterms:source <https://mbse-capella.org/resources/arcadia-reference/Arcadia%20Language%20-%20MetaModel.pdf> ;
+    oa:sourceLocator "seção 4.2.3.2, p. 24 do PDF" ;
+    oa:guidanceStatus oa:ArcadiaReference .
+
+oa:OperationalActor a owl:Class ;
+    rdfs:subClassOf oa:OperationalEntity ;
+    rdfs:label "Operational Actor"@en , "ator operacional"@pt ;
+    skos:definition "Entidade operacional não decomponível, usualmente humana."@pt ;
+    dcterms:source <https://mbse-capella.org/resources/arcadia-reference/Arcadia%20Language%20-%20MetaModel.pdf> ;
+    oa:sourceLocator "seção 4.2.3.1, p. 24 do PDF" ;
+    oa:guidanceStatus oa:ArcadiaReference .
+
+oa:CommunicationMean a owl:Class ;
+    rdfs:subClassOf oa:OperationalAnalysisElement ;
+    rdfs:label "Communication Mean"@en , "meio de comunicação operacional"@pt ;
+    skos:definition "Suporte que liga duas entidades operacionais e habilita as interações entre elas."@pt ;
+    dcterms:source <https://mbse-capella.org/resources/arcadia-reference/Arcadia%20Language%20-%20MetaModel.pdf> ;
+    oa:sourceLocator "seção 4.2.3.3, p. 24 do PDF" ;
+    oa:guidanceStatus oa:ArcadiaReference .
+
+#################################################################
+# Comportamento operacional
+#################################################################
+
+oa:OperationalActivity a owl:Class ;
+    rdfs:subClassOf oa:OperationalAnalysisElement ;
+    rdfs:label "Operational Activity"@en , "atividade operacional"@pt ;
+    skos:definition "Ação, operação ou serviço realizado por uma entidade operacional, capaz de influenciar a definição ou o uso do sistema."@pt ;
+    dcterms:source <https://mbse-capella.org/resources/arcadia-reference/Arcadia%20Language%20-%20MetaModel.pdf> ;
+    oa:sourceLocator "seção 4.1.2.2, p. 13 do PDF" ;
+    oa:guidanceStatus oa:ArcadiaReference .
+
+oa:OperationalInteraction a owl:Class ;
+    rdfs:subClassOf oa:OperationalAnalysisElement ;
+    rdfs:label "Operational Interaction"@en , "interação operacional"@pt ;
+    skos:definition "Dependência possível entre duas atividades operacionais — fonte e destino — pela transmissão de elementos transportados na interação."@pt ;
+    dcterms:source <https://mbse-capella.org/resources/arcadia-reference/Arcadia%20Language%20-%20MetaModel.pdf> ;
+    oa:sourceLocator "seção 4.1.2.1, p. 13 do PDF" ;
+    oa:guidanceStatus oa:ArcadiaReference .
+
+oa:InteractionItem a owl:Class ;
+    rdfs:subClassOf oa:OperationalAnalysisElement ;
+    rdfs:label "Interaction Item"@en , "item de interação"@pt ;
+    skos:definition "Conteúdo esperado a ser trocado por entidades/atores e pelas atividades atribuídas a eles."@pt ;
+    dcterms:source <https://mbse-capella.org/resources/arcadia-reference/Arcadia%20Reference%20-%20Data%20Model.pdf> ;
+    oa:sourceLocator "seção 4.1.1.8, p. 11 do PDF" ;
+    oa:guidanceStatus oa:ArcadiaReference .
+
+oa:OperationalData a owl:Class ;
+    rdfs:subClassOf oa:OperationalAnalysisElement ;
+    rdfs:label "Operational Data"@en , "dado operacional"@pt ;
+    skos:definition "Elemento de uma interação ou comunicação entre entidades/atores, referenciável e agrupável em itens de interação."@pt ;
+    dcterms:source <https://mbse-capella.org/resources/arcadia-reference/Arcadia%20Reference%20-%20Data%20Model.pdf> ;
+    oa:sourceLocator "seção 4.1.1.9, p. 11 do PDF" ;
+    oa:guidanceStatus oa:ArcadiaReference .
+
+oa:OperationalProcess a owl:Class ;
+    rdfs:subClassOf oa:OperationalAnalysisElement ;
+    rdfs:label "Operational Process"@en , "processo operacional"@pt ;
+    skos:definition "Conjunto ordenado de referências a atividades operacionais e às interações que as ligam, descrevendo um caminho possível no dataflow operacional."@pt ;
+    dcterms:source <https://mbse-capella.org/resources/arcadia-reference/Arcadia%20Language%20-%20MetaModel.pdf> ;
+    oa:sourceLocator "seção 4.1.2.4, p. 14 do PDF" ;
+    oa:guidanceStatus oa:ArcadiaReference .
+
+oa:OperationalScenario a owl:Class ;
+    rdfs:subClassOf oa:OperationalAnalysisElement ;
+    rdfs:label "Operational Scenario"@en , "cenário operacional"@pt ;
+    skos:definition "Fluxo temporalmente ordenado de interações no contexto de uma capacidade operacional."@pt ;
+    dcterms:source <https://mbse-capella.org/resources/arcadia-reference/Arcadia%20Reference%20-%20Data%20Model.pdf> ;
+    oa:sourceLocator "seção 4.1.1.5, p. 10 do PDF" ;
+    oa:guidanceStatus oa:ArcadiaReference .
+
+oa:OperationalActivityScenario a owl:Class ;
+    rdfs:subClassOf oa:OperationalScenario ;
+    rdfs:label "Operational Activity Scenario"@en , "cenário de atividades operacionais"@pt ;
+    skos:definition "Fluxo temporalmente ordenado de interações entre atividades no contexto de uma capacidade."@pt ;
+    dcterms:source <https://mbse-capella.org/resources/arcadia-reference/Arcadia%20Language%20-%20MetaModel.pdf> ;
+    oa:sourceLocator "seção 4.1.2.3, p. 13 do PDF" ;
+    oa:guidanceStatus oa:ArcadiaReference .
+
+oa:OperationalEntityScenario a owl:Class ;
+    rdfs:subClassOf oa:OperationalScenario ;
+    rdfs:label "Operational Entity Scenario"@en , "cenário de entidades operacionais"@pt ;
+    skos:definition "Fluxo temporalmente ordenado de interações entre entidades ou atores no contexto de uma capacidade operacional."@pt ;
+    dcterms:source <https://mbse-capella.org/resources/arcadia-reference/Arcadia%20Language%20-%20MetaModel.pdf> ;
+    oa:sourceLocator "seção 4.2.3.4, p. 24 do PDF" ;
+    oa:guidanceStatus oa:ArcadiaReference .
+
+oa:ScenarioOccurrence a owl:Class ;
+    rdfs:subClassOf oa:OperationalAnalysisElement ;
+    rdfs:label "ocorrência de cenário"@pt ;
+    skos:definition "Ocorrência contextual e temporal de uma atividade ou interação em um cenário; permite que o mesmo elemento-tipo apareça várias vezes."@pt ;
+    oa:guidanceStatus oa:ApplicationPolicy ;
+    oa:rationale "Extensão necessária para representar ordem e repetição sem confundir tipo com ocorrência."@pt .
+
+#################################################################
+# Condições, modos e restrições
+#################################################################
+
+oa:OperationalCondition a owl:Class ;
+    rdfs:subClassOf oa:OperationalAnalysisElement ;
+    rdfs:label "condição operacional"@pt .
+
+oa:OperationalMode a owl:Class ;
+    rdfs:subClassOf oa:OperationalCondition ;
+    rdfs:label "Operational Mode"@en , "modo operacional"@pt ;
+    skos:definition "Comportamento esperado/escolhido de uma entidade ou ator em certas condições."@pt ;
+    dcterms:source <https://mbse-capella.org/resources/arcadia-reference/Arcadia%20Language%20-%20MetaModel.pdf> ;
+    oa:sourceLocator "seção 4.4.1.7, p. 30 do PDF" ;
+    oa:guidanceStatus oa:ArcadiaReference .
+
+oa:OperationalState a owl:Class ;
+    rdfs:subClassOf oa:OperationalCondition ;
+    rdfs:label "Operational State"@en , "estado operacional"@pt ;
+    skos:definition "Comportamento ou condição sofrida por uma entidade ou ator em condições impostas pelo ambiente."@pt ;
+    dcterms:source <https://mbse-capella.org/resources/arcadia-reference/Arcadia%20Language%20-%20MetaModel.pdf> ;
+    oa:sourceLocator "seção 4.4.1.6, p. 29 do PDF" ;
+    oa:guidanceStatus oa:ArcadiaReference .
+
+oa:OperationalSituation a owl:Class ;
+    rdfs:subClassOf oa:OperationalCondition ;
+    rdfs:label "Operational Situation"@en , "situação operacional"@pt ;
+    skos:definition "Combinação de modos e estados por operadores lógicos, simultaneamente em um instante."@pt ;
+    dcterms:source <https://mbse-capella.org/resources/arcadia-reference/Arcadia%20Language%20-%20MetaModel.pdf> ;
+    oa:sourceLocator "seção 4.4.1.5, p. 29 do PDF" ;
+    oa:guidanceStatus oa:ArcadiaReference .
+
+oa:OperationalConstraint a owl:Class ;
+    rdfs:subClassOf oa:OperationalAnalysisElement ;
+    rdfs:label "restrição operacional"@pt ;
+    skos:definition "Expectativa, condição ou limite aplicável a um ou mais elementos operacionais."@pt ;
+    dcterms:source <https://mbse-capella.org/resources/arcadia-reference/Arcadia%20Reference%20-%20Data%20Model.pdf> ;
+    oa:sourceLocator "seção 4.1.4, p. 13 do PDF" ;
+    oa:guidanceStatus oa:ArcadiaReference .
+
+oa:DimensioningParameter a owl:Class ;
+    rdfs:subClassOf oa:OperationalAnalysisElement ;
+    rdfs:label "parâmetro dimensionante"@pt ;
+    skos:definition "Parâmetro quantitativo ou qualitativo usado para caracterizar uma capacidade, cenário, atividade ou restrição operacional."@pt ;
+    oa:guidanceStatus oa:ModelingRecommendation .
+
+#################################################################
+# Proveniência, lacunas e afirmações para o help
+#################################################################
+
+oa:SourceDocument a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "documento-fonte"@pt .
+
+oa:KnowledgeClaim a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "afirmação de conhecimento"@pt ;
+    skos:definition "Proposição atômica consultável, com estatuto e proveniência explícitos."@pt ;
+    oa:guidanceStatus oa:ApplicationPolicy .
+
+oa:ModelGap a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "lacuna do modelo"@pt ;
+    skos:definition "Informação necessária ou relevante ainda desconhecida, adiada ou sem evidência suficiente."@pt ;
+    oa:guidanceStatus oa:ApplicationPolicy .
+
+#################################################################
+# Propriedades de objeto
+#################################################################
+
+oa:usesCapability a owl:ObjectProperty ;
+    rdfs:domain oa:OperationalMission ;
+    rdfs:range oa:OperationalCapability ;
+    rdfs:label "usa capacidade"@pt .
+
+oa:contributesToMission a owl:ObjectProperty ;
+    rdfs:range oa:OperationalMission ;
+    rdfs:label "contribui para missão"@pt .
+
+oa:involvedInCapability a owl:ObjectProperty ;
+    rdfs:domain oa:OperationalEntity ;
+    rdfs:range oa:OperationalCapability ;
+    rdfs:label "envolve-se na capacidade"@pt .
+
+oa:hasInvolvedEntity a owl:ObjectProperty ;
+    owl:inverseOf oa:involvedInCapability ;
+    rdfs:domain oa:OperationalCapability ;
+    rdfs:range oa:OperationalEntity ;
+    rdfs:label "tem entidade envolvida"@pt .
+
+oa:performsActivity a owl:ObjectProperty ;
+    rdfs:domain oa:OperationalEntity ;
+    rdfs:range oa:OperationalActivity ;
+    rdfs:label "realiza atividade"@pt .
+
+oa:performedBy a owl:ObjectProperty ;
+    owl:inverseOf oa:performsActivity ;
+    rdfs:domain oa:OperationalActivity ;
+    rdfs:range oa:OperationalEntity ;
+    rdfs:label "realizada por"@pt .
+
+oa:containsEntity a owl:ObjectProperty , owl:TransitiveProperty , owl:IrreflexiveProperty ;
+    rdfs:domain oa:OperationalEntity ;
+    rdfs:range oa:OperationalEntity ;
+    rdfs:label "contém entidade"@pt .
+
+oa:containsActivity a owl:ObjectProperty , owl:TransitiveProperty , owl:IrreflexiveProperty ;
+    rdfs:domain oa:OperationalActivity ;
+    rdfs:range oa:OperationalActivity ;
+    rdfs:label "contém atividade"@pt .
+
+oa:sourceActivity a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:domain oa:OperationalInteraction ;
+    rdfs:range oa:OperationalActivity ;
+    rdfs:label "atividade fonte"@pt .
+
+oa:targetActivity a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:domain oa:OperationalInteraction ;
+    rdfs:range oa:OperationalActivity ;
+    rdfs:label "atividade destino"@pt .
+
+oa:conveys a owl:ObjectProperty ;
+    rdfs:domain oa:OperationalInteraction ;
+    rdfs:range oa:InteractionItem ;
+    rdfs:label "transporta item"@pt .
+
+oa:referencesData a owl:ObjectProperty ;
+    rdfs:domain oa:InteractionItem ;
+    rdfs:range oa:OperationalData ;
+    rdfs:label "referencia dado"@pt .
+
+oa:connectsEntity a owl:ObjectProperty ;
+    rdfs:domain oa:CommunicationMean ;
+    rdfs:range oa:OperationalEntity ;
+    rdfs:label "conecta entidade"@pt .
+
+oa:supportsInteraction a owl:ObjectProperty ;
+    rdfs:domain oa:CommunicationMean ;
+    rdfs:range oa:OperationalInteraction ;
+    rdfs:label "suporta interação"@pt .
+
+oa:describesCapability a owl:ObjectProperty ;
+    rdfs:domain [ a owl:Class ; owl:unionOf (oa:OperationalProcess oa:OperationalScenario) ] ;
+    rdfs:range oa:OperationalCapability ;
+    rdfs:label "descreve capacidade"@pt .
+
+oa:hasProcessElement a owl:ObjectProperty ;
+    rdfs:domain oa:OperationalProcess ;
+    rdfs:range [ a owl:Class ; owl:unionOf (oa:OperationalActivity oa:OperationalInteraction) ] ;
+    rdfs:label "tem elemento de processo"@pt .
+
+oa:hasOccurrence a owl:ObjectProperty ;
+    rdfs:domain oa:OperationalScenario ;
+    rdfs:range oa:ScenarioOccurrence ;
+    rdfs:label "tem ocorrência"@pt .
+
+oa:occurrenceOf a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:domain oa:ScenarioOccurrence ;
+    rdfs:range [ a owl:Class ; owl:unionOf (oa:OperationalActivity oa:OperationalInteraction) ] ;
+    rdfs:label "ocorrência de"@pt .
+
+oa:nextOccurrence a owl:ObjectProperty , owl:IrreflexiveProperty ;
+    rdfs:domain oa:ScenarioOccurrence ;
+    rdfs:range oa:ScenarioOccurrence ;
+    rdfs:label "próxima ocorrência"@pt .
+
+oa:appliesInCondition a owl:ObjectProperty ;
+    rdfs:range oa:OperationalCondition ;
+    rdfs:label "aplica-se na condição"@pt .
+
+oa:enablesActivity a owl:ObjectProperty ;
+    rdfs:domain oa:OperationalCondition ;
+    rdfs:range oa:OperationalActivity ;
+    rdfs:label "habilita atividade"@pt .
+
+oa:constrains a owl:ObjectProperty ;
+    rdfs:domain oa:OperationalConstraint ;
+    rdfs:range oa:OperationalAnalysisElement ;
+    rdfs:label "restringe"@pt .
+
+oa:hasParameter a owl:ObjectProperty ;
+    rdfs:range oa:DimensioningParameter ;
+    rdfs:label "tem parâmetro"@pt .
+
+oa:aboutElement a owl:ObjectProperty ;
+    rdfs:domain [ a owl:Class ; owl:unionOf (oa:KnowledgeClaim oa:ModelGap) ] ;
+    rdfs:range oa:ModelElement ;
+    rdfs:label "sobre elemento"@pt .
+
+oa:supportedByClaim a owl:ObjectProperty ;
+    rdfs:range oa:KnowledgeClaim ;
+    rdfs:label "sustentado por afirmação"@pt .
+
+#################################################################
+# Propriedades de dados
+#################################################################
+
+oa:identifier a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:range xsd:string ;
+    rdfs:label "identificador"@pt .
+
+oa:name a owl:DatatypeProperty ;
+    rdfs:domain oa:ModelElement ;
+    rdfs:range xsd:string ;
+    rdfs:label "nome"@pt .
+
+oa:description a owl:DatatypeProperty ;
+    rdfs:range rdf:langString ;
+    rdfs:label "descrição"@pt .
+
+oa:isSystemOfInterest a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:domain oa:ModelElement ;
+    rdfs:range xsd:boolean ;
+    rdfs:label "é sistema de interesse"@pt ;
+    oa:guidanceStatus oa:ApplicationPolicy .
+
+oa:isDecomposable a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:domain oa:OperationalEntity ;
+    rdfs:range xsd:boolean ;
+    rdfs:label "é decomponível"@pt .
+
+oa:sequenceIndex a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:domain oa:ScenarioOccurrence ;
+    rdfs:range xsd:nonNegativeInteger ;
+    rdfs:label "índice de sequência"@pt .
+
+oa:parameterValue a owl:DatatypeProperty ;
+    rdfs:domain oa:DimensioningParameter ;
+    rdfs:label "valor do parâmetro"@pt .
+
+oa:unit a owl:DatatypeProperty ;
+    rdfs:domain oa:DimensioningParameter ;
+    rdfs:range xsd:string ;
+    rdfs:label "unidade"@pt .
+
+oa:assertionText a owl:DatatypeProperty ;
+    rdfs:domain oa:KnowledgeClaim ;
+    rdfs:range rdf:langString ;
+    rdfs:label "texto da afirmação"@pt .
+
+oa:answersIntent a owl:DatatypeProperty ;
+    rdfs:domain oa:KnowledgeClaim ;
+    rdfs:range xsd:string ;
+    rdfs:label "intenção de pergunta atendida"@pt .
+
+oa:coverageStatus a owl:DatatypeProperty ;
+    rdfs:range xsd:string ;
+    rdfs:label "estado de cobertura"@pt .
+
+oa:gapStatus a owl:DatatypeProperty ;
+    rdfs:domain oa:ModelGap ;
+    rdfs:range xsd:string ;
+    rdfs:label "estado da lacuna"@pt .
+
+oa:originalText a owl:DatatypeProperty ;
+    rdfs:range rdf:langString ;
+    rdfs:label "texto original"@pt .
+
+oa:confidence a owl:DatatypeProperty ;
+    rdfs:range xsd:decimal ;
+    rdfs:label "confiança"@pt ;
+    oa:guidanceStatus oa:ApplicationPolicy .
