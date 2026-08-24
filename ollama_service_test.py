@@ -1,6 +1,10 @@
 import json
+import os
 
 from llm_service import ModelSelectionError, OllamaLLM
+
+
+TEST_MODEL_ENV = "MBSE_OLLAMA_TEST_MODEL"
 
 
 class FakeOllama(OllamaLLM):
@@ -11,6 +15,7 @@ class FakeOllama(OllamaLLM):
         super().__init__(
             base_url="http://ollama.invalid",
             model=selected,
+            model_env=TEST_MODEL_ENV,
             timeout_seconds=1,
         )
 
@@ -33,6 +38,8 @@ class FakeOllama(OllamaLLM):
 
 
 def main() -> None:
+    # A developer's real MBSE_OLLAMA_MODEL must never affect this fake-client test.
+    os.environ.pop(TEST_MODEL_ENV, None)
     one_installed = ["test-model-from-runtime"]
     client = FakeOllama(one_installed)
     assert client.model == one_installed[0]
