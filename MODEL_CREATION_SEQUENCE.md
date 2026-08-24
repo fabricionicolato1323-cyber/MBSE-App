@@ -1,189 +1,95 @@
-# Guided model creation sequence
+# Persistent OA model creation sequence
 
-The end user does not need to know Arcadia terminology.
+The flow is a deterministic interview. It introduces only one modeling decision
+at a time and does not attempt to answer open-ended methodology questions.
 
-## 1. Capture the goal
+## 1. Create operational capabilities
 
-Example:
+For each capability:
 
-```text
-What is the main goal?
-> Maintain safe and effective operations
-```
+1. show its ontology definition and example the first time;
+2. require a name in the form `verb + desired state/object + optional condition`;
+3. require a one-sentence core description;
+4. ask whether measurable attributes or limitations apply;
+5. persist only after deterministic validation succeeds.
 
-Internally this becomes an `OperationalCapability`.
+## 2. Create participants
 
-## 2. Discover candidates from the user's wording
+The user explicitly chooses between:
 
-Ollama may extract only noun phrases that occur explicitly in the goal.
-The extraction is advisory and protected by an exact-span / duplicate / type
-barrier.
+- Operational Actor — one indivisible human person or role;
+- Operational Entity — group, organization, place, resource, context, or
+  existing external participant.
 
-A `CandidateMention` is transient. It is not written to NetworkX.
+The flow then asks whether the participant is involved in a capability.
 
-## 3. Ask the user to confirm each candidate
+## 3. Create operational activities
 
-Deterministic rules first propose a type, nature, evidence level, reason, and
-rule identifiers. The user may confirm, override, reject, or explicitly request
-an Ollama opinion. Only the user's final choice becomes a persistent
-`OperationalActor` or `OperationalEntity`.
+An activity name must use `action verb + object + optional complements`. The
+user selects one or more performers and the capability supported by the activity.
 
-An Operational Actor is one indivisible human person or role. Human collectives
-and non-human operational participants are Operational Entities.
+## 4. Create operational exchanges
 
-## 4. Determine whether an entity acts or only provides context
+An exchange is a persistent element, not a label on an edge. It requires:
 
-An Operational Entity may actively perform behavior or may only provide
-operational context. Human actors are treated as active participants.
+- noun-phrase name;
+- core description;
+- one source activity;
+- one target activity.
 
-## 5. Capture and parse operational behavior
+## 5. Create communication means
 
-For each active participant the application asks:
+A communication mean is also a persistent element. It requires:
 
-```text
-What does <participant> do?
-```
+- noun-phrase name;
+- core description;
+- one source participant;
+- one target participant;
+- optional supported exchange.
 
-The answer may contain one or several subjects, verbs, objects, recipients,
-locations, conditions, time expressions, and other complements.
+## 6. Capture structure and location
 
-One simple action is parsed deterministically. Complex language may be sent to
-Ollama and is then shown to the user for confirmation. Before writing to the
-graph, the answer is represented as transient semantic frames:
-
-```text
-SemanticFrame
-  |
-  +-- SemanticClause
-  |     subjects[]
-  |     verb
-  |     objects[]
-  |     recipients[]
-  |     locations[]
-  |     conditions[]
-  |     time[]
-  |     other_complements[]
-  |     activity_text
-  |
-  +-- SemanticClause ...
-```
-
-General decomposition rules:
+The flow keeps structural containment separate from operational location:
 
 ```text
-one verb + several objects
-    -> one OperationalActivity
-
-several independent verbs
-    -> several OperationalActivities
-
-several subjects + same action
-    -> one OperationalActivity with several PERFORMS relations
-
-subject stated once + following coordinated actions
-    -> subject is inherited by the following clauses
+OperationalEntity --CONTAINS--> OperationalEntity/OperationalActor
+OperationalActor/Entity --LOCATED_IN--> OperationalEntity
 ```
 
-If the sentence is structurally complex, the application shows the interpreted
-subjects/actions/objects/complements and asks the user to confirm the
-interpretation. Nothing is written before confirmation.
+An actor cannot contain another participant. A child has at most one composition
+parent, and a composition or location cycle is rejected.
 
-The persistent OperationalActivity may store semantic attributes such as:
+## 7. Ask about decomposition and refinement
 
-```text
-semantic_verb
-semantic_objects[]
-semantic_recipients[]
-semantic_locations[]
-semantic_conditions[]
-semantic_time[]
-semantic_other_complements[]
-source_text
-```
+| Parent concept | Rule |
+|---|---|
+| Operational Actor | Leaf; cannot decompose |
+| Operational Entity | `CONTAINS` entity or actor |
+| Operational Activity | `DECOMPOSES_INTO` activity |
+| Operational Capability | `REFINES_INTO` capability |
+| Operational Exchange | `REFINES_INTO` exchange |
+| Communication Mean | `REFINES_INTO` communication mean |
 
-`SemanticFrame` and `SemanticClause` themselves are not persisted as Arcadia
-nodes.
+The user may answer **Not now**. After creating a child, every existing parent
+relationship must be explicitly retained, moved, or duplicated when the ontology
+allows it. Constraints remain local or apply through the hierarchy according to
+the customer-supplied scope and aggregation rule.
 
-## 6. Ask for anything not mentioned earlier
+## 8. Review and edit
 
-```text
-Is anyone or anything else involved? (yes/no)
-```
+The review loop supports adding, editing, decomposing, deleting, checking, saving,
+and finishing. Every element keeps the same stable ID after an edit. An invalid
+edit remains a preview and cannot overwrite the current valid model. Deletion
+shows all affected relationships before confirmation.
 
-This prevents the model from being limited to nouns that happened to appear in
-the initial goal wording.
+## Presentation policy
 
-## 7. Capture structure and environment
+A node or relationship definition and one example are shown:
 
-The assistant asks simple questions that map internally to:
+1. when it is first introduced;
+2. after a grammar or ontology validation error;
+3. before a consequential composition decision;
+4. when an existing element is edited.
 
-```text
-OperationalEntity --CONTAINS--> OperationalEntity
-OperationalEntity --CONTAINS--> OperationalActor
-OperationalActor  --LOCATED_IN--> OperationalEntity
-OperationalEntity --LOCATED_IN--> OperationalEntity
-```
-
-`PART_OF` is the inverse reading of `CONTAINS` and is not stored as a duplicate edge.
-
-## 8. Capture operational interactions
-
-Actions may exchange information, material, requests, or other operational items.
-
-## 9. Capture communication means
-
-When an interaction crosses participant boundaries, the assistant can ask how
-the relevant participants communicate. Shared activities with multiple performers
-are supported.
-
-## Write barrier
-
-The activity flow is:
-
-```text
-User wording
-    |
-    v
-Semantic frame parsing
-    |
-    v
-Subjects / verbs / objects / complements
-    |
-    v
-User confirmation for complex interpretations
-    |
-    v
-OA semantic validation
-    |
-    v
-Deterministic graph rules
-    |
-    v
-NetworkX
-```
-
-The candidate flow is:
-
-```text
-User wording
-    |
-    v
-Local LLM candidate extraction
-    |
-    v
-Exact-span / duplicate / type filter
-    |
-    v
-User confirmation
-    |
-    v
-OA type validation
-    |
-    v
-Deterministic graph rules
-    |
-    v
-NetworkX
-```
-
-The LLM never has direct write access to the graph.
+Normal follow-up questions show only the requested input structure. This keeps
+the flow short without hiding the rules that control persistence.

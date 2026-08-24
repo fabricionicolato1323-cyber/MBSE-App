@@ -1,184 +1,276 @@
-"""Restricted Arcadia Operational Analysis ontology for the guided prototype.
+"""Persistent ontology for the reduced Arcadia Operational Analysis builder.
 
-Arcadia terminology is intentionally internal. The user-facing application talks
-about goals, participants, actions, interactions, structure, places, and
-communication methods.
-
-Structural convention:
-- CONTAINS is stored from the larger Operational Entity to the contained
-  Operational Entity or Operational Actor.
-- PART_OF is the inverse meaning of CONTAINS and is not stored as a second edge.
-- LOCATED_IN is separate from structural containment so organizational
-  decomposition is not confused with physical/operational location.
-
-Guided-elicitation convention:
-- CandidateMention is a transient helper concept used only by the assistant.
-- SemanticFrame and SemanticClause are transient parsing concepts used to
-  decompose natural-language activity answers into subjects, verbs, objects,
-  recipients, locations, conditions, time, and other complements.
-- Transient helper concepts are never written as Arcadia nodes in NetworkX.
-- The user must confirm candidate participants and complex activity
-  decompositions before the corresponding OA elements are persisted.
-- Candidate discovery and semantic parsing are domain-independent and must never
-  depend on scenario-specific names, roles, assets, industries, or actions.
+The application persists exactly six OA concepts. Definitions, examples,
+input contracts, and relationship signatures live here so the guided flow and
+the graph write barrier use the same source of truth.
 """
+
+from __future__ import annotations
+
+import re
+
 
 NODE_TYPES = {
     "OperationalCapability",
     "OperationalActor",
     "OperationalEntity",
     "OperationalActivity",
+    "OperationalExchange",
+    "CommunicationMean",
 }
 
 PARTICIPANT_TYPES = {"OperationalActor", "OperationalEntity"}
 
-# Participant type, participant nature, and operational role are deliberately
-# separate dimensions. Roles are attributes because the same participant may
-# play different roles in different capabilities or scenarios.
-PARTICIPANT_NATURES = {
-    "human_individual",
-    "organization",
-    "organizational_unit",
-    "team_or_collective",
-    "existing_technical_system",
-    "infrastructure_or_facility",
-    "external_operational_service",
-    "population_or_community",
-    "environmental_participant",
-    "unspecified",
+CONCEPT_GUIDANCE = {
+    "OperationalCapability": {
+        "friendly_name": "operational capability",
+        "definition": (
+            "A solution-independent ability or operational outcome required "
+            "by stakeholders in the operational context."
+        ),
+        "example": "Maintain secure access to the restricted area",
+        "expected_format": (
+            "verb + desired state or object + optional operational condition"
+        ),
+        "capella_type": "OperationalCapability",
+        "composition_relation": "REFINES_INTO",
+    },
+    "OperationalActor": {
+        "friendly_name": "operational actor",
+        "definition": (
+            "One indivisible human operational participant, person, or role. "
+            "A human collective is an Operational Entity."
+        ),
+        "example": "Field Coordinator",
+        "expected_format": "singular noun phrase naming one human role or person",
+        "capella_type": "OperationalActor",
+        "composition_relation": None,
+    },
+    "OperationalEntity": {
+        "friendly_name": "operational entity",
+        "definition": (
+            "A real-world organization, group, place, resource, context, or "
+            "existing external participant involved in the operation."
+        ),
+        "example": "Field Patrol Team",
+        "expected_format": (
+            "noun phrase naming a real-world group, organization, place, "
+            "resource, context, or external participant"
+        ),
+        "capella_type": "OperationalEntity",
+        "composition_relation": "CONTAINS",
+    },
+    "OperationalActivity": {
+        "friendly_name": "operational activity",
+        "definition": (
+            "Operational behavior performed by an actor or entity, expressed "
+            "without implementation or system-design detail."
+        ),
+        "example": "Verify access authorization",
+        "expected_format": "action verb + object + optional complements",
+        "capella_type": "OperationalActivity",
+        "composition_relation": "DECOMPOSES_INTO",
+    },
+    "OperationalExchange": {
+        "friendly_name": "operational exchange",
+        "definition": (
+            "Identifiable information, request, command, event, or material "
+            "transferred from one operational activity to another."
+        ),
+        "example": "Access authorization data",
+        "expected_format": "noun phrase naming the exchanged content or item",
+        "capella_type": "OperationalInteraction",
+        "composition_relation": "REFINES_INTO",
+    },
+    "CommunicationMean": {
+        "friendly_name": "communication mean",
+        "definition": (
+            "A real operational method or support connecting participants and "
+            "enabling one or more operational exchanges."
+        ),
+        "example": "Voice radio communication",
+        "expected_format": (
+            "noun phrase naming the real operational communication method"
+        ),
+        "capella_type": "CommunicationMean",
+        "composition_relation": "REFINES_INTO",
+    },
 }
 
-OPERATIONAL_ROLES = {
-    "initiator",
-    "requester",
-    "performer",
-    "operator",
-    "coordinator",
-    "decision_authority",
-    "information_provider",
-    "information_consumer",
-    "service_provider",
-    "regulator",
-    "support_or_maintainer",
-    "responder",
-    "beneficiary",
-    "affected_party",
-    "observer",
-    "adversary",
+
+RELATION_GUIDANCE = {
+    "PERFORMS": {
+        "definition": "A participant carries out an operational activity.",
+        "example": "Field Patrol Team performs Verify access authorization",
+    },
+    "INVOLVED_IN_CAPABILITY": {
+        "definition": "A participant contributes to an operational capability.",
+        "example": "Field Patrol Team is involved in Maintain secure access",
+    },
+    "SUPPORTS_CAPABILITY": {
+        "definition": "An activity contributes to achieving a capability.",
+        "example": "Verify access authorization supports Maintain secure access",
+    },
+    "SOURCE_ACTIVITY": {
+        "definition": "The activity that produces an operational exchange.",
+        "example": "Access authorization data has source Verify identity",
+    },
+    "TARGET_ACTIVITY": {
+        "definition": "The activity that consumes an operational exchange.",
+        "example": "Access authorization data has target Permit entry",
+    },
+    "SOURCE_PARTICIPANT": {
+        "definition": "The originating endpoint of a communication mean.",
+        "example": "Voice radio communication has source Field Patrol Team",
+    },
+    "TARGET_PARTICIPANT": {
+        "definition": "The receiving endpoint of a communication mean.",
+        "example": "Voice radio communication has target Operations Center",
+    },
+    "SUPPORTS_EXCHANGE": {
+        "definition": "A communication mean enables an operational exchange.",
+        "example": "Voice radio communication supports Incident notification",
+    },
+    "CONTAINS": {
+        "definition": (
+            "An Operational Entity structurally contains another entity or actor."
+        ),
+        "example": "Security Organization contains Field Patrol Team",
+    },
+    "LOCATED_IN": {
+        "definition": (
+            "A participant operates within a physical or operational place or context."
+        ),
+        "example": "Field Patrol Team is located in Restricted Area",
+    },
+    "DECOMPOSES_INTO": {
+        "definition": "An activity is broken down into subordinate activities.",
+        "example": "Protect area decomposes into Monitor access points",
+    },
+    "REFINES_INTO": {
+        "definition": (
+            "A capability, exchange, or communication mean is made more "
+            "operationally specific without implying structural ownership."
+        ),
+        "example": "Maintain security refines into Prevent unauthorized access",
+    },
 }
 
-# Helper concepts belong to the elicitation/parsing layer, not the persistent OA graph.
-TRANSIENT_HELPER_CONCEPTS = {
-    "CandidateMention",
-    "SemanticFrame",
-    "SemanticClause",
-}
-CANDIDATE_TARGET_TYPES = {"OperationalActor", "OperationalEntity"}
 
 ALLOWED_RELATIONS = {
     ("OperationalActor", "PERFORMS", "OperationalActivity"),
     ("OperationalEntity", "PERFORMS", "OperationalActivity"),
+    ("OperationalActor", "INVOLVED_IN_CAPABILITY", "OperationalCapability"),
+    ("OperationalEntity", "INVOLVED_IN_CAPABILITY", "OperationalCapability"),
     ("OperationalActivity", "SUPPORTS_CAPABILITY", "OperationalCapability"),
-    ("OperationalActivity", "OPERATIONAL_EXCHANGE", "OperationalActivity"),
-    ("OperationalActor", "COMMUNICATION_MEAN", "OperationalActor"),
-    ("OperationalActor", "COMMUNICATION_MEAN", "OperationalEntity"),
-    ("OperationalEntity", "COMMUNICATION_MEAN", "OperationalActor"),
-    ("OperationalEntity", "COMMUNICATION_MEAN", "OperationalEntity"),
-
-    # Structural decomposition. Operational Actors are leaves: they may be
-    # contained by an Operational Entity but do not contain other participants.
+    ("OperationalExchange", "SOURCE_ACTIVITY", "OperationalActivity"),
+    ("OperationalExchange", "TARGET_ACTIVITY", "OperationalActivity"),
+    ("CommunicationMean", "SOURCE_PARTICIPANT", "OperationalActor"),
+    ("CommunicationMean", "SOURCE_PARTICIPANT", "OperationalEntity"),
+    ("CommunicationMean", "TARGET_PARTICIPANT", "OperationalActor"),
+    ("CommunicationMean", "TARGET_PARTICIPANT", "OperationalEntity"),
+    ("CommunicationMean", "SUPPORTS_EXCHANGE", "OperationalExchange"),
     ("OperationalEntity", "CONTAINS", "OperationalEntity"),
     ("OperationalEntity", "CONTAINS", "OperationalActor"),
-
-    # Operational / physical location. This is deliberately distinct from
-    # CONTAINS/PART_OF.
     ("OperationalActor", "LOCATED_IN", "OperationalEntity"),
     ("OperationalEntity", "LOCATED_IN", "OperationalEntity"),
+    ("OperationalActivity", "DECOMPOSES_INTO", "OperationalActivity"),
+    ("OperationalCapability", "REFINES_INTO", "OperationalCapability"),
+    ("OperationalExchange", "REFINES_INTO", "OperationalExchange"),
+    ("CommunicationMean", "REFINES_INTO", "CommunicationMean"),
 }
 
-CONCEPT_GUIDANCE = {
-    "OperationalCapability": {
-        "definition": (
-            "An operational outcome or ability needed by stakeholders. It must describe "
-            "the desired operational result, not the system or solution to be built."
-        ),
-        "friendly_name": "goal",
-        "expected_format": "One short English outcome phrase.",
-        "example": "Maintain safe and effective operations",
-        "language_required": True,
-    },
-    "OperationalActor": {
-        "definition": (
-            "One indivisible human operational participant or human role. "
-            "A collective of humans is modeled as an Operational Entity."
-        ),
-        "friendly_name": "human participant",
-        "expected_format": "One human role or person name.",
-        "example": "Operations Coordinator",
-        "language_required": False,
-    },
-    "OperationalEntity": {
-        "definition": (
-            "A collective or non-human real-world participant/context involved in the "
-            "operation, such as an organization, team, existing external technical "
-            "participant, facility, service, population, community, or environmental "
-            "participant. It may contain Operational Entities or Operational Actors."
-        ),
-        "friendly_name": "collective or non-human participant/context",
-        "expected_format": "One collective or real-world participant/context name.",
-        "example": "Operations Facility",
-        "language_required": False,
-    },
-    "OperationalActivity": {
-        "definition": (
-            "An operational action performed by one or more participants. It describes "
-            "what happens in the operation, not software, hardware, architecture, or "
-            "implementation. One natural-language answer may be decomposed into several "
-            "Operational Activities when it contains several independent actions."
-        ),
-        "friendly_name": "action",
-        "expected_format": (
-            "One English action phrase or a natural sentence containing one or more "
-            "subjects, actions, objects, and complements."
-        ),
-        "example": "Coordinate service requests and report status",
-        "language_required": True,
-    },
-    "OperationalExchange": {
-        "definition": (
-            "Information, material, request, or another operational item exchanged between "
-            "two operational actions."
-        ),
-        "friendly_name": "interaction",
-        "expected_format": "One short English noun phrase naming what is exchanged.",
-        "example": "Status information",
-        "language_required": True,
-    },
-    "CommunicationMean": {
-        "definition": (
-            "A real-world operational communication method used by two participants to "
-            "support an interaction. Keep it solution-independent where possible."
-        ),
-        "friendly_name": "communication method",
-        "expected_format": "One short English phrase naming the communication method.",
-        "example": "Direct communication",
-        "language_required": True,
-    },
+
+COMPOSITION_RELATIONS = {"CONTAINS", "DECOMPOSES_INTO", "REFINES_INTO"}
+ENDPOINT_RELATIONS = {
+    "SOURCE_ACTIVITY",
+    "TARGET_ACTIVITY",
+    "SOURCE_PARTICIPANT",
+    "TARGET_PARTICIPANT",
+}
+CONSTRAINT_OPERATORS = {"MIN", "MAX", "EQUAL", "RANGE"}
+CONSTRAINT_SCOPES = {"LOCAL", "HIERARCHY"}
+AGGREGATION_RULES = {"SUM", "MIN", "MAX", "ALL", "ANY", "CUSTOM"}
+
+
+_VERB_ENDINGS = ("ate", "fy", "ise", "ize")
+_COMMON_OPERATIONAL_VERBS = {
+    "accept", "achieve", "acquire", "activate", "allocate", "allow", "approve",
+    "assess", "assign", "assist", "authorize", "avoid", "capture", "check",
+    "collect", "communicate", "complete", "confirm", "contain", "control",
+    "coordinate", "create", "decide", "deliver", "detect", "determine",
+    "dispatch", "distribute", "enable", "ensure", "establish", "evaluate",
+    "execute", "facilitate", "gather", "handle", "identify", "inform",
+    "inspect", "keep", "locate", "maintain", "manage", "measure", "mitigate",
+    "monitor", "notify", "observe", "operate", "organize", "permit", "plan",
+    "prepare", "prevent", "process", "protect", "provide", "receive", "record",
+    "recover", "reduce", "release", "report", "request", "respond", "restore",
+    "review", "route", "schedule", "secure", "select", "send", "share",
+    "supply", "support", "sustain", "track", "transfer", "transport", "validate",
+    "verify", "warn",
 }
 
-# High-confidence implementation terms used only as a deterministic safety net.
-# They are technology categories, not scenario-specific examples.
-SOLUTION_BIAS_TERMS = {
-    "microservice",
-    "database schema",
-    "rest api",
-    "python script",
-    "c++ class",
-    "software module",
-    "cloud architecture",
-    "kubernetes",
-    "docker container",
-    "implementation class",
-    "source code",
-    "software architecture",
+_IMPLEMENTATION_TERMS = {
+    "api", "class", "code", "container", "database", "docker", "kubernetes",
+    "microservice", "python", "schema", "script", "software module",
 }
+
+
+def concept_guidance(concept: str) -> dict:
+    return CONCEPT_GUIDANCE[concept]
+
+
+def relation_guidance(relation: str) -> dict:
+    return RELATION_GUIDANCE[relation]
+
+
+def _words(value: str) -> list[str]:
+    return re.findall(r"[A-Za-z][A-Za-z'-]*", value)
+
+
+def validate_concept_name(concept: str, value: str) -> tuple[bool, str]:
+    """Apply a small, transparent grammar contract without semantic guessing."""
+    words = _words(value.strip())
+    if not words:
+        return False, "Enter a non-empty English phrase."
+    if len(value.strip()) < 3:
+        return False, "The phrase is too short to identify the concept clearly."
+
+    first = words[0].casefold()
+    lowered = value.casefold()
+    if any(re.search(rf"\b{re.escape(term)}\b", lowered) for term in _IMPLEMENTATION_TERMS):
+        return False, (
+            "Describe the operational need or behavior without implementation "
+            "technology or software-design detail."
+        )
+    if concept in {"OperationalCapability", "OperationalActivity"}:
+        looks_like_verb = (
+            first in _COMMON_OPERATIONAL_VERBS
+            or first.endswith(_VERB_ENDINGS)
+        )
+        if not looks_like_verb:
+            return False, "Start the phrase with an operational action verb."
+        if len(words) < 2:
+            return False, "Add the desired state, object, or operational outcome."
+    elif concept == "OperationalActor":
+        if len(words) > 8:
+            return False, "Use one concise noun phrase for one human role or person."
+        if words[-1].casefold().endswith("s"):
+            return False, (
+                "An Operational Actor represents one indivisible person or role; "
+                "use Operational Entity for a human collective."
+            )
+    elif concept in {"OperationalExchange", "CommunicationMean"}:
+        if first in _COMMON_OPERATIONAL_VERBS:
+            return False, "Use a noun phrase, not an action phrase."
+
+    return True, ""
+
+
+def ontology_catalog() -> dict:
+    """Serializable ontology catalog stored with every saved model."""
+    return {
+        "concepts": CONCEPT_GUIDANCE,
+        "relationships": RELATION_GUIDANCE,
+        "allowed_relations": [list(item) for item in sorted(ALLOWED_RELATIONS)],
+    }
