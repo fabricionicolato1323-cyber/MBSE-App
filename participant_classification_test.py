@@ -64,6 +64,22 @@ def main() -> None:
     result = validate_participant_candidate("Existing external radar", existing)
     assert result.accepted, result
 
+    # A compact model may understand the human meaning but miss the plural/type
+    # rule. The deterministic reconciliation is grammatical, not domain-specific.
+    plural_human_actor = {
+        "valid": True,
+        "language": "English",
+        "detected_concept": "OperationalActor",
+        "normalized_value": "Field soldiers",
+        "solution_bias": False,
+        "reason": "This phrase names human role-holders.",
+        "suggestion": "",
+    }
+    result = validate_participant_candidate("Field soldiers", plural_human_actor)
+    assert result.accepted, result
+    assert result.detected_concept == "OperationalEntity", result
+    assert "multiple human role-holders" in result.reason, result
+
     print("Participant classification test passed.")
 
 

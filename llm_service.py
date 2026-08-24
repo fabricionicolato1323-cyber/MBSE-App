@@ -129,6 +129,8 @@ not participate operationally, or a proposed solution.
 
 Important rules:
 - A profession or job title is an OperationalActor.
+- A singular human role label is an OperationalActor; a plural phrase naming
+  several people or role-holders is an OperationalEntity.
 - A team, crew, staff, department, or organization is an OperationalEntity.
 - Do not require a named individual; a human role is legitimate.
 - Do not reject an existing external technical participant merely because it is

@@ -1,4 +1,8 @@
-from participant_rules import classify_participant
+from participant_rules import (
+    classify_participant,
+    looks_like_plural_participant_label,
+    participant_nature_for_type,
+)
 
 
 def main() -> None:
@@ -33,6 +37,14 @@ def main() -> None:
 
     unknown = classify_participant("Regional partner")
     assert not unknown.actionable, unknown
+
+    assert looks_like_plural_participant_label("Field soldiers")
+    assert not looks_like_plural_participant_label("Operations Coordinator")
+    assert not looks_like_plural_participant_label("Status")
+    assert (
+        participant_nature_for_type("Field soldiers", "OperationalEntity")
+        == "team_or_collective"
+    )
 
     print("Participant rules test passed.")
 

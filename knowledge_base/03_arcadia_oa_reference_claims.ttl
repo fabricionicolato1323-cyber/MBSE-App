@@ -331,3 +331,24 @@ oa:claim_user_final_001 a oa:KnowledgeClaim ;
     oa:answersIntent "who_approves_model" ;
     oa:assertionText "Extrações e classificações automáticas devem permanecer como candidatos até aprovação do usuário, que é responsável pela qualidade final do modelo."@pt ;
     oa:guidanceStatus oa:ApplicationPolicy .
+
+oa:claim_app_participant_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-APP-PARTICIPANT-001" ;
+    oa:answersIntent "define_operational_participant" ;
+    oa:assertionText "Na aplicação, participant é um termo de interface para uma pessoa, papel, coletivo ou outro elemento real confirmado pelo usuário como Operational Actor ou Operational Entity. Não é um terceiro tipo Arcadia persistido no modelo."@pt ;
+    oa:aboutElement oa:OperationalParticipant ;
+    oa:guidanceStatus oa:ApplicationPolicy .
+
+oa:claim_app_participant_nature_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-APP-PARTICIPANT-NATURE-001" ;
+    oa:answersIntent "define_participant_nature" ;
+    oa:assertionText "Participant nature é um metadado auxiliar da aplicação que explica a natureza do elemento, como indivíduo humano, coletivo ou participante ambiental. Ele não substitui a classificação Arcadia como Operational Actor ou Operational Entity."@pt ;
+    oa:aboutElement oa:ParticipantNature ;
+    oa:guidanceStatus oa:ApplicationPolicy .
+
+oa:claim_app_environmental_participant_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-APP-ENVIRONMENTAL-PARTICIPANT-001" ;
+    oa:answersIntent "define_environmental_participant" ;
+    oa:assertionText "Na aplicação, environmental_participant identifica a natureza de uma área, local ou outro elemento do ambiente cuja presença, condição ou influência é relevante para a operação. Quando incluído como participante, ele é classificado como Operational Entity; o usuário deve confirmar se modelá-lo acrescenta valor ou se ele deve permanecer apenas como contexto."@pt ;
+    oa:aboutElement oa:EnvironmentalParticipant ;
+    oa:guidanceStatus oa:ApplicationPolicy .

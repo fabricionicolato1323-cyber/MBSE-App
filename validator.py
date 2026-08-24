@@ -15,7 +15,7 @@ except ImportError:
     _HAS_LANGDETECT = False
 
 from ontology import CONCEPT_GUIDANCE, SOLUTION_BIAS_TERMS
-from participant_rules import classify_participant
+from participant_rules import classify_participant, looks_like_plural_participant_label
 
 
 @dataclass
@@ -299,6 +299,23 @@ def _repair_human_role_contradiction(llm_result: dict) -> dict:
     return adjusted
 
 
+def _repair_plural_actor_contradiction(value: str, llm_result: dict) -> dict:
+    """Keep plural human role-holders out of the indivisible Actor category."""
+    adjusted = dict(llm_result)
+    if (
+        adjusted.get("detected_concept") == "OperationalActor"
+        and not adjusted.get("solution_bias", False)
+        and looks_like_plural_participant_label(value)
+    ):
+        adjusted["detected_concept"] = "OperationalEntity"
+        adjusted["valid"] = True
+        adjusted["reason"] = (
+            "The phrase denotes multiple human role-holders; in this application, "
+            "a human collective is an Operational Entity."
+        )
+    return adjusted
+
+
 def validate_participant_candidate(
     raw_value: str,
     llm_result: dict,
@@ -320,6 +337,12 @@ def validate_participant_candidate(
         return ValidationResult(False, reason="Please answer in English only.")
 
     adjusted = _repair_human_role_contradiction(llm_result)
+    original_detected = adjusted.get("detected_concept", "")
+    adjusted = _repair_plural_actor_contradiction(value, adjusted)
+    plural_repaired = (
+        original_detected == "OperationalActor"
+        and adjusted.get("detected_concept") == "OperationalEntity"
+    )
     detected = adjusted.get("detected_concept", "")
 
     if (
@@ -335,6 +358,8 @@ def validate_participant_candidate(
         {"OperationalActor", "OperationalEntity"},
         adjusted,
     )
+    if result.accepted and plural_repaired:
+        result.reason = str(adjusted.get("reason", ""))
     if not result.accepted and detected == "Other":
         result.suggestion = ""
     return result

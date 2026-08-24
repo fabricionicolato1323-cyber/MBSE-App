@@ -120,6 +120,31 @@ oa:OperationalActor a owl:Class ;
     oa:sourceLocator "seção 4.2.3.1, p. 24 do PDF" ;
     oa:guidanceStatus oa:ArcadiaReference .
 
+# "Participant" and "nature" below are application vocabulary used by the
+# guided builder. They are deliberately marked as product policy rather than
+# attributed to the Arcadia metamodel.
+oa:OperationalParticipant a owl:Class ;
+    rdfs:subClassOf oa:OperationalAnalysisElement ;
+    rdfs:label "Operational Participant"@en , "participante operacional"@pt ;
+    skos:definition "Termo de interface para uma pessoa, papel, coletivo ou outro elemento real confirmado pelo usuário como Operational Actor ou Operational Entity."@pt ;
+    oa:guidanceStatus oa:ApplicationPolicy .
+
+oa:ParticipantNature a owl:Class ;
+    rdfs:subClassOf oa:ModelElement ;
+    rdfs:label "Participant Nature"@en , "natureza do participante"@pt ;
+    skos:definition "Metadado auxiliar da aplicação que refina a natureza de um participante sem substituir seu tipo Arcadia."@pt ;
+    oa:guidanceStatus oa:ApplicationPolicy .
+
+oa:HumanIndividual a oa:ParticipantNature ;
+    rdfs:label "Human individual"@en , "indivíduo humano"@pt .
+
+oa:TeamOrCollective a oa:ParticipantNature ;
+    rdfs:label "Team or collective"@en , "equipe ou coletivo"@pt .
+
+oa:EnvironmentalParticipant a oa:ParticipantNature ;
+    rdfs:label "Environmental participant"@en , "participante ambiental"@pt ;
+    skos:definition "Área, local ou outro elemento do ambiente operacional cuja presença, condição ou influência é relevante para a operação."@pt .
+
 oa:CommunicationMean a owl:Class ;
     rdfs:subClassOf oa:OperationalAnalysisElement ;
     rdfs:label "Communication Mean"@en , "meio de comunicação operacional"@pt ;

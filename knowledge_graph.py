@@ -99,6 +99,18 @@ class ArcadiaKnowledgeBase:
         "define_operational_entity": (
             "operational entity", "entidade operacional",
         ),
+        "define_operational_participant": (
+            "participant",
+            "operational participant",
+            "participante operacional",
+        ),
+        "define_environmental_participant": (
+            "environmental participant", "environmental_participant",
+            "participante ambiental",
+        ),
+        "define_participant_nature": (
+            "participant nature", "participant_nature", "classification nature",
+        ),
         "actor_vs_entity": (
             "actor and entity", "actor vs entity", "actor versus entity",
             "difference between actor and entity", "ator e entidade",

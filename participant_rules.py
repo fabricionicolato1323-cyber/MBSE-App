@@ -68,6 +68,51 @@ def _contains_phrase(value: str, phrases: set[str]) -> bool:
     return any(phrase in normalized for phrase in phrases)
 
 
+def looks_like_plural_participant_label(value: str) -> bool:
+    """Return a conservative English surface-form signal for plurality.
+
+    This is only a linguistic heuristic. It must not classify a participant by
+    itself; it is used to catch a contradiction after semantic advice already
+    identifies a human participant as an actor.
+    """
+    tokens = _tokens(value)
+    if not tokens:
+        return False
+
+    plural_markers = {
+        "both", "many", "multiple", "numerous", "several", "various",
+        "people", "persons", "personnel", "children", "men", "women",
+    }
+    if set(tokens) & plural_markers:
+        return True
+    if any(token.isdigit() and int(token) > 1 for token in tokens):
+        return True
+
+    head = tokens[-1]
+    singular_s_endings = (
+        "analysis", "business", "corps", "news", "process", "series",
+        "species", "status",
+    )
+    return (
+        len(head) > 3
+        and head.endswith("s")
+        and not head.endswith(("ss", "us", "is"))
+        and head not in singular_s_endings
+    )
+
+
+def participant_nature_for_type(value: str, concept: str) -> str:
+    """Suggest app-specific nature metadata for an already selected OA type."""
+    suggestion = classify_participant(value)
+    if suggestion.concept == concept:
+        return suggestion.nature
+    if concept == "OperationalActor":
+        return "human_individual"
+    if concept == "OperationalEntity" and looks_like_plural_participant_label(value):
+        return "team_or_collective"
+    return "unspecified"
+
+
 def classify_participant(value: str) -> ParticipantSuggestion:
     """Return transparent advice; never make the user's modeling decision."""
     lexicon = load_lexicon()

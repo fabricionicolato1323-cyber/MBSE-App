@@ -12,7 +12,12 @@ from fast_input import fast_operational_goal_result
 from graph_model import OAGraph
 from knowledge_graph import ArcadiaKnowledgeBase
 from llm_service import OllamaLLM
-from participant_rules import ENTITY_NATURES, ParticipantSuggestion, classify_participant
+from participant_rules import (
+    ENTITY_NATURES,
+    ParticipantSuggestion,
+    classify_participant,
+    participant_nature_for_type,
+)
 from semantic_frames import (
     format_frame_summary,
     frame_is_complex,
@@ -385,11 +390,7 @@ class OAApp:
             and advisory_type in {"OperationalActor", "OperationalEntity"}
         ):
             concept = advisory_type
-            nature = (
-                "human_individual"
-                if advisory_type == "OperationalActor"
-                else "unspecified"
-            )
+            nature = participant_nature_for_type(normalized, advisory_type)
             reason = advisory_reason or "Advisory classification from local AI."
             source = advisory_source or "ollama_advisory"
             evidence = "advisory"
@@ -442,12 +443,11 @@ class OAApp:
                     )
                     continue
                 concept = result.detected_concept
-                nature = (
-                    "human_individual"
-                    if concept == "OperationalActor"
-                    else "unspecified"
+                nature = participant_nature_for_type(normalized, concept)
+                reason = (
+                    result.reason
+                    or "Advisory semantic classification from Ollama."
                 )
-                reason = "Advisory semantic classification from Ollama."
                 source = "ollama_advisory"
                 evidence = "advisory"
                 rule_ids = []

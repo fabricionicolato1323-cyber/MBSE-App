@@ -102,6 +102,20 @@ def main() -> None:
     assert "CLAIM-OA-ACTOR-001" in claim_ids
     assert "CLAIM-OA-ACTOR-ENTITY-DIFF-001" in claim_ids
 
+    participant = knowledge.retrieve("What is a participant?")
+    assert participant.coverage == "SUPPORTED"
+    assert "define_operational_participant" in participant.resolved_intents
+    assert {
+        claim.claim_id for claim in participant.claims
+    } == {"CLAIM-APP-PARTICIPANT-001"}
+
+    environmental = knowledge.retrieve("What is environmental_participant?")
+    assert environmental.coverage == "SUPPORTED"
+    assert "define_environmental_participant" in environmental.resolved_intents
+    assert "CLAIM-APP-ENVIRONMENTAL-PARTICIPANT-001" in {
+        claim.claim_id for claim in environmental.claims
+    }
+
     unknown = knowledge.retrieve("Explain quantum entanglement in particle physics")
     assert unknown.coverage == "NOT_FOUND"
     assert not unknown.claims
