@@ -120,7 +120,6 @@ class CompositionFlowMixin:
         value = self.ask_validated(
             question="What is the smaller goal?",
             explanation="Describe one narrower outcome that contributes to the selected goal.",
-            example="Maintain timely operational awareness",
             expected_concept="OperationalCapability",
             why="Breaking a broad goal into smaller outcomes can make responsibilities and checks clearer.",
             context=f"Parent goal: {self.model.name(parent_id)}",
@@ -141,7 +140,6 @@ class CompositionFlowMixin:
         value = self.ask_validated(
             question="What is the smaller action?",
             explanation="Describe one narrower operational action, without implementation details.",
-            example="Assess the situation",
             expected_concept="OperationalActivity",
             why="Breaking a broad action into smaller actions can make behavior and responsibility clearer.",
             context=f"Parent action: {self.model.name(parent_id)}",
