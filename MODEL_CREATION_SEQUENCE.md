@@ -106,12 +106,27 @@ nodes.
 
 ## 6. Ask for anything not mentioned earlier
 
+The first participant remains mandatory if none was discovered from the goal.
+After that, the assistant asks directly for the next participant/context element:
+
 ```text
-Is anyone or anything else involved? (yes/no)
+Who or what else is involved?
+> Fire Brigade
 ```
 
-This prevents the model from being limited to nouns that happened to appear in
-the initial goal wording.
+The user enters one element at a time and types `done` when the list is complete:
+
+```text
+Who or what else is involved?
+> Control Tower
+
+Who or what else is involved?
+> done
+```
+
+There is no separate yes/no gate before each additional element. This reduces
+input steps while keeping the same classification, confirmation, language, and
+write-barrier rules for every element.
 
 ## 7. Capture structure and environment
 
