@@ -58,11 +58,11 @@ class DummyApp(ParticipantFlowMixin):
 def main() -> None:
     # 1. With an existing participant, the next participant is entered directly.
     app = DummyApp(["existing"])
-    with patch("builtins.input", side_effect=["Fire Brigade", "done"]):
+    with patch("builtins.input", side_effect=["Additional Team", "done"]):
         app.capture_participants_and_actions()
 
-    assert app.created == ["Fire Brigade"]
-    assert app.classified == ["Fire Brigade"]
+    assert app.created == ["Additional Team"]
+    assert app.classified == ["Additional Team"]
     assert app.model.participants() == ["existing", "p1"]
     assert app.captured_actions == ["existing", "p1"]
     assert app.questions == [
@@ -76,11 +76,11 @@ def main() -> None:
     # 3. When no participant exists, direct entry is used instead of the old
     # mandatory first-participant path.
     first = DummyApp()
-    with patch("builtins.input", side_effect=["Fire Brigade", "done"]):
+    with patch("builtins.input", side_effect=["Initial Team", "done"]):
         first.capture_participants_and_actions()
 
-    assert first.created == ["Fire Brigade"]
-    assert first.classified == ["Fire Brigade"]
+    assert first.created == ["Initial Team"]
+    assert first.classified == ["Initial Team"]
     assert first.questions == [
         "Who or what is involved?",
         "Who or what else is involved?",
