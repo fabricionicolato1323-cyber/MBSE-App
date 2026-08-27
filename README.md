@@ -15,15 +15,54 @@ through `pyshacl`.
 ## Design principles
 
 - The deterministic Python layer is the write barrier.
+- NetworkX `MultiDiGraph` is the executable project model and JSON is its canonical persistence format.
+- RDF/OWL, SPARQL and SHACL are authority, query, validation and export layers; they do not replace NetworkX.
 - Ollama is advisory and is not required for simple participant classification.
 - No candidate becomes a model element without an explicit user decision.
 - Operational Actor means one indivisible human person or human role.
 - Human collectives and non-human operational participants are Operational Entities.
 - Participant type, nature, and operational role are separate dimensions.
 - The future System of Interest is not introduced in Operational Analysis.
-- Every Ollama operation reports wall-clock response time; Ollama's own API
-  duration is also reported when available.
+- Every Ollama operation reports wall-clock response time; Ollama's own API duration is also reported when available.
 - No model name is hardcoded in source code or documentation.
+
+## Executable OA scope
+
+The executable model remains restricted to exactly six concepts:
+
+- `OperationalCapability`
+- `OperationalActor`
+- `OperationalEntity`
+- `OperationalActivity`
+- `OperationalExchange`
+- `CommunicationMean`
+
+The first four are persisted as NetworkX nodes. `OperationalExchange` and
+`CommunicationMean` remain typed NetworkX relations. Structural helper relations
+such as `PERFORMS`, `SUPPORTS_CAPABILITY`, `CONTAINS`, and `LOCATED_IN` do not
+introduce additional executable OA concepts.
+
+## Canonical identity and persistence
+
+Every newly created model element receives a UUID that is independent from its
+name. Every new NetworkX relation also receives a UUID.
+
+- Node UUID is the canonical identity.
+- `sid` is optional and immutable once assigned.
+- Legacy name-derived IDs can be preserved as `sid` during migration.
+- JSON save uses schema version `2` and is written atomically through a temporary file followed by replacement.
+- Loading a legacy JSON model does **not** migrate silently. The caller must explicitly allow migration.
+
+The application still saves its working model as `oa_model.json`.
+
+A legacy file can be migrated only when explicitly requested by the export tool:
+
+```powershell
+python model_export.py oa_model.json --migrate-legacy
+```
+
+The original source file is not overwritten by this operation. The migrated copy
+is written to the export directory.
 
 ## Graph-grounded Arcadia help
 
@@ -36,13 +75,28 @@ The repository includes a curated Arcadia Operational Analysis knowledge base in
 - SHACL rules for comparing the user's model with the reference graph;
 - an integration and governance blueprint.
 
-The runtime keeps three concerns separate:
+The runtime RDF Dataset is divided into seven named graphs:
 
 ```text
-Arcadia reference graph (read-only facts and provenance)
-Arcadia SHACL graph   (comparison rules)
-User model graph      (only user-approved model elements)
+urn:graph:ontology
+urn:graph:arcadia-reference
+urn:graph:arcadia-shapes
+urn:graph:project-approved
+urn:graph:project-candidates
+urn:graph:validation
+urn:graph:audit
 ```
+
+Authority is intentionally separated:
+
+- `project-approved` contains only data derived from the user-approved NetworkX model;
+- `project-candidates` contains unapproved extraction hypotheses;
+- `validation` contains derived SHACL results;
+- `audit` records candidate, validation, and export events.
+
+Candidate statements are never promoted to `project-approved` by the RDF layer.
+Promotion to the executable model still has to pass the deterministic write
+barrier and the user's approval flow.
 
 Use the knowledge graph from any question prompt:
 
@@ -64,6 +118,34 @@ at the end of the guided workflow.
 Both operations report elapsed time. The LLM remains unable to write directly to
 NetworkX, and the user remains the final authority over model content.
 
+## Approved model export
+
+After saving a model, generate the canonical export package with:
+
+```powershell
+python model_export.py oa_model.json
+```
+
+Default output directory: `export`.
+
+The command creates:
+
+```text
+export/oa_model.json
+export/oa_project_approved.ttl
+export/oa_validation_report.md
+```
+
+- `oa_model.json` — canonical NetworkX/JSON project model with UUID identity.
+- `oa_project_approved.ttl` — approved RDF only; candidate statements are excluded.
+- `oa_validation_report.md` — SHACL summary and findings.
+
+Choose another output directory with:
+
+```powershell
+python model_export.py oa_model.json --output-dir D:\AI\MBSE-export
+```
+
 ## Processing flow
 
 ```text
@@ -71,13 +153,17 @@ User text
    |
 Deterministic extraction/classification rules
    |
-Advisory suggestion + explanation
+Candidate + rationale/evidence
    |                         \
 User decision                Optional Ollama opinion
    |
 Ontology validation
    |
-Confirmed NetworkX model
+WRITE BARRIER
+   |
+Confirmed NetworkX MultiDiGraph
+   |
+Derived RDF project graph + SHACL validation
 ```
 
 Ollama is mainly used for complex semantic frames, optional goal candidate
@@ -107,7 +193,7 @@ participant_rules.py
 participant_lexicon.json
 ```
 
-Each confirmed participant records:
+Each confirmed participant can record:
 
 - `nature`
 - `status=confirmed`
@@ -117,18 +203,7 @@ Each confirmed participant records:
 - `classification_reason`
 - `classification_rules`
 
-## Internal model
-
-The graph uses:
-
-- `OperationalCapability`
-- `OperationalActor`
-- `OperationalEntity`
-- `OperationalActivity`
-- `OperationalExchange`
-- `CommunicationMean`
-
-Main relations:
+## Main relations
 
 ```text
 OperationalActor/Entity --PERFORMS--> OperationalActivity
@@ -229,6 +304,8 @@ The command bar is shown with every question:
 
 - `/ask QUESTION` — answer from retrieved knowledge-graph evidence only
 - `/compare` — compare the current model against Arcadia SHACL rules
+- `/save` — save canonical JSON atomically
+- `/undo` — undo the last accepted graph mutation
 
 `/clc` is the only command that clears the terminal. The normal question flow
 preserves terminal history.
@@ -260,18 +337,18 @@ The model is saved as `oa_model.json`.
 
 ## Tests
 
-Run all regression scripts:
+Run the complete regression suite with:
 
 ```powershell
-python smoke_test.py
-python goal_fast_path_test.py
-python participant_classification_test.py
-python participant_rules_test.py
-python candidate_discovery_test.py
-python semantic_frames_test.py
-python ollama_service_test.py
-python knowledge_graph_test.py
+python -m pytest -q
 ```
 
-The Ollama service test uses a fake HTTP response and does not require a running
-model. A live end-to-end run requires Ollama.
+The pytest suite includes the existing regression scripts plus persistence,
+migration, RDF authority separation, approved export, and SHACL integration tests.
+The Ollama service regression uses a fake HTTP response and does not require a
+running model. A live end-to-end run requires Ollama.
+
+GitHub Actions runs the same pytest suite on:
+
+- Ubuntu latest + Python 3.12
+- Windows latest + Python 3.12
