@@ -106,27 +106,30 @@ nodes.
 
 ## 6. Ask for anything not mentioned earlier
 
-The first participant remains mandatory if none was discovered from the goal.
-After that, the assistant asks directly for the next participant/context element:
+The assistant asks directly for each participant/context element. This same
+input pattern is used whether or not any participant has already been accepted:
 
 ```text
-Who or what else is involved?
+Who or what is involved?
 > Fire Brigade
-```
 
-The user enters one element at a time and types `done` when the list is complete:
-
-```text
 Who or what else is involved?
 > Control Tower
+```
 
-Who or what else is involved?
+The user enters one element at a time and types `done` when the list is complete.
+`done` is also valid when no participant has been accepted yet:
+
+```text
+Who or what is involved?
 > done
 ```
 
-There is no separate yes/no gate before each additional element. This reduces
-input steps while keeping the same classification, confirmation, language, and
-write-barrier rules for every element.
+There is no separate yes/no gate and no mandatory first-participant trap after a
+candidate is rejected. The model may therefore proceed with no participant, but
+`/check` will report the resulting completeness gap. Classification,
+confirmation, language, and write-barrier rules remain unchanged for every
+element that is actually added.
 
 ## 7. Capture structure and environment
 
