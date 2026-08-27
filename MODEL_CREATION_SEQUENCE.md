@@ -68,7 +68,7 @@ SemanticFrame
   +-- SemanticClause ...
 ```
 
-General decomposition rules:
+General decomposition rules for natural-language input:
 
 ```text
 one verb + several objects
@@ -125,6 +125,7 @@ OperationalEntity --LOCATED_IN--> OperationalEntity
 ```
 
 `PART_OF` is the inverse reading of `CONTAINS` and is not stored as a duplicate edge.
+Operational Actors remain structural leaves.
 
 ## 8. Capture operational interactions
 
@@ -135,6 +136,51 @@ Actions may exchange information, material, requests, or other operational items
 When an interaction crosses participant boundaries, the assistant can ask how
 the relevant participants communicate. Shared activities with multiple performers
 are supported.
+
+## 10. Refine goals and actions with explicit decomposition
+
+After the basic model exists, the user may break a broad goal or action into
+smaller parts.
+
+Internally:
+
+```text
+OperationalCapability --DECOMPOSES--> OperationalCapability
+OperationalActivity   --DECOMPOSES--> OperationalActivity
+```
+
+Participant/context composition continues to use `CONTAINS`; the model does not
+store a second competing composition edge for the same structural fact.
+
+Deterministic rules enforce:
+
+- no self-decomposition;
+- no decomposition cycles;
+- one decomposition parent per child;
+- goal-to-goal and action-to-action decomposition only;
+- Operational Actors remain leaves.
+
+Nothing is inherited automatically from a parent. In particular, a smaller
+action does not automatically receive the parent's performer, goal connection,
+or characteristics. The user is asked explicitly when those relationships are
+needed.
+
+`/show` includes the resulting hierarchy.
+
+## 11. Capture structured characteristics
+
+The user may add descriptive or measurable characteristics to goals,
+participants/context, actions, and interactions. Supported value forms are:
+
+```text
+single numeric value + optional unit
+numeric range with lower bound + upper bound + optional unit
+text value
+```
+
+The user supplies every characteristic name and value. The local model does not
+invent or infer values. `/show` includes the stored values and `/check` validates
+the persisted structure.
 
 ## Write barrier
 
