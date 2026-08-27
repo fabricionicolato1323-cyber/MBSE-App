@@ -85,6 +85,11 @@ ALLOWED_RELATIONS = {
     ("OperationalEntity", "COMMUNICATION_MEAN", "OperationalActor"),
     ("OperationalEntity", "COMMUNICATION_MEAN", "OperationalEntity"),
 
+    # Explicit same-type decomposition. Entity/participant composition continues
+    # to use CONTAINS so structural membership remains represented only once.
+    ("OperationalCapability", "DECOMPOSES", "OperationalCapability"),
+    ("OperationalActivity", "DECOMPOSES", "OperationalActivity"),
+
     # Structural decomposition. Operational Actors are leaves: they may be
     # contained by an Operational Entity but do not contain other participants.
     ("OperationalEntity", "CONTAINS", "OperationalEntity"),
