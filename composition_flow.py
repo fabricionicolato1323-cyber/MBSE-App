@@ -39,7 +39,20 @@ class CompositionFlowMixin:
             )
             return
 
-        available = list(participants)
+        assigned = set(self.model.participants_for_activity(action_id))
+        available = [item for item in participants if item not in assigned]
+
+        if assigned:
+            names = ", ".join(self.model.name(item) for item in assigned)
+            self.add_notice(f"Existing performer assignment kept: {names}")
+            if not available:
+                return
+            if not self.ask_yes_no(
+                "Add another performer to this smaller action?",
+                "Existing assignments are preserved; add another only when responsibility is shared.",
+            ):
+                return
+
         while available:
             performer = self.ask_number(
                 "Who performs this smaller action?",
@@ -64,15 +77,31 @@ class CompositionFlowMixin:
         if not goals:
             return
 
+        linked = [
+            goal_id
+            for goal_id in goals
+            if self.model.has_relation(action_id, "SUPPORTS_CAPABILITY", goal_id)
+        ]
+        available = [goal_id for goal_id in goals if goal_id not in linked]
+
+        if linked:
+            names = ", ".join(self.model.name(item) for item in linked)
+            self.add_notice(f"Existing goal connection kept: {names}")
+            if not available:
+                return
+            question = "Add another goal connection for this smaller action?"
+        else:
+            question = "Does this smaller action directly help achieve one of the goals?"
+
         if not self.ask_yes_no(
-            "Does this smaller action directly help achieve one of the goals?",
+            question,
             "A smaller action does not automatically inherit the goal connection of its parent action.",
         ):
             return
 
         goal_id = self.ask_number(
             "Which goal does this smaller action help achieve?",
-            goals,
+            available,
             self.model.name,
             "Choose the goal explicitly; no parent relationship is copied automatically.",
         )
