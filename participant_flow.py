@@ -4,28 +4,40 @@ from validator import normalize_whitespace, obvious_non_english_short_text
 
 
 class ParticipantFlowMixin:
-    """Lower-cognitive-load loop for adding additional participants/context.
+    """Lower-cognitive-load loop for adding participants and context.
 
-    The first participant keeps the established mandatory flow. After that, the
-    user enters the next participant/context element directly or types ``done``.
+    The user enters each participant/context element directly or types ``done``.
+    This applies even when no participant has been accepted yet, so rejected
+    candidates never trap the user in a mandatory first-participant loop.
     Classification and graph writes still use the existing deterministic/user-
     confirmed path.
     """
 
     def ask_additional_participant(self) -> str | None:
         self.current_why = (
-            "The model may need additional people, roles, organizations, groups, "
-            "facilities, places, resources, or other real-world elements not yet captured."
+            "The model may need people, roles, organizations, groups, facilities, "
+            "places, resources, or other real-world elements involved in the operation."
         )
 
         while True:
+            has_participants = bool(self.model.participants())
+            question = (
+                "Who or what else is involved?"
+                if has_participants
+                else "Who or what is involved?"
+            )
+            explanation = (
+                "Name one additional person, role, organization, group, facility, "
+                "place, resource, or context element. Type 'done' when there are no more."
+                if has_participants
+                else "Name one person, role, organization, group, facility, place, "
+                "resource, or context element. Type 'done' if none should be added now."
+            )
+
             self.draw_question(
-                "Who or what else is involved?",
-                explanation=(
-                    "Name one additional person, role, organization, group, facility, "
-                    "place, resource, or context element. Type 'done' when there are no more."
-                ),
-                example="Fire Brigade",
+                question,
+                explanation=explanation,
+                example="Operations Coordinator",
                 expected_structure="participant/context name or 'done'",
             )
             value = input("> ").strip()
@@ -75,16 +87,12 @@ class ParticipantFlowMixin:
             return participant_id
 
     def capture_participants_and_actions(self) -> None:
-        # First elaborate candidates confirmed from goal wording.
+        # First elaborate candidates already confirmed from goal wording.
         for participant_id in list(self.model.participants()):
             self.capture_actions_for_participant(participant_id)
 
-        # The first participant remains mandatory when no candidate was found.
-        if not self.model.participants():
-            participant_id = self.add_manual_participant()
-            self.capture_actions_for_participant(participant_id)
-
-        # Additional participants use direct entry rather than a yes/no gate.
+        # Direct entry is used for every manually added participant, including
+        # the first. 'done' is always a valid way to leave this stage.
         while True:
             participant_id = self.ask_additional_participant()
             if participant_id is None:
