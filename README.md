@@ -20,6 +20,8 @@ through `pyshacl`.
 - Operational Actor means one indivisible human person or human role.
 - Human collectives and non-human operational participants are Operational Entities.
 - Participant type, nature, and operational role are separate dimensions.
+- Composition/decomposition is explicitly confirmed by the user.
+- Smaller actions do not inherit performers, goal links, or characteristics automatically.
 - The future System of Interest is not introduced in Operational Analysis.
 - Every Ollama operation reports wall-clock response time; Ollama's own API
   duration is also reported when available.
@@ -133,6 +135,8 @@ Main relations:
 ```text
 OperationalActor/Entity --PERFORMS--> OperationalActivity
 OperationalActivity --SUPPORTS_CAPABILITY--> OperationalCapability
+OperationalCapability --DECOMPOSES--> OperationalCapability
+OperationalActivity --DECOMPOSES--> OperationalActivity
 OperationalActivity --OPERATIONAL_EXCHANGE--> OperationalActivity
 OperationalActor/Entity --COMMUNICATION_MEAN--> OperationalActor/Entity
 OperationalEntity --CONTAINS--> OperationalEntity/Actor
@@ -141,6 +145,33 @@ OperationalActor/Entity --LOCATED_IN--> OperationalEntity
 
 Operational Actors are structural leaves. `CONTAINS` and `LOCATED_IN` are kept
 separate so organizational membership is not confused with operational location.
+
+## Composition and decomposition
+
+The user sees one consistent refinement step for:
+
+```text
+Goal
+Participant / context
+Action
+```
+
+Goals and actions use `DECOMPOSES`. Participant/context structure reuses the
+existing `CONTAINS` relation so there is no second competing representation of
+the same fact. Only Operational Entities can be structural parents; Operational
+Actors remain leaves.
+
+A contained participant/context element can be selected from existing model
+elements or added during the refinement step. New active elements have their
+actions captured before interaction elicitation, so those actions are available
+for later exchanges and communication methods.
+
+The deterministic graph blocks self-composition, cycles, multiple parents, and
+invalid cross-type decomposition. Parent performers, goal links, and
+characteristics are never copied automatically to smaller actions.
+
+`/show` displays the three hierarchies together with structured characteristics.
+`/check` includes composition/decomposition integrity checks.
 
 ## Ollama configuration
 
@@ -269,9 +300,15 @@ python participant_classification_test.py
 python participant_rules_test.py
 python candidate_discovery_test.py
 python semantic_frames_test.py
+python characteristics_test.py
+python decomposition_test.py
 python ollama_service_test.py
 python knowledge_graph_test.py
 ```
+
+`decomposition_test.py` checks goal, participant/context, and action hierarchies,
+including cycle protection, single-parent rules, actor leaves, inheritance rules,
+and `/show` integration.
 
 The Ollama service test uses a fake HTTP response and does not require a running
 model. A live end-to-end run requires Ollama.
