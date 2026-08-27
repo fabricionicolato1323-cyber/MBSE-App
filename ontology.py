@@ -24,6 +24,7 @@ PARTICIPANT_TYPES = {"OperationalActor", "OperationalEntity"}
 CONCEPT_GUIDANCE = {
     "OperationalCapability": {
         "friendly_name": "operational capability",
+        "plural_name": "operational capabilities",
         "definition": (
             "A solution-independent ability or operational outcome required "
             "by stakeholders in the operational context."
@@ -37,6 +38,7 @@ CONCEPT_GUIDANCE = {
     },
     "OperationalActor": {
         "friendly_name": "operational actor",
+        "plural_name": "operational actors",
         "definition": (
             "A non-decomposable Operational Entity that participates directly "
             "in the operation and is usually a human person or role."
@@ -48,6 +50,7 @@ CONCEPT_GUIDANCE = {
     },
     "OperationalEntity": {
         "friendly_name": "operational entity",
+        "plural_name": "operational entities",
         "definition": (
             "A real-world organization, group, place, resource, context, or "
             "existing external participant involved in the operation."
@@ -62,6 +65,7 @@ CONCEPT_GUIDANCE = {
     },
     "OperationalActivity": {
         "friendly_name": "operational activity",
+        "plural_name": "operational activities",
         "definition": (
             "Operational behavior performed by an actor or entity, expressed "
             "without implementation or system-design detail."
@@ -73,6 +77,7 @@ CONCEPT_GUIDANCE = {
     },
     "OperationalExchange": {
         "friendly_name": "operational exchange",
+        "plural_name": "operational exchanges",
         "definition": (
             "Identifiable information, request, command, event, or material "
             "transferred from one operational activity to another."
@@ -84,6 +89,7 @@ CONCEPT_GUIDANCE = {
     },
     "CommunicationMean": {
         "friendly_name": "communication mean",
+        "plural_name": "communication means",
         "definition": (
             "A real operational method or support connecting participants and "
             "enabling one or more operational exchanges."

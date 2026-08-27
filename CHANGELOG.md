@@ -1,5 +1,20 @@
 # Changelog
 
+## Guided-flow reliability
+
+- Made `/undo` and `/back` identify the graph action that was restored and warn
+  when an in-progress attribute draft was not affected.
+- Added `/retry` for restarting only the current unpersisted measurable
+  characteristic.
+- Added finite-number, inverted-range, and explicit `CUSTOM` aggregation checks.
+- Added non-blocking quantity-kind/unit warnings without automatic correction.
+- Expanded `/show` to include full element and endpoint IDs, relevant metadata,
+  complete measurable-characteristic values, and semantic warnings; corrected
+  concept pluralization and duplicate review headings.
+- Added explicit confirmation for an Operational Entity that appears to be a
+  system, preserving the Operational Analysis system-of-interest boundary.
+- Added regression coverage for the observed guided-flow scenario.
+
 ## Graph integrity foundation
 
 - Aligned Operational Actor guidance with the approved “non-decomposable and

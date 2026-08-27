@@ -9,7 +9,12 @@ import uuid
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-from graph_model import MigrationConfirmationRequired, ModelLoadError, OAGraph
+from graph_model import (
+    MigrationConfirmationRequired,
+    ModelLoadError,
+    OAGraph,
+    validate_custom_aggregation_rule,
+)
 from ontology import (
     CONCEPT_GUIDANCE,
     NODE_TYPES,
@@ -22,8 +27,12 @@ from ontology import (
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_SAVE_PATH = BASE_DIR / "oa_model.json"
 COMMAND_BAR = (
-    "/show  /check  /save  /load  /edit  /delete  /undo  /back  /clc  /done  /quit"
+    "/show  /check  /save  /load  /edit  /delete  /undo  /back  /retry  /clc  /done  /quit"
 )
+
+
+class RetryCharacteristic(Exception):
+    """Restart the current unpersisted measurable-characteristic draft."""
 
 
 class OAApp:
@@ -32,6 +41,7 @@ class OAApp:
         self.notice = ""
         self._introduced_concepts: set[str] = set()
         self._introduced_relations: set[str] = set()
+        self._characteristic_draft_active = False
 
     # ------------------------------------------------------------------
     # Terminal presentation and commands
@@ -115,7 +125,17 @@ class OAApp:
         elif command == "/delete":
             self.delete_element()
         elif command in {"/undo", "/back"}:
-            self.add_notice("Last change undone." if self.model.undo() else "Nothing to undo.")
+            if self.model.undo():
+                message = f"Undone: {self.model.last_undo_description}."
+                if self._characteristic_draft_active:
+                    message += " Current attribute draft was not changed; use /retry to restart it."
+                self.add_notice(message)
+            else:
+                self.add_notice("Nothing to undo.")
+        elif command == "/retry":
+            if self._characteristic_draft_active:
+                raise RetryCharacteristic
+            self.add_notice("There is no current measurable characteristic to retry.")
         elif command == "/clc":
             os.system("cls" if os.name == "nt" else "clear")
             self.notice = ""
@@ -215,9 +235,11 @@ class OAApp:
     @staticmethod
     def validate_number(value: str) -> tuple[bool, str]:
         try:
-            Decimal(value.replace(",", "."))
+            number = Decimal(value.replace(",", "."))
         except InvalidOperation:
             return False, "Enter a numeric value."
+        if not number.is_finite():
+            return False, "Enter a finite numeric value."
         return True, ""
 
     def select_node(
@@ -267,6 +289,127 @@ class OAApp:
         )
         self._introduced_relations.add(relation)
 
+    @staticmethod
+    def _range_upper_validator(lower: str):
+        def validate(upper: str) -> tuple[bool, str]:
+            ok, error = OAApp.validate_number(upper)
+            if not ok:
+                return ok, error
+            lower_number = Decimal(lower.replace(",", "."))
+            upper_number = Decimal(upper.replace(",", "."))
+            if upper_number < lower_number:
+                return False, "The upper value cannot be lower than the lower value."
+            return True, ""
+
+        return validate
+
+    def _collect_limitation(self, concept: str) -> tuple[dict, dict]:
+        parameter_name = self.ask_text(
+            "What is being measured?",
+            expected="short noun phrase",
+            explanation="Examples include area, maximum distance, duration, capacity, or response time.",
+        )
+        parameter_description = self.ask_text(
+            f"Describe the operational meaning of '{parameter_name}'.",
+            expected="one concise sentence",
+        )
+        quantity_kind = self.ask_text(
+            "What kind of quantity is it?",
+            expected="quantity kind",
+            explanation="Examples: length, area, duration, count, speed, or percentage.",
+        )
+        unit = self.ask_text(
+            "What unit is used?",
+            expected="unit symbol or unit name",
+            explanation="Examples: m, km, m2, s, min, people, or percent.",
+        )
+        operator = self.ask_choice(
+            "How is the limitation expressed?",
+            [("MIN", "Minimum"), ("MAX", "Maximum"), ("EQUAL", "Exact value"), ("RANGE", "Range")],
+        )
+        if operator == "RANGE":
+            lower = self.ask_text(
+                "What is the lower value?",
+                expected="number",
+                validator=self.validate_number,
+            )
+            upper = self.ask_text(
+                "What is the upper value?",
+                expected="number greater than or equal to the lower value",
+                validator=self._range_upper_validator(lower),
+            )
+            value_fields = {"lowerValue": lower, "upperValue": upper}
+        else:
+            value_fields = {
+                "value": self.ask_text(
+                    f"What is the {operator.casefold()} value?",
+                    expected="number",
+                    validator=self.validate_number,
+                )
+            }
+        condition = self.ask_optional_text(
+            "Under what operational condition does this limitation apply?",
+            "During normal operations",
+        )
+        rationale = self.ask_optional_text(
+            "What is the rationale or source for this limitation?",
+            "Customer safety policy",
+        )
+        composition_allowed = CONCEPT_GUIDANCE[concept]["composition_relation"] is not None
+        scope = "LOCAL"
+        aggregation = ""
+        custom_aggregation = ""
+        if composition_allowed:
+            scope = self.ask_choice(
+                "If this element is decomposed, where does the limitation apply?",
+                [("LOCAL", "Only to this element"), ("HIERARCHY", "Across its decomposition hierarchy")],
+            )
+            if scope == "HIERARCHY":
+                aggregation = self.ask_choice(
+                    "How should child values be combined?",
+                    [(item, item) for item in ("SUM", "MIN", "MAX", "ALL", "ANY", "CUSTOM")],
+                )
+                if aggregation == "CUSTOM":
+                    custom_aggregation = self.ask_text(
+                        "Describe the custom aggregation rule.",
+                        expected="one concise rule explaining how child values are combined",
+                        validator=validate_custom_aggregation_rule,
+                    )
+
+        parameter_id = str(uuid.uuid4())
+        parameter = {
+            "id": parameter_id,
+            "name": parameter_name,
+            "description": parameter_description,
+            "quantityKind": quantity_kind,
+            "valueType": "Real",
+            "unit": unit,
+        }
+        constraint = {
+            "id": str(uuid.uuid4()),
+            "name": f"{operator.title()} {parameter_name}",
+            "description": f"{operator.title()} operational limitation for {parameter_name}.",
+            "parameterId": parameter_id,
+            "operator": operator,
+            "applicableCondition": condition,
+            "rationale": rationale,
+            "scope": scope,
+            "aggregation": aggregation,
+            "customAggregation": custom_aggregation,
+            **value_fields,
+        }
+        warnings = self.model.characteristic_warnings([parameter], [constraint])
+        if warnings:
+            keep = self.ask_choice(
+                "Keep this measurable characteristic despite the warnings?",
+                [("yes", "Keep the supplied values"), ("retry", "Re-enter this characteristic")],
+                explanation="Warnings never change the supplied values automatically.",
+                context_lines=[f"  Warning: {warning}" for warning in warnings],
+            )
+            if keep == "retry":
+                raise RetryCharacteristic
+        return parameter, constraint
+
     def ask_limitations(self, concept: str, element_name: str) -> tuple[list[dict], list[dict]]:
         parameters: list[dict] = []
         constraints: list[dict] = []
@@ -279,103 +422,41 @@ class OAApp:
 
         add_more = True
         while add_more:
-            parameter_name = self.ask_text(
-                "What is being measured?",
-                expected="short noun phrase",
-                explanation="Examples include area, maximum distance, duration, capacity, or response time.",
-            )
-            parameter_description = self.ask_text(
-                f"Describe the operational meaning of '{parameter_name}'.",
-                expected="one concise sentence",
-            )
-            quantity_kind = self.ask_text(
-                "What kind of quantity is it?",
-                expected="quantity kind",
-                explanation="Examples: length, area, duration, count, speed, or percentage.",
-            )
-            unit = self.ask_text(
-                "What unit is used?",
-                expected="unit symbol or unit name",
-                explanation="Examples: m, km, m2, s, min, people, or percent.",
-            )
-            operator = self.ask_choice(
-                "How is the limitation expressed?",
-                [("MIN", "Minimum"), ("MAX", "Maximum"), ("EQUAL", "Exact value"), ("RANGE", "Range")],
-            )
-            if operator == "RANGE":
-                lower = self.ask_text(
-                    "What is the lower value?",
-                    expected="number",
-                    validator=self.validate_number,
+            self._characteristic_draft_active = True
+            try:
+                parameter, constraint = self._collect_limitation(concept)
+            except RetryCharacteristic:
+                self.add_notice(
+                    "Current measurable characteristic discarded. Start it again from its name."
                 )
-                upper = self.ask_text(
-                    "What is the upper value?",
-                    expected="number",
-                    validator=self.validate_number,
-                )
-                value_fields = {"lowerValue": lower, "upperValue": upper}
-            else:
-                value_fields = {
-                    "value": self.ask_text(
-                        f"What is the {operator.casefold()} value?",
-                        expected="number",
-                        validator=self.validate_number,
-                    )
-                }
-            condition = self.ask_optional_text(
-                "Under what operational condition does this limitation apply?",
-                "During normal operations",
-            )
-            rationale = self.ask_optional_text(
-                "What is the rationale or source for this limitation?",
-                "Customer safety policy",
-            )
-            composition_allowed = CONCEPT_GUIDANCE[concept]["composition_relation"] is not None
-            scope = "LOCAL"
-            aggregation = ""
-            custom_aggregation = ""
-            if composition_allowed:
-                scope = self.ask_choice(
-                    "If this element is decomposed, where does the limitation apply?",
-                    [("LOCAL", "Only to this element"), ("HIERARCHY", "Across its decomposition hierarchy")],
-                )
-                if scope == "HIERARCHY":
-                    aggregation = self.ask_choice(
-                        "How should child values be combined?",
-                        [(item, item) for item in ("SUM", "MIN", "MAX", "ALL", "ANY", "CUSTOM")],
-                    )
-                    if aggregation == "CUSTOM":
-                        custom_aggregation = self.ask_text(
-                            "Describe the custom aggregation rule.",
-                            expected="one concise rule",
-                        )
-
-            parameter_id = str(uuid.uuid4())
-            parameters.append({
-                "id": parameter_id,
-                "name": parameter_name,
-                "description": parameter_description,
-                "quantityKind": quantity_kind,
-                "valueType": "Real",
-                "unit": unit,
-            })
-            constraints.append({
-                "id": str(uuid.uuid4()),
-                "name": f"{operator.title()} {parameter_name}",
-                "description": f"{operator.title()} operational limitation for {parameter_name}.",
-                "parameterId": parameter_id,
-                "operator": operator,
-                "applicableCondition": condition,
-                "rationale": rationale,
-                "scope": scope,
-                "aggregation": aggregation,
-                "customAggregation": custom_aggregation,
-                **value_fields,
-            })
+                continue
+            finally:
+                self._characteristic_draft_active = False
+            parameters.append(parameter)
+            constraints.append(constraint)
             add_more = self.ask_decision(
                 f"Does '{element_name}' have another measurable limitation?"
             ) == "yes"
         return parameters, constraints
+
+    @staticmethod
+    def _mentions_system(name: str, description: str) -> bool:
+        return bool(re.search(r"\bsystems?\b", f"{name} {description}", flags=re.IGNORECASE))
+
+    def confirm_external_system_entity(self, name: str, description: str) -> bool:
+        if not self._mentions_system(name, description):
+            return True
+        return self.ask_choice(
+            f"Confirm the operational role of '{name}'.",
+            [
+                ("yes", "It is an existing external participant in the operational environment"),
+                ("no", "It is the system being designed, or its status is not yet clear"),
+            ],
+            explanation=(
+                "Operational Analysis must not introduce the system of interest as an "
+                "Operational Entity. This confirmation does not classify the element automatically."
+            ),
+        ) == "yes"
 
     def create_element(self, concept: str) -> str:
         self.introduce_concept(concept)
@@ -392,13 +473,20 @@ class OAApp:
             expected="one concise sentence describing its operational meaning",
             explanation="The description is required before the element can be created.",
         )
-        actor_attributes: dict[str, object] = {}
+        element_attributes: dict[str, object] = {}
+        if concept == "OperationalEntity" and self._mentions_system(name, description):
+            if not self.confirm_external_system_entity(name, description):
+                self.add_notice(
+                    "Operational Entity creation cancelled. Clarify the external participant before adding it."
+                )
+                return ""
+            element_attributes["external_system_confirmed_by"] = "user"
         if concept == "OperationalActor":
             if self.ask_decision(
                 f"Is '{name}' a human person or human role?",
                 "Operational Actors are usually human but may exceptionally be non-human.",
             ) == "yes":
-                actor_attributes["actor_nature"] = "HUMAN"
+                element_attributes["actor_nature"] = "HUMAN"
             else:
                 confirmed = self.ask_decision(
                     f"Confirm '{name}' as an exceptional non-human Operational Actor?",
@@ -409,7 +497,7 @@ class OAApp:
                         "Operational Actor creation cancelled. Choose Operational Entity if it can be decomposed."
                     )
                     return ""
-                actor_attributes.update({
+                element_attributes.update({
                     "actor_nature": "NON_HUMAN",
                     "exception_confirmed_by": "user",
                     "non_decomposable": True,
@@ -422,7 +510,7 @@ class OAApp:
             parameters=parameters,
             constraints=constraints,
             confirmed_by="user",
-            **actor_attributes,
+            **element_attributes,
         )
         if not ok:
             self.add_notice(f"The element was not created: {error}")
@@ -807,11 +895,14 @@ class OAApp:
             ])
         if not link_lines:
             link_lines = ["- No relationships"]
+        characteristic_text = self.model.friendly_characteristics(node_id)
+        if not characteristic_text:
+            characteristic_text = "No measurable attributes or limitations."
         self.show_page(
             "CURRENT ELEMENT",
             f"Stable ID: {node_id}\nType: {data['type']}\nName: {data['name']}\n"
-            f"Description: {data['description']}\nParameters: {len(data.get('parameters', []))}\n"
-            f"Constraints: {len(data.get('constraints', []))}\n\nRelationships:\n"
+            f"Description: {data['description']}\n\nMeasurable characteristics:\n"
+            f"{characteristic_text}\n\nRelationships:\n"
             + "\n".join(link_lines),
         )
         action = self.ask_choice(

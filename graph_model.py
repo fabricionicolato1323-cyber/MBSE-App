@@ -8,6 +8,7 @@ import re
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
@@ -33,6 +34,47 @@ from ontology import (
 
 SCHEMA_VERSION = 2
 NODE_KEY_FIELD = "nodeKey"
+
+_QUANTITY_KIND_UNITS = {
+    "length": {
+        "m", "meter", "meters", "metre", "metres", "km", "kilometer",
+        "kilometers", "kilometre", "kilometres", "cm", "mm", "ft", "feet",
+        "mi", "mile", "miles", "nm", "nauticalmile", "nauticalmiles",
+    },
+    "area": {
+        "m2", "m²", "sqm", "squaremeter", "squaremeters", "squaremetre",
+        "squaremetres", "km2", "km²", "sqkm", "squarekilometer",
+        "squarekilometers", "squarekilometre", "squarekilometres", "ha",
+        "hectare", "hectares",
+    },
+    "duration": {
+        "ms", "millisecond", "milliseconds", "s", "sec", "second",
+        "seconds", "min", "minute", "minutes", "h", "hr", "hour", "hours",
+        "day", "days",
+    },
+    "count": {
+        "1", "count", "counts", "item", "items", "person", "people",
+        "unit", "units", "vehicle", "vehicles",
+    },
+    "speed": {
+        "m/s", "mps", "km/h", "kmh", "kph", "mph", "kt", "kts", "knot",
+        "knots",
+    },
+    "percentage": {"%", "percent", "percentage"},
+}
+_QUANTITY_KIND_ALIASES = {
+    "time": "duration",
+    "ratio": "percentage",
+}
+_MEASUREMENT_TERM_SUGGESTIONS = {
+    "altitude": "length",
+    "depth": "length",
+    "distance": "length",
+    "height": "length",
+    "radius": "length",
+    "range": "length",
+    "width": "length",
+}
 
 
 class ModelLoadError(ValueError):
@@ -63,6 +105,32 @@ def _canonical(value: str) -> str:
 
 def _new_uuid() -> str:
     return str(uuid.uuid4())
+
+
+def _normalized_unit(value: object) -> str:
+    return re.sub(r"[\s_-]+", "", str(value).strip().casefold())
+
+
+def _decimal_value(value: object) -> Decimal | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        number = Decimal(str(value).strip().replace(",", "."))
+    except (InvalidOperation, ValueError):
+        return None
+    return number if number.is_finite() else None
+
+
+def validate_custom_aggregation_rule(value: str) -> tuple[bool, str]:
+    """Require a short, explicit rule rather than a placeholder token."""
+    normalized = re.sub(r"\s+", " ", value.strip())
+    words = re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ0-9]+", normalized)
+    distinct = {character.casefold() for character in normalized if character.isalnum()}
+    if len(words) < 2 or len(distinct) < 3:
+        return False, (
+            "Describe how child values are combined using at least two meaningful words."
+        )
+    return True, ""
 
 
 def _node_link_data(graph: nx.MultiDiGraph) -> dict:
@@ -115,6 +183,7 @@ class OAGraph:
         self._action_depth = 0
         self._action_snapshot: nx.MultiDiGraph | None = None
         self._action_dirty = False
+        self.last_undo_description = ""
 
     def _append_history(self, snapshot: nx.MultiDiGraph) -> None:
         self._history.append(snapshot)
@@ -155,12 +224,98 @@ class OAGraph:
                 if dirty and snapshot is not None and not nx.utils.graphs_equal(snapshot, self.graph):
                     self._append_history(snapshot)
 
+    @staticmethod
+    def _edge_facts(graph: nx.MultiDiGraph) -> set[tuple[str, str, str]]:
+        return {
+            (str(source), str(data.get("type", "")), str(target))
+            for source, target, data in graph.edges(data=True)
+        }
+
+    @staticmethod
+    def _graph_name(graph: nx.MultiDiGraph, node_id: str) -> str:
+        if node_id not in graph:
+            return node_id
+        return str(graph.nodes[node_id].get("name", node_id))
+
+    @classmethod
+    def _describe_action(
+        cls,
+        before: nx.MultiDiGraph,
+        after: nx.MultiDiGraph,
+    ) -> str:
+        """Describe the user-level graph action represented by two snapshots."""
+        before_nodes = set(before.nodes)
+        after_nodes = set(after.nodes)
+        added_nodes = sorted(after_nodes - before_nodes)
+        removed_nodes = sorted(before_nodes - after_nodes)
+        before_edges = cls._edge_facts(before)
+        after_edges = cls._edge_facts(after)
+        added_edges = sorted(after_edges - before_edges)
+        removed_edges = sorted(before_edges - after_edges)
+        edited_nodes = sorted(
+            node_id
+            for node_id in before_nodes & after_nodes
+            if dict(before.nodes[node_id]) != dict(after.nodes[node_id])
+        )
+
+        changes = (
+            len(added_nodes)
+            + len(removed_nodes)
+            + len(added_edges)
+            + len(removed_edges)
+            + len(edited_nodes)
+        )
+        if changes == 1 and added_nodes:
+            node_id = added_nodes[0]
+            data = after.nodes[node_id]
+            return f"added element '{cls._graph_name(after, node_id)}' [{data.get('type', '')}]"
+        if changes == 1 and removed_nodes:
+            node_id = removed_nodes[0]
+            data = before.nodes[node_id]
+            return f"deleted element '{cls._graph_name(before, node_id)}' [{data.get('type', '')}]"
+        if changes == 1 and added_edges:
+            source, relation, target = added_edges[0]
+            return (
+                "added relationship "
+                f"{cls._graph_name(after, source)} --{relation}--> "
+                f"{cls._graph_name(after, target)}"
+            )
+        if changes == 1 and removed_edges:
+            source, relation, target = removed_edges[0]
+            return (
+                "removed relationship "
+                f"{cls._graph_name(before, source)} --{relation}--> "
+                f"{cls._graph_name(before, target)}"
+            )
+        if changes == 1 and edited_nodes:
+            node_id = edited_nodes[0]
+            return f"edited element '{cls._graph_name(after, node_id)}'"
+
+        parts = []
+        for count, singular in (
+            (len(added_nodes), "element added"),
+            (len(removed_nodes), "element deleted"),
+            (len(added_edges), "relationship added"),
+            (len(removed_edges), "relationship removed"),
+            (len(edited_nodes), "element edited"),
+        ):
+            if count:
+                label = singular if count == 1 else singular.replace("element", "elements").replace(
+                    "relationship", "relationships"
+                )
+                parts.append(f"{count} {label}")
+        return "compound graph action: " + ", ".join(parts) if parts else "graph action"
+
     def undo(self) -> bool:
         if self._action_depth:
+            self.last_undo_description = ""
             return False
         if not self._history:
+            self.last_undo_description = ""
             return False
-        self.graph = self._history.pop()
+        previous = self._history.pop()
+        self.last_undo_description = self._describe_action(previous, self.graph)
+        self.graph = previous
         return True
 
     def find_duplicate(
@@ -241,16 +396,67 @@ class OAGraph:
         if constraint["operator"] == "RANGE":
             if constraint.get("lowerValue") in (None, "") or constraint.get("upperValue") in (None, ""):
                 return False, "A RANGE constraint requires lowerValue and upperValue."
+            lower = _decimal_value(constraint.get("lowerValue"))
+            upper = _decimal_value(constraint.get("upperValue"))
+            if lower is None or upper is None:
+                return False, "Constraint range values must be finite numbers."
+            if lower > upper:
+                return False, "A RANGE lower value cannot be greater than its upper value."
         elif constraint.get("value") in (None, ""):
             return False, "This constraint operator requires a value."
+        elif _decimal_value(constraint.get("value")) is None:
+            return False, "Constraint values must be finite numbers."
         aggregation = constraint.get("aggregation")
         if constraint["scope"] == "HIERARCHY" and not aggregation:
             return False, "A hierarchy constraint requires an aggregation rule."
         if aggregation and aggregation not in AGGREGATION_RULES:
             return False, "Unsupported aggregation rule."
-        if aggregation == "CUSTOM" and not str(constraint.get("customAggregation", "")).strip():
-            return False, "A CUSTOM aggregation requires a rule description."
+        if aggregation == "CUSTOM":
+            ok, error = validate_custom_aggregation_rule(
+                str(constraint.get("customAggregation", ""))
+            )
+            if not ok:
+                return False, f"A CUSTOM aggregation requires an explicit rule. {error}"
         return True, ""
+
+    @staticmethod
+    def characteristic_warnings(
+        parameters: object,
+        constraints: object,
+    ) -> list[str]:
+        """Return non-blocking semantic warnings without changing user values."""
+        if not isinstance(parameters, list) or not isinstance(constraints, list):
+            return []
+        warnings: list[str] = []
+        for parameter in parameters:
+            if not isinstance(parameter, dict):
+                continue
+            name = str(parameter.get("name", "measurement"))
+            raw_kind = str(parameter.get("quantityKind", "")).strip()
+            kind = _canonical(raw_kind)
+            canonical_kind = _QUANTITY_KIND_ALIASES.get(kind, kind)
+            unit = str(parameter.get("unit", "")).strip()
+            normalized_unit = _normalized_unit(unit)
+
+            suggested_kind = _MEASUREMENT_TERM_SUGGESTIONS.get(kind)
+            if suggested_kind:
+                warnings.append(
+                    f"'{name}': quantity kind '{raw_kind}' describes a measurement; "
+                    f"use '{suggested_kind}' as the dimensional kind unless the supplied term is intentional."
+                )
+                canonical_kind = suggested_kind
+            elif canonical_kind not in _QUANTITY_KIND_UNITS:
+                warnings.append(
+                    f"'{name}': quantity kind '{raw_kind}' is not in the recognized dimensional vocabulary; "
+                    "verify it before approval."
+                )
+                continue
+
+            if normalized_unit not in _QUANTITY_KIND_UNITS[canonical_kind]:
+                warnings.append(
+                    f"'{name}': unit '{unit}' may not match quantity kind '{canonical_kind}'."
+                )
+        return warnings
 
     def add_node(
         self,
@@ -525,26 +731,113 @@ class OAGraph:
         ]
         return ", ".join(items) if items else "No model elements yet."
 
+    @staticmethod
+    def _constraint_summary(constraint: dict, unit: str) -> str:
+        operator = str(constraint.get("operator", "")).upper()
+        labels = {"MIN": "Minimum", "MAX": "Maximum", "EQUAL": "Exact value"}
+        if operator == "RANGE":
+            value = f"{constraint.get('lowerValue')} to {constraint.get('upperValue')}"
+            label = "Range"
+        else:
+            value = str(constraint.get("value", ""))
+            label = labels.get(operator, operator.title())
+        suffix = f" {unit}" if unit else ""
+        return f"{label}: {value}{suffix}".rstrip()
+
+    @classmethod
+    def _characteristic_lines(cls, data: dict, indent: str = "      ") -> list[str]:
+        parameters = data.get("parameters", [])
+        constraints = data.get("constraints", [])
+        if not isinstance(parameters, list) or not isinstance(constraints, list):
+            return []
+        constraints_by_parameter: dict[str, list[dict]] = {}
+        for constraint in constraints:
+            if isinstance(constraint, dict):
+                constraints_by_parameter.setdefault(str(constraint.get("parameterId", "")), []).append(
+                    constraint
+                )
+
+        lines: list[str] = []
+        for parameter in parameters:
+            if not isinstance(parameter, dict):
+                continue
+            parameter_id = str(parameter.get("id", ""))
+            name = str(parameter.get("name", "Unnamed measurement"))
+            description = str(parameter.get("description", ""))
+            quantity_kind = str(parameter.get("quantityKind", ""))
+            unit = str(parameter.get("unit", ""))
+            lines.append(f"{indent}Attribute: {name}")
+            if description:
+                lines.append(f"{indent}  Meaning: {description}")
+            lines.append(f"{indent}  Quantity kind: {quantity_kind} | Unit: {unit}")
+            for constraint in constraints_by_parameter.get(parameter_id, []):
+                lines.append(f"{indent}  {cls._constraint_summary(constraint, unit)}")
+                condition = str(constraint.get("applicableCondition", "")).strip()
+                rationale = str(constraint.get("rationale", "")).strip()
+                scope = str(constraint.get("scope", "LOCAL"))
+                aggregation = str(constraint.get("aggregation", "")).strip()
+                lines.append(f"{indent}  Scope: {scope}")
+                if aggregation:
+                    aggregation_text = aggregation
+                    if aggregation == "CUSTOM":
+                        aggregation_text += f" — {constraint.get('customAggregation', '')}"
+                    lines.append(f"{indent}  Aggregation: {aggregation_text}")
+                if condition:
+                    lines.append(f"{indent}  Condition: {condition}")
+                if rationale:
+                    lines.append(f"{indent}  Rationale/source: {rationale}")
+        for warning in cls.characteristic_warnings(parameters, constraints):
+            lines.append(f"{indent}Warning: {warning}")
+        return lines
+
+    def friendly_characteristics(self, node_id: str, indent: str = "") -> str:
+        if node_id not in self.graph:
+            return ""
+        return "\n".join(self._characteristic_lines(dict(self.graph.nodes[node_id]), indent))
+
     def friendly_show(self) -> str:
-        lines = ["MODEL SO FAR", "=" * 64]
+        lines: list[str] = []
         order = (
             "OperationalCapability", "OperationalActor", "OperationalEntity",
             "OperationalActivity", "OperationalExchange", "CommunicationMean",
         )
         for node_type in order:
-            lines.append(f"\n{CONCEPT_GUIDANCE[node_type]['friendly_name'].title()}s")
+            if lines:
+                lines.append("")
+            lines.append(CONCEPT_GUIDANCE[node_type]["plural_name"].title())
             nodes = self.nodes_of_type(node_type)
             if not nodes:
                 lines.append("  (none)")
                 continue
             for node_id in nodes:
                 data = self.graph.nodes[node_id]
-                lines.append(f"  - {data['name']} [{node_id[:8]}]")
-                lines.append(f"      {data['description']}")
-                if data.get("parameters"):
-                    lines.append(f"      parameters: {len(data['parameters'])}")
-                if data.get("constraints"):
-                    lines.append(f"      constraints: {len(data['constraints'])}")
+                lines.append(f"  - {data['name']}")
+                lines.append(f"      ID: {node_id}")
+                sid = str(data.get("sid", "")).strip()
+                if sid and sid != node_id:
+                    lines.append(f"      SID: {sid}")
+                lines.append(f"      Type: {data.get('type', node_type)}")
+                lines.append(f"      Capella type: {data.get('capella_type', '')}")
+                lines.append(f"      Description: {data['description']}")
+                lines.append(f"      Status: {data.get('status', 'DRAFT')}")
+                summary = str(data.get("summary", "")).strip()
+                review = str(data.get("review", "")).strip()
+                if summary:
+                    lines.append(f"      Summary: {summary}")
+                if review:
+                    lines.append(f"      Review: {review}")
+                actor_nature = str(data.get("actor_nature", "")).strip()
+                if actor_nature:
+                    lines.append(f"      Actor nature: {actor_nature}")
+                if data.get("external_system_confirmed_by"):
+                    lines.append(
+                        "      External-system status: confirmed as an existing external participant"
+                    )
+                characteristic_lines = self._characteristic_lines(dict(data))
+                if characteristic_lines:
+                    lines.extend(characteristic_lines)
+                else:
+                    lines.append("      Attributes/limitations: none")
 
         lines.append("\nRelationships")
         edges = list(self.graph.edges(data=True))
@@ -553,12 +846,12 @@ class OAGraph:
         else:
             for source, target, data in edges:
                 lines.append(
-                    f"  - {self.name(source)} --{data['type']}--> {self.name(target)}"
+                    f"  - {self.name(source)} [{source}] --{data['type']}--> "
+                    f"{self.name(target)} [{target}]"
                 )
         lines.extend([
             "",
             f"Elements: {self.graph.number_of_nodes()} | Relationships: {self.graph.number_of_edges()}",
-            "=" * 64,
         ])
         return "\n".join(lines)
 
@@ -589,6 +882,11 @@ class OAGraph:
                     messages.append(f"'{self.name(node_id)}' has no source participant.")
                 if not self.relation_targets(node_id, "TARGET_PARTICIPANT"):
                     messages.append(f"'{self.name(node_id)}' has no target participant.")
+            for warning in self.characteristic_warnings(
+                data.get("parameters", []),
+                data.get("constraints", []),
+            ):
+                messages.append(f"'{self.name(node_id)}': {warning}")
         return messages
 
     def to_document(self) -> dict:

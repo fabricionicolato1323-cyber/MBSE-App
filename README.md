@@ -36,6 +36,10 @@ An `OperationalActor` is a non-decomposable `OperationalEntity` and is usually
 human. A proposed non-human actor displays that warning and is persisted only
 after explicit confirmation that it remains non-decomposable.
 
+An entity whose name or description contains the word `system` requires explicit
+confirmation that it is an existing external participant rather than the system
+of interest being designed.
+
 ## Relationships
 
 The deterministic write barrier supports:
@@ -72,6 +76,11 @@ does, the customer/user supplies:
 
 Nothing is inferred or propagated automatically.
 
+Numeric fields reject nonnumeric and non-finite values, inverted ranges are
+rejected, and `CUSTOM` aggregation requires an explicit rule. Recognized
+quantity-kind/unit mismatches produce a warning and require the user to keep or
+re-enter the supplied values; warnings never change values automatically.
+
 ## Composition and editing
 
 - Operational Actors are leaves.
@@ -87,6 +96,9 @@ Nothing is inferred or propagated automatically.
 - Deletion shows affected relationships and requires explicit confirmation.
 - `/undo` and `/back` group compound graph changes into one user-action boundary,
   so endpoint replacement and relationship moves cannot be partly undone.
+- Undo reports the element or relationship action that was restored.
+- `/retry` discards only the measurable characteristic currently being entered;
+  it does not alter the approved Project Graph.
 
 ## Validated loading and migration
 
@@ -135,8 +147,17 @@ The model is saved as `oa_model.json` in the application folder.
 Available commands during any question:
 
 ```text
-/show  /check  /save  /load  /edit  /delete  /undo  /back  /clc  /done  /quit
+/show  /check  /save  /load  /edit  /delete  /undo  /back  /retry  /clc  /done  /quit
 ```
+
+`/back` and `/undo` restore the latest graph action; they never navigate to the
+previous interview question. While entering a measurable characteristic, use
+`/retry` to discard that unpersisted characteristic and start it again.
+
+`/show` displays the complete user-facing model: every concept instance with its
+full stable ID, type, description, status and applicable review metadata; every
+measurable attribute with numeric values, unit, scope, aggregation, condition,
+rationale and warnings; and every relationship with both endpoint IDs.
 
 ## Test
 
@@ -149,7 +170,9 @@ python -m unittest discover -s tests -v
 The verification covers the six persistent concepts, allowed relationships,
 composition rules, endpoint cardinality, dimensional constraints, canonical
 identity, atomic undo, validated loading, confirmed legacy migration, and
-exceptional non-human actor confirmation.
+exceptional non-human actor confirmation. Regression coverage also includes
+descriptive undo feedback, attribute retry, dimensional warnings, detailed model
+review, and confirmation of external systems.
 
 ## Files
 

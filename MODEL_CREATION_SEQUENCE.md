@@ -19,7 +19,11 @@ The user explicitly chooses between:
 
 - Operational Actor — a non-decomposable Operational Entity, usually a human person or role;
 - Operational Entity — group, organization, place, resource, context, or
-  existing external participant.
+existing external participant.
+
+If an Operational Entity name or description contains `system`, the flow asks
+the user to confirm that it is an existing external participant and not the
+system of interest. An unconfirmed system candidate is not persisted.
 
 For an Operational Actor, the flow records whether it is human. A proposed
 non-human actor triggers the usual-human warning and requires explicit
@@ -78,6 +82,11 @@ relationship must be explicitly retained, moved, or duplicated when the ontology
 allows it. Constraints remain local or apply through the hierarchy according to
 the customer-supplied scope and aggregation rule.
 
+Numeric constraint values must be finite, ranges cannot be inverted, and a
+`CUSTOM` aggregation requires an explicit multi-word rule. Quantity-kind/unit
+mismatches are non-blocking warnings that require the user to keep or re-enter
+the supplied values.
+
 ## 8. Review, load, and edit
 
 The review loop supports adding, editing, decomposing, deleting, checking, saving,
@@ -92,7 +101,18 @@ to the canonical UUID `id`; duplicate `sid` values reject migration.
 
 `/undo` and `/back` restore the graph state before the latest complete compound
 mutation. Endpoint replacement and relationship moves therefore do not expose
-partial low-level rollback states.
+partial low-level rollback states. The resulting notice identifies the graph
+action that was undone. These commands do not navigate between questions.
+
+During entry of one measurable characteristic, `/retry` discards that current
+unpersisted characteristic and restarts it from its name. It does not modify any
+previously approved graph element or relationship.
+
+Model review displays the complete characteristic values, scope, aggregation,
+condition, rationale, semantic warnings, and relationships instead of showing
+only parameter and constraint counts. `/show` also displays each element's full
+stable ID, type, Capella mapping, status, applicable summary/review metadata, and
+relationship endpoint IDs.
 
 ## Presentation policy
 
