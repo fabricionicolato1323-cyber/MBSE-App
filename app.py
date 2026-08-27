@@ -4,10 +4,16 @@ import app_base as _base
 from app_base import *  # noqa: F401,F403 - preserve the public surface of app.py
 from characteristics_flow import CharacteristicsFlowMixin
 from composition_flow import CompositionFlowMixin
+from participant_flow import ParticipantFlowMixin
 
 
-class OAApp(CompositionFlowMixin, CharacteristicsFlowMixin, _base.OAApp):
-    """Existing guided builder plus composition/decomposition and characteristics."""
+class OAApp(
+    ParticipantFlowMixin,
+    CompositionFlowMixin,
+    CharacteristicsFlowMixin,
+    _base.OAApp,
+):
+    """Existing guided builder plus simplified participant flow and Feature 4."""
 
     def capture_structure_and_environment(self) -> None:
         super().capture_structure_and_environment()
