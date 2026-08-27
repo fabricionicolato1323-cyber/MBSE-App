@@ -37,7 +37,6 @@ class ParticipantFlowMixin:
             self.draw_question(
                 question,
                 explanation=explanation,
-                example="Operations Coordinator",
                 expected_structure="participant/context name or 'done'",
             )
             value = input("> ").strip()
