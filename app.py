@@ -1,4 +1,4 @@
-"""Deterministic terminal flow for building a persistent Arcadia OA model."""
+"""Deterministic terminal flow for building a persistent operational model."""
 
 from __future__ import annotations
 
@@ -252,7 +252,11 @@ class OAApp:
         exclude = exclude or set()
         candidates = [node_id for node_id in node_ids if node_id not in exclude]
         choices = [
-            (node_id, f"{self.model.name(node_id)} [{self.model.graph.nodes[node_id]['type']}]")
+            (
+                node_id,
+                f"{self.model.name(node_id)} "
+                f"[{CONCEPT_GUIDANCE[self.model.graph.nodes[node_id]['type']]['friendly_name']}]",
+            )
             for node_id in candidates
         ]
         return self.ask_choice(question, choices)
@@ -284,7 +288,7 @@ class OAApp:
             return
         guidance = RELATION_GUIDANCE[relation]
         self.show_page(
-            relation,
+            guidance["friendly_name"].upper(),
             f"Definition: {guidance['definition']}\n\nExample: {guidance['example']}",
         )
         self._introduced_relations.add(relation)
@@ -298,7 +302,7 @@ class OAApp:
             lower_number = Decimal(lower.replace(",", "."))
             upper_number = Decimal(upper.replace(",", "."))
             if upper_number < lower_number:
-                return False, "The upper value cannot be lower than the lower value."
+                return False, "The upper limit cannot be lower than the lower limit."
             return True, ""
 
         return validate
@@ -325,17 +329,22 @@ class OAApp:
         )
         operator = self.ask_choice(
             "How is the limitation expressed?",
-            [("MIN", "Minimum"), ("MAX", "Maximum"), ("EQUAL", "Exact value"), ("RANGE", "Range")],
+            [
+                ("MIN", "Minimum"),
+                ("MAX", "Maximum"),
+                ("EQUAL", "Exact value"),
+                ("RANGE", "Range with lower and upper limits"),
+            ],
         )
         if operator == "RANGE":
             lower = self.ask_text(
-                "What is the lower value?",
+                "What is the lower limit?",
                 expected="number",
                 validator=self.validate_number,
             )
             upper = self.ask_text(
-                "What is the upper value?",
-                expected="number greater than or equal to the lower value",
+                "What is the upper limit?",
+                expected="number greater than or equal to the lower limit",
                 validator=self._range_upper_validator(lower),
             )
             value_fields = {"lowerValue": lower, "upperValue": upper}
@@ -350,10 +359,6 @@ class OAApp:
         condition = self.ask_optional_text(
             "Under what operational condition does this limitation apply?",
             "During normal operations",
-        )
-        rationale = self.ask_optional_text(
-            "What is the rationale or source for this limitation?",
-            "Customer safety policy",
         )
         composition_allowed = CONCEPT_GUIDANCE[concept]["composition_relation"] is not None
         scope = "LOCAL"
@@ -392,7 +397,6 @@ class OAApp:
             "parameterId": parameter_id,
             "operator": operator,
             "applicableCondition": condition,
-            "rationale": rationale,
             "scope": scope,
             "aggregation": aggregation,
             "customAggregation": custom_aggregation,
@@ -415,7 +419,7 @@ class OAApp:
         constraints: list[dict] = []
         decision = self.ask_decision(
             f"Does '{element_name}' have a measurable target, range, capacity, distance, duration, area, or limitation?",
-            "These operational values are captured as attributes, not as additional OA concepts.",
+            "These values are stored as attributes of the current model item.",
         )
         if decision != "yes":
             return parameters, constraints
@@ -447,14 +451,14 @@ class OAApp:
         if not self._mentions_system(name, description):
             return True
         return self.ask_choice(
-            f"Confirm the operational role of '{name}'.",
+            f"Confirm the role of '{name}'.",
             [
                 ("yes", "It is an existing external participant in the operational environment"),
                 ("no", "It is the system being designed, or its status is not yet clear"),
             ],
             explanation=(
-                "Operational Analysis must not introduce the system of interest as an "
-                "Operational Entity. This confirmation does not classify the element automatically."
+                "The solution being designed must not be recorded as an existing "
+                "participant. This confirmation does not classify the item automatically."
             ),
         ) == "yes"
 
@@ -477,24 +481,25 @@ class OAApp:
         if concept == "OperationalEntity" and self._mentions_system(name, description):
             if not self.confirm_external_system_entity(name, description):
                 self.add_notice(
-                    "Operational Entity creation cancelled. Clarify the external participant before adding it."
+                    "Participant creation cancelled. Clarify its external role before adding it."
                 )
                 return ""
             element_attributes["external_system_confirmed_by"] = "user"
         if concept == "OperationalActor":
             if self.ask_decision(
                 f"Is '{name}' a human person or human role?",
-                "Operational Actors are usually human but may exceptionally be non-human.",
+                "Individual participants are usually human but may exceptionally be non-human.",
             ) == "yes":
                 element_attributes["actor_nature"] = "HUMAN"
             else:
                 confirmed = self.ask_decision(
-                    f"Confirm '{name}' as an exceptional non-human Operational Actor?",
-                    "A non-human actor must still be one non-decomposable Operational Entity.",
+                    f"Confirm '{name}' as an exceptional non-human individual participant?",
+                    "A non-human individual participant must still be non-decomposable.",
                 )
                 if confirmed != "yes":
                     self.add_notice(
-                        "Operational Actor creation cancelled. Choose Operational Entity if it can be decomposed."
+                        "Individual participant creation cancelled. Choose a collective or "
+                        "contextual participant if it can be decomposed."
                     )
                     return ""
                 element_attributes.update({
@@ -522,8 +527,9 @@ class OAApp:
         self.introduce_relation(relation)
         ok, error = self.model.add_relation(source, relation, target)
         if ok:
+            label = RELATION_GUIDANCE[relation]["friendly_name"]
             self.add_notice(
-                f"Added: {self.model.name(source)} --{relation}--> {self.model.name(target)}"
+                f"Added: {self.model.name(source)} -- {label} --> {self.model.name(target)}"
             )
         else:
             self.add_notice(f"Relationship not added: {error}")
@@ -534,31 +540,31 @@ class OAApp:
     # ------------------------------------------------------------------
     def capture_capabilities(self) -> None:
         self.create_element("OperationalCapability")
-        while self.ask_decision("Is there another distinct operational capability?") == "yes":
+        while self.ask_decision("Is there another distinct required outcome?") == "yes":
             self.create_element("OperationalCapability")
 
     def capture_participants(self) -> None:
         first = True
         while first or self.ask_decision("Is another participant or context element involved?") == "yes":
             concept = self.ask_choice(
-                "What kind of operational participant is it?",
+                "What kind of participant is it?",
                 [
                     ("OperationalActor", "Non-decomposable entity, usually a human person or role"),
                     ("OperationalEntity", "Group, organization, place, resource, context, or external participant"),
                 ],
                 context_lines=[
-                    "  An Operational Actor is non-decomposable and usually human.",
-                    "  A non-human actor requires an explicit exceptional confirmation.",
-                    "  Human collectives are Operational Entities.",
+                    "  An individual participant is non-decomposable and usually human.",
+                    "  A non-human individual requires an explicit exceptional confirmation.",
+                    "  Human collectives belong in the collective or contextual category.",
                 ],
             )
             participant = self.create_element(concept)
             if participant:
                 capabilities = self.model.nodes_of_type("OperationalCapability")
                 if capabilities and self.ask_decision(
-                    f"Is '{self.model.name(participant)}' involved in an operational capability?"
+                    f"Does '{self.model.name(participant)}' contribute to a required outcome?"
                 ) == "yes":
-                    capability = self.select_node("Which capability?", capabilities)
+                    capability = self.select_node("Which required outcome?", capabilities)
                     self.add_guided_relation(participant, "INVOLVED_IN_CAPABILITY", capability)
             first = False
 
@@ -567,7 +573,7 @@ class OAApp:
         if not participants:
             return
         first = True
-        while first or self.ask_decision("Is there another operational activity?") == "yes":
+        while first or self.ask_decision("Is there another activity?") == "yes":
             activity = self.create_element("OperationalActivity")
             if not activity:
                 first = False
@@ -586,7 +592,7 @@ class OAApp:
                 self.add_guided_relation(other, "PERFORMS", activity)
             capabilities = self.model.nodes_of_type("OperationalCapability")
             if capabilities:
-                capability = self.select_node("Which capability does this activity support?", capabilities)
+                capability = self.select_node("Which required outcome does this activity support?", capabilities)
                 self.add_guided_relation(activity, "SUPPORTS_CAPABILITY", capability)
             first = False
 
@@ -594,7 +600,7 @@ class OAApp:
         activities = self.model.nodes_of_type("OperationalActivity")
         if len(activities) < 2:
             return
-        while self.ask_decision("Is there an operational exchange between two activities?") == "yes":
+        while self.ask_decision("Is an item or information exchanged between two activities?") == "yes":
             exchange = self.create_element("OperationalExchange")
             if not exchange:
                 continue
@@ -607,7 +613,7 @@ class OAApp:
         participants = self.model.participants()
         if len(participants) < 2:
             return
-        while self.ask_decision("Is an operational communication mean important to model?") == "yes":
+        while self.ask_decision("Is a communication method important to model?") == "yes":
             mean = self.create_element("CommunicationMean")
             if not mean:
                 continue
@@ -616,8 +622,8 @@ class OAApp:
             self.add_guided_relation(mean, "SOURCE_PARTICIPANT", source)
             self.add_guided_relation(mean, "TARGET_PARTICIPANT", target)
             exchanges = self.model.exchanges()
-            if exchanges and self.ask_decision("Does this communication mean support an exchange?") == "yes":
-                exchange = self.select_node("Which exchange does it support?", exchanges)
+            if exchanges and self.ask_decision("Does this communication method support an exchanged item?") == "yes":
+                exchange = self.select_node("Which exchanged item does it support?", exchanges)
                 self.add_guided_relation(mean, "SUPPORTS_EXCHANGE", exchange)
 
     def capture_structure_and_location(self) -> None:
@@ -627,14 +633,14 @@ class OAApp:
             possible_parents = [item for item in entities if item != participant]
             if possible_parents and not self.model.composition_parent(participant):
                 if self.ask_decision(
-                    f"Is '{self.model.name(participant)}' structurally contained by another entity?"
+                    f"Is '{self.model.name(participant)}' structurally contained by another participant?"
                 ) == "yes":
-                    parent = self.select_node("Which entity contains it?", possible_parents)
+                    parent = self.select_node("Which participant contains it?", possible_parents)
                     self.add_guided_relation(parent, "CONTAINS", participant)
             possible_locations = [item for item in entities if item != participant]
             if possible_locations and not self.model.locations_for(participant):
                 if self.ask_decision(
-                    f"Is '{self.model.name(participant)}' located in an operational place or context?"
+                    f"Is '{self.model.name(participant)}' located in a place or context already modeled?"
                 ) == "yes":
                     location = self.select_node("Where is it located?", possible_locations)
                     self.add_guided_relation(participant, "LOCATED_IN", location)
@@ -662,8 +668,8 @@ class OAApp:
                 child_type = self.ask_choice(
                     "What kind of child should be added?",
                     [
-                        ("OperationalEntity", "Operational Entity"),
-                        ("OperationalActor", "Operational Actor (leaf)"),
+                        ("OperationalEntity", "Collective or contextual participant"),
+                        ("OperationalActor", "Individual participant (leaf)"),
                     ],
                 )
             else:
@@ -682,8 +688,9 @@ class OAApp:
         ]
         for source, relation, target in links:
             other = target if source == parent_id else source
+            relation_label = RELATION_GUIDANCE[relation]["friendly_name"]
             decision = self.ask_choice(
-                f"How should the relationship '{relation}' with '{self.model.name(other)}' be allocated?",
+                f"How should the relationship '{relation_label}' with '{self.model.name(other)}' be allocated?",
                 [
                     ("parent", "Keep only on the parent"),
                     ("child", "Move to the new child"),
@@ -727,7 +734,9 @@ class OAApp:
             [
                 (
                     str(index),
-                    f"{self.model.name(source)} --{relation}--> {self.model.name(target)}",
+                    f"{self.model.name(source)} -- "
+                    f"{RELATION_GUIDANCE[relation]['friendly_name']} --> "
+                    f"{self.model.name(target)}",
                 )
                 for index, (source, relation, target) in enumerate(links)
             ],
@@ -768,15 +777,15 @@ class OAApp:
         if node_type in PARTICIPANT_TYPES:
             choices.extend([
                 ("performer", "Add a performed activity"),
-                ("capability", "Add capability involvement"),
-                ("location", "Add an operational location"),
+                ("capability", "Add contribution to a required outcome"),
+                ("location", "Add a location"),
             ])
             if node_type == "OperationalEntity":
-                choices.append(("contains", "Add a contained entity or actor"))
+                choices.append(("contains", "Add a contained participant"))
         elif node_type == "OperationalActivity":
             choices.extend([
                 ("performer", "Add a performer"),
-                ("capability", "Add a supported capability"),
+                ("capability", "Add a supported required outcome"),
             ])
         elif node_type == "OperationalExchange":
             choices.extend([
@@ -787,7 +796,7 @@ class OAApp:
             choices.extend([
                 ("source_participant", "Replace source participant"),
                 ("target_participant", "Replace target participant"),
-                ("exchange", "Add a supported exchange"),
+                ("exchange", "Add a supported exchanged item"),
             ])
         choices.extend([("remove", "Remove an existing relationship"), ("cancel", "Cancel")])
         action = self.ask_choice("What relationship change do you want to make?", choices)
@@ -823,20 +832,20 @@ class OAApp:
                 if not self.model.has_relation(node_id, "INVOLVED_IN_CAPABILITY", item)
             ]
             if candidates:
-                target = self.select_node("Which capability is this participant involved in?", candidates)
+                target = self.select_node("Which required outcome does this participant contribute to?", candidates)
                 self.add_guided_relation(node_id, "INVOLVED_IN_CAPABILITY", target)
             else:
-                self.add_notice("No unlinked capability is available.")
+                self.add_notice("No unlinked required outcome is available.")
         elif action == "capability":
             candidates = [
                 item for item in self.model.nodes_of_type("OperationalCapability")
                 if not self.model.has_relation(node_id, "SUPPORTS_CAPABILITY", item)
             ]
             if candidates:
-                target = self.select_node("Which capability does this activity support?", candidates)
+                target = self.select_node("Which required outcome does this activity support?", candidates)
                 self.add_guided_relation(node_id, "SUPPORTS_CAPABILITY", target)
             else:
-                self.add_notice("No unlinked capability is available.")
+                self.add_notice("No unlinked required outcome is available.")
         elif action == "location":
             candidates = [
                 item for item in self.model.nodes_of_type("OperationalEntity")
@@ -871,10 +880,10 @@ class OAApp:
                 if not self.model.has_relation(node_id, "SUPPORTS_EXCHANGE", item)
             ]
             if candidates:
-                target = self.select_node("Which exchange does it support?", candidates)
+                target = self.select_node("Which exchanged item does it support?", candidates)
                 self.add_guided_relation(node_id, "SUPPORTS_EXCHANGE", target)
             else:
-                self.add_notice("No unlinked exchange is available.")
+                self.add_notice("No unlinked exchanged item is available.")
 
     def edit_element(self) -> None:
         nodes = list(self.model.graph.nodes)
@@ -889,7 +898,8 @@ class OAApp:
         for source, relation, target in links:
             guidance = RELATION_GUIDANCE[relation]
             link_lines.extend([
-                f"- {self.model.name(source)} --{relation}--> {self.model.name(target)}",
+                f"- {self.model.name(source)} -- {guidance['friendly_name']} --> "
+                f"{self.model.name(target)}",
                 f"  Definition: {guidance['definition']}",
                 f"  Example: {guidance['example']}",
             ])
@@ -900,7 +910,9 @@ class OAApp:
             characteristic_text = "No measurable attributes or limitations."
         self.show_page(
             "CURRENT ELEMENT",
-            f"Stable ID: {node_id}\nType: {data['type']}\nName: {data['name']}\n"
+            f"Stable ID: {node_id}\nCategory: "
+            f"{CONCEPT_GUIDANCE[data['type']]['friendly_name'].title()}\n"
+            f"Name: {data['name']}\n"
             f"Description: {data['description']}\n\nMeasurable characteristics:\n"
             f"{characteristic_text}\n\nRelationships:\n"
             + "\n".join(link_lines),
@@ -952,7 +964,7 @@ class OAApp:
             self.edit_relationships(node_id)
         elif action == "composition":
             if CONCEPT_GUIDANCE[data["type"]]["composition_relation"] is None:
-                self.add_notice("Operational Actors are leaves and cannot be decomposed.")
+                self.add_notice("Individual participants are leaves and cannot be decomposed.")
             else:
                 self.capture_composition_for(node_id)
 
@@ -967,7 +979,9 @@ class OAApp:
             self.show_page(
                 "AFFECTED RELATIONSHIPS",
                 "\n".join(
-                    f"- {self.model.name(source)} --{relation}--> {self.model.name(target)}"
+                    f"- {self.model.name(source)} -- "
+                    f"{RELATION_GUIDANCE[relation]['friendly_name']} --> "
+                    f"{self.model.name(target)}"
                     for source, relation, target in links
                 ),
             )
@@ -982,16 +996,16 @@ class OAApp:
 
     def add_element_from_menu(self) -> None:
         concept = self.ask_choice(
-            "Which OA concept do you want to add?",
+            "Which kind of model item do you want to add?",
             [(item, CONCEPT_GUIDANCE[item]["friendly_name"].title()) for item in sorted(NODE_TYPES)],
         )
         node_id = self.create_element(concept)
         if not node_id:
             return
         if concept in PARTICIPANT_TYPES and self.model.nodes_of_type("OperationalCapability"):
-            if self.ask_decision("Is this participant involved in a capability?") == "yes":
+            if self.ask_decision("Does this participant contribute to a required outcome?") == "yes":
                 capability = self.select_node(
-                    "Which capability?",
+                    "Which required outcome?",
                     self.model.nodes_of_type("OperationalCapability"),
                 )
                 self.add_guided_relation(node_id, "INVOLVED_IN_CAPABILITY", capability)
@@ -1000,7 +1014,7 @@ class OAApp:
             self.add_guided_relation(performer, "PERFORMS", node_id)
             capabilities = self.model.nodes_of_type("OperationalCapability")
             if capabilities:
-                capability = self.select_node("Which capability does it support?", capabilities)
+                capability = self.select_node("Which required outcome does it support?", capabilities)
                 self.add_guided_relation(node_id, "SUPPORTS_CAPABILITY", capability)
         elif concept == "OperationalExchange" and len(self.model.nodes_of_type("OperationalActivity")) >= 2:
             activities = self.model.nodes_of_type("OperationalActivity")
@@ -1020,7 +1034,7 @@ class OAApp:
                 "What would you like to do next?",
                 [
                     ("show", "Review the model"),
-                    ("add", "Add an OA element"),
+                    ("add", "Add a model item"),
                     ("edit", "Edit or decompose an element"),
                     ("delete", "Delete an element"),
                     ("check", "Check basic completeness"),
@@ -1049,7 +1063,10 @@ class OAApp:
 
     def run(self) -> None:
         print()
-        print("This guided flow builds a persistent Arcadia Operational Analysis model.")
+        print(
+            "This guided flow builds a solution-independent view of required outcomes, "
+            "participants, activities, exchanged items, and communication methods."
+        )
         print("The user is responsible for the meaning and quality of every confirmed element.")
         self.capture_capabilities()
         self.capture_participants()

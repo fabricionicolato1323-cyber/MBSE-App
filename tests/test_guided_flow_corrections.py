@@ -74,7 +74,7 @@ class UndoFeedbackTests(unittest.TestCase):
         self.assertFalse(model.has_relation(actor, "INVOLVED_IN_CAPABILITY", capability))
         self.assertEqual(
             model.last_undo_description,
-            "added relationship Field Soldier --INVOLVED_IN_CAPABILITY--> Keep protected area safe",
+            "added relationship Field Soldier -- contributes to outcome --> Keep protected area safe",
         )
 
     def test_back_during_attribute_entry_explains_that_the_draft_was_not_changed(self) -> None:
@@ -99,7 +99,7 @@ class UndoFeedbackTests(unittest.TestCase):
 
         self.assertTrue(app.command("/back"))
 
-        self.assertIn("INVOLVED_IN_CAPABILITY", app.notice)
+        self.assertIn("contributes to outcome", app.notice)
         self.assertIn("Current attribute draft was not changed", app.notice)
         self.assertIn("/retry", app.notice)
 
@@ -127,7 +127,7 @@ class CharacteristicValidationTests(unittest.TestCase):
             constraints=constraints,
         )
         self.assertFalse(ok)
-        self.assertIn("lower value", error)
+        self.assertIn("lower limit", error)
 
     def test_placeholder_custom_aggregation_is_rejected(self) -> None:
         parameters, constraints = characteristic(
@@ -167,6 +167,39 @@ class CharacteristicValidationTests(unittest.TestCase):
 
 
 class GuidedCorrectionTests(unittest.TestCase):
+    def test_range_collects_explicit_limits_without_requesting_rationale(self) -> None:
+        app = OAApp()
+        with patch.object(
+            app,
+            "ask_text",
+            side_effect=[
+                "detection radius",
+                "Distance within which a target can be detected.",
+                "length",
+                "km",
+                "2.5",
+                "10",
+            ],
+        ) as ask_text, patch.object(
+            app,
+            "ask_choice",
+            side_effect=["RANGE", "LOCAL"],
+        ), patch.object(
+            app,
+            "ask_optional_text",
+            return_value="Normal operation",
+        ) as ask_optional:
+            _, constraint = app._collect_limitation("OperationalCapability")
+
+        prompts = [call.args[0] for call in ask_text.call_args_list]
+        self.assertIn("What is the lower limit?", prompts)
+        self.assertIn("What is the upper limit?", prompts)
+        self.assertEqual(constraint["lowerValue"], "2.5")
+        self.assertEqual(constraint["upperValue"], "10")
+        self.assertNotIn("rationale", constraint)
+        self.assertEqual(ask_optional.call_count, 1)
+        self.assertNotIn("rationale", ask_optional.call_args.args[0].casefold())
+
     def test_retry_restarts_only_the_current_characteristic(self) -> None:
         app = OAApp()
         answers = iter([
@@ -179,7 +212,6 @@ class GuidedCorrectionTests(unittest.TestCase):
             "km",
             "2",  # MAX
             "10",
-            "not now",
             "not now",
             "1",  # LOCAL
             "2",  # no additional limitation
@@ -250,22 +282,27 @@ class ModelReviewTests(unittest.TestCase):
 
         output = model.friendly_show()
 
-        self.assertTrue(output.startswith("Operational Capabilities"))
+        self.assertTrue(output.startswith("Required Outcomes"))
         self.assertNotIn("MODEL SO FAR", output)
         self.assertNotIn("Capabilitys", output)
-        self.assertIn("Operational Entities", output)
-        self.assertIn("Operational Activities", output)
+        self.assertIn("Collective Or Contextual Participants", output)
+        self.assertIn("Activities", output)
         capability_id = model.nodes_of_type("OperationalCapability")[0]
         self.assertIn(f"ID: {capability_id}", output)
-        self.assertIn("Type: OperationalCapability", output)
-        self.assertIn("Capella type: OperationalCapability", output)
+        self.assertIn("Category: Required Outcome", output)
+        self.assertNotIn("OperationalCapability", output)
+        self.assertNotIn("Capella type", output)
         self.assertIn("Status: REVIEWED", output)
         self.assertIn("Summary: Protect the designated operating area.", output)
         self.assertIn("Review: Numeric target reviewed with the customer.", output)
         self.assertIn("Attribute: detection radius", output)
         self.assertIn("Maximum: 5 km", output)
         self.assertIn("Condition: Normal operation", output)
-        self.assertIn("Rationale/source: Customer safety objective", output)
+        self.assertNotIn("Rationale/source", output)
+        self.assertEqual(
+            model.graph.nodes[capability_id]["constraints"][0]["rationale"],
+            "Customer safety objective",
+        )
 
     def test_review_shows_range_values_and_complete_relationships(self) -> None:
         parameters, constraints = characteristic(
@@ -295,9 +332,9 @@ class ModelReviewTests(unittest.TestCase):
 
         output = model.friendly_show()
 
-        self.assertIn("Range: 2.5 to 10 km", output)
-        self.assertIn("Actor nature: HUMAN", output)
-        self.assertIn(f"Field Soldier [{actor}] --INVOLVED_IN_CAPABILITY-->", output)
+        self.assertIn("Range — Lower limit: 2.5 km | Upper limit: 10 km", output)
+        self.assertIn("Participant nature: Human", output)
+        self.assertIn(f"Field Soldier [{actor}] -- contributes to outcome -->", output)
         self.assertIn(f"Keep protected area safe [{capability}]", output)
         self.assertIn("Attributes/limitations: none", output)
 

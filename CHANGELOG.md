@@ -1,5 +1,14 @@
 # Changelog
 
+## Plain-language elicitation
+
+- Removed the rationale/source question from measurable-characteristic entry.
+- Made range entry and review explicitly identify lower and upper limits.
+- Replaced method-specific category and relationship names in the guided UI with
+  plain-language labels while preserving the internal JSON and NetworkX schema.
+- Kept legacy rationale values loadable and serializable without presenting them
+  in the normal model review.
+
 ## Guided-flow reliability
 
 - Made `/undo` and `/back` identify the graph action that was restored and warn

@@ -1,4 +1,4 @@
-"""Persistent ontology for the reduced Arcadia Operational Analysis builder.
+"""Persistent ontology for the guided operational model builder.
 
 The application persists exactly six OA concepts. Definitions, examples,
 input contracts, and relationship signatures live here so the guided flow and
@@ -23,11 +23,11 @@ PARTICIPANT_TYPES = {"OperationalActor", "OperationalEntity"}
 
 CONCEPT_GUIDANCE = {
     "OperationalCapability": {
-        "friendly_name": "operational capability",
-        "plural_name": "operational capabilities",
+        "friendly_name": "required outcome",
+        "plural_name": "required outcomes",
         "definition": (
-            "A solution-independent ability or operational outcome required "
-            "by stakeholders in the operational context."
+            "A solution-independent ability or outcome required by stakeholders "
+            "in the situation being studied."
         ),
         "example": "Maintain secure access to the restricted area",
         "expected_format": (
@@ -37,11 +37,11 @@ CONCEPT_GUIDANCE = {
         "composition_relation": "REFINES_INTO",
     },
     "OperationalActor": {
-        "friendly_name": "operational actor",
-        "plural_name": "operational actors",
+        "friendly_name": "individual participant",
+        "plural_name": "individual participants",
         "definition": (
-            "A non-decomposable Operational Entity that participates directly "
-            "in the operation and is usually a human person or role."
+            "A single, non-decomposable participant that takes part directly "
+            "and is usually a human person or role."
         ),
         "example": "Field Coordinator",
         "expected_format": "concise noun phrase naming one non-decomposable participant",
@@ -49,8 +49,8 @@ CONCEPT_GUIDANCE = {
         "composition_relation": None,
     },
     "OperationalEntity": {
-        "friendly_name": "operational entity",
-        "plural_name": "operational entities",
+        "friendly_name": "collective or contextual participant",
+        "plural_name": "collective or contextual participants",
         "definition": (
             "A real-world organization, group, place, resource, context, or "
             "existing external participant involved in the operation."
@@ -64,11 +64,11 @@ CONCEPT_GUIDANCE = {
         "composition_relation": "CONTAINS",
     },
     "OperationalActivity": {
-        "friendly_name": "operational activity",
-        "plural_name": "operational activities",
+        "friendly_name": "activity",
+        "plural_name": "activities",
         "definition": (
-            "Operational behavior performed by an actor or entity, expressed "
-            "without implementation or system-design detail."
+            "Behavior performed by a participant, expressed without "
+            "implementation or system-design detail."
         ),
         "example": "Verify access authorization",
         "expected_format": "action verb + object + optional complements",
@@ -76,8 +76,8 @@ CONCEPT_GUIDANCE = {
         "composition_relation": "DECOMPOSES_INTO",
     },
     "OperationalExchange": {
-        "friendly_name": "operational exchange",
-        "plural_name": "operational exchanges",
+        "friendly_name": "exchanged item",
+        "plural_name": "exchanged items",
         "definition": (
             "Identifiable information, request, command, event, or material "
             "transferred from one operational activity to another."
@@ -88,11 +88,11 @@ CONCEPT_GUIDANCE = {
         "composition_relation": "REFINES_INTO",
     },
     "CommunicationMean": {
-        "friendly_name": "communication mean",
-        "plural_name": "communication means",
+        "friendly_name": "communication method",
+        "plural_name": "communication methods",
         "definition": (
-            "A real operational method or support connecting participants and "
-            "enabling one or more operational exchanges."
+            "A real method or support connecting participants and enabling "
+            "one or more exchanges."
         ),
         "example": "Voice radio communication",
         "expected_format": (
@@ -106,57 +106,69 @@ CONCEPT_GUIDANCE = {
 
 RELATION_GUIDANCE = {
     "PERFORMS": {
-        "definition": "A participant carries out an operational activity.",
+        "friendly_name": "performs",
+        "definition": "A participant carries out an activity.",
         "example": "Field Patrol Team performs Verify access authorization",
     },
     "INVOLVED_IN_CAPABILITY": {
-        "definition": "A participant contributes to an operational capability.",
+        "friendly_name": "contributes to outcome",
+        "definition": "A participant contributes to a required outcome.",
         "example": "Field Patrol Team is involved in Maintain secure access",
     },
     "SUPPORTS_CAPABILITY": {
-        "definition": "An activity contributes to achieving a capability.",
+        "friendly_name": "supports outcome",
+        "definition": "An activity contributes to achieving a required outcome.",
         "example": "Verify access authorization supports Maintain secure access",
     },
     "SOURCE_ACTIVITY": {
-        "definition": "The activity that produces an operational exchange.",
+        "friendly_name": "produced by",
+        "definition": "The activity that produces an exchanged item.",
         "example": "Access authorization data has source Verify identity",
     },
     "TARGET_ACTIVITY": {
-        "definition": "The activity that consumes an operational exchange.",
+        "friendly_name": "consumed by",
+        "definition": "The activity that consumes an exchanged item.",
         "example": "Access authorization data has target Permit entry",
     },
     "SOURCE_PARTICIPANT": {
-        "definition": "The originating endpoint of a communication mean.",
+        "friendly_name": "starts at",
+        "definition": "The originating endpoint of a communication method.",
         "example": "Voice radio communication has source Field Patrol Team",
     },
     "TARGET_PARTICIPANT": {
-        "definition": "The receiving endpoint of a communication mean.",
+        "friendly_name": "ends at",
+        "definition": "The receiving endpoint of a communication method.",
         "example": "Voice radio communication has target Operations Center",
     },
     "SUPPORTS_EXCHANGE": {
-        "definition": "A communication mean enables an operational exchange.",
+        "friendly_name": "supports exchange",
+        "definition": "A communication method enables an exchanged item.",
         "example": "Voice radio communication supports Incident notification",
     },
     "CONTAINS": {
+        "friendly_name": "contains",
         "definition": (
-            "An Operational Entity structurally contains another entity or actor."
+            "A collective or contextual participant structurally contains another participant."
         ),
         "example": "Security Organization contains Field Patrol Team",
     },
     "LOCATED_IN": {
+        "friendly_name": "located in",
         "definition": (
             "A participant operates within a physical or operational place or context."
         ),
         "example": "Field Patrol Team is located in Restricted Area",
     },
     "DECOMPOSES_INTO": {
+        "friendly_name": "breaks down into",
         "definition": "An activity is broken down into subordinate activities.",
         "example": "Protect area decomposes into Monitor access points",
     },
     "REFINES_INTO": {
+        "friendly_name": "refines into",
         "definition": (
-            "A capability, exchange, or communication mean is made more "
-            "operationally specific without implying structural ownership."
+            "A required outcome, exchanged item, or communication method is "
+            "made more specific without implying structural ownership."
         ),
         "example": "Maintain security refines into Prevent unauthorized access",
     },

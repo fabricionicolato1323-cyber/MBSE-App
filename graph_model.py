@@ -268,23 +268,27 @@ class OAGraph:
         if changes == 1 and added_nodes:
             node_id = added_nodes[0]
             data = after.nodes[node_id]
-            return f"added element '{cls._graph_name(after, node_id)}' [{data.get('type', '')}]"
+            category = CONCEPT_GUIDANCE[str(data.get("type", ""))]["friendly_name"]
+            return f"added element '{cls._graph_name(after, node_id)}' [{category}]"
         if changes == 1 and removed_nodes:
             node_id = removed_nodes[0]
             data = before.nodes[node_id]
-            return f"deleted element '{cls._graph_name(before, node_id)}' [{data.get('type', '')}]"
+            category = CONCEPT_GUIDANCE[str(data.get("type", ""))]["friendly_name"]
+            return f"deleted element '{cls._graph_name(before, node_id)}' [{category}]"
         if changes == 1 and added_edges:
             source, relation, target = added_edges[0]
+            relation_label = RELATION_GUIDANCE[relation]["friendly_name"]
             return (
                 "added relationship "
-                f"{cls._graph_name(after, source)} --{relation}--> "
+                f"{cls._graph_name(after, source)} -- {relation_label} --> "
                 f"{cls._graph_name(after, target)}"
             )
         if changes == 1 and removed_edges:
             source, relation, target = removed_edges[0]
+            relation_label = RELATION_GUIDANCE[relation]["friendly_name"]
             return (
                 "removed relationship "
-                f"{cls._graph_name(before, source)} --{relation}--> "
+                f"{cls._graph_name(before, source)} -- {relation_label} --> "
                 f"{cls._graph_name(before, target)}"
             )
         if changes == 1 and edited_nodes:
@@ -401,7 +405,7 @@ class OAGraph:
             if lower is None or upper is None:
                 return False, "Constraint range values must be finite numbers."
             if lower > upper:
-                return False, "A RANGE lower value cannot be greater than its upper value."
+                return False, "A RANGE lower limit cannot be greater than its upper limit."
         elif constraint.get("value") in (None, ""):
             return False, "This constraint operator requires a value."
         elif _decimal_value(constraint.get("value")) is None:
@@ -470,7 +474,7 @@ class OAGraph:
         **attributes,
     ) -> tuple[bool, str, str]:
         if node_type not in NODE_TYPES:
-            return False, "", "Unsupported persistent OA concept."
+            return False, "", "Unsupported model category."
         valid_name, error = validate_concept_name(node_type, name)
         if not valid_name:
             return False, "", error
@@ -616,7 +620,7 @@ class OAGraph:
             self.graph.nodes[target_id]["type"],
         )
         if signature not in ALLOWED_RELATIONS:
-            return False, "That relationship is not allowed by the OA ontology."
+            return False, "That relationship is not allowed by the model rules."
         if source_id == target_id and relation in COMPOSITION_RELATIONS | {"LOCATED_IN"}:
             return False, "An element cannot compose, refine, or locate itself."
         if self.has_relation(source_id, relation, target_id):
@@ -706,7 +710,8 @@ class OAGraph:
         return str(self.graph.nodes[node_id].get("name", node_id))
 
     def participant_label(self, node_id: str) -> str:
-        return f"{self.name(node_id)} [{self.graph.nodes[node_id]['type']}]"
+        node_type = str(self.graph.nodes[node_id]["type"])
+        return f"{self.name(node_id)} [{CONCEPT_GUIDANCE[node_type]['friendly_name']}]"
 
     def participants_for_activity(self, activity_id: str) -> list[str]:
         return self.relation_sources(activity_id, "PERFORMS")
@@ -726,7 +731,8 @@ class OAGraph:
 
     def short_context(self, limit: int = 14) -> str:
         items = [
-            f"{data.get('name')} ({data.get('type')})"
+            f"{data.get('name')} "
+            f"({CONCEPT_GUIDANCE[str(data.get('type'))]['friendly_name']})"
             for _, data in list(self.graph.nodes(data=True))[:limit]
         ]
         return ", ".join(items) if items else "No model elements yet."
@@ -736,11 +742,13 @@ class OAGraph:
         operator = str(constraint.get("operator", "")).upper()
         labels = {"MIN": "Minimum", "MAX": "Maximum", "EQUAL": "Exact value"}
         if operator == "RANGE":
-            value = f"{constraint.get('lowerValue')} to {constraint.get('upperValue')}"
-            label = "Range"
-        else:
-            value = str(constraint.get("value", ""))
-            label = labels.get(operator, operator.title())
+            suffix = f" {unit}" if unit else ""
+            return (
+                f"Range — Lower limit: {constraint.get('lowerValue')}{suffix} | "
+                f"Upper limit: {constraint.get('upperValue')}{suffix}"
+            )
+        value = str(constraint.get("value", ""))
+        label = labels.get(operator, operator.title())
         suffix = f" {unit}" if unit else ""
         return f"{label}: {value}{suffix}".rstrip()
 
@@ -773,7 +781,6 @@ class OAGraph:
             for constraint in constraints_by_parameter.get(parameter_id, []):
                 lines.append(f"{indent}  {cls._constraint_summary(constraint, unit)}")
                 condition = str(constraint.get("applicableCondition", "")).strip()
-                rationale = str(constraint.get("rationale", "")).strip()
                 scope = str(constraint.get("scope", "LOCAL"))
                 aggregation = str(constraint.get("aggregation", "")).strip()
                 lines.append(f"{indent}  Scope: {scope}")
@@ -784,8 +791,6 @@ class OAGraph:
                     lines.append(f"{indent}  Aggregation: {aggregation_text}")
                 if condition:
                     lines.append(f"{indent}  Condition: {condition}")
-                if rationale:
-                    lines.append(f"{indent}  Rationale/source: {rationale}")
         for warning in cls.characteristic_warnings(parameters, constraints):
             lines.append(f"{indent}Warning: {warning}")
         return lines
@@ -816,8 +821,9 @@ class OAGraph:
                 sid = str(data.get("sid", "")).strip()
                 if sid and sid != node_id:
                     lines.append(f"      SID: {sid}")
-                lines.append(f"      Type: {data.get('type', node_type)}")
-                lines.append(f"      Capella type: {data.get('capella_type', '')}")
+                lines.append(
+                    f"      Category: {CONCEPT_GUIDANCE[node_type]['friendly_name'].title()}"
+                )
                 lines.append(f"      Description: {data['description']}")
                 lines.append(f"      Status: {data.get('status', 'DRAFT')}")
                 summary = str(data.get("summary", "")).strip()
@@ -828,7 +834,11 @@ class OAGraph:
                     lines.append(f"      Review: {review}")
                 actor_nature = str(data.get("actor_nature", "")).strip()
                 if actor_nature:
-                    lines.append(f"      Actor nature: {actor_nature}")
+                    actor_label = {
+                        "HUMAN": "Human",
+                        "NON_HUMAN": "Non-human (confirmed)",
+                    }.get(actor_nature, actor_nature)
+                    lines.append(f"      Participant nature: {actor_label}")
                 if data.get("external_system_confirmed_by"):
                     lines.append(
                         "      External-system status: confirmed as an existing external participant"
@@ -845,8 +855,10 @@ class OAGraph:
             lines.append("  (none)")
         else:
             for source, target, data in edges:
+                relation = str(data["type"])
                 lines.append(
-                    f"  - {self.name(source)} [{source}] --{data['type']}--> "
+                    f"  - {self.name(source)} [{source}] -- "
+                    f"{RELATION_GUIDANCE[relation]['friendly_name']} --> "
                     f"{self.name(target)} [{target}]"
                 )
         lines.extend([
@@ -858,13 +870,13 @@ class OAGraph:
     def completeness_messages(self) -> list[str]:
         messages: list[str] = []
         for required, text in (
-            ("OperationalCapability", "No operational capability has been created."),
-            ("OperationalActivity", "No operational activity has been created."),
+            ("OperationalCapability", "No required outcome has been created."),
+            ("OperationalActivity", "No activity has been created."),
         ):
             if not self.nodes_of_type(required):
                 messages.append(text)
         if not self.participants():
-            messages.append("No operational actor or entity has been created.")
+            messages.append("No participant has been created.")
 
         for node_id, data in self.graph.nodes(data=True):
             if not str(data.get("description", "")).strip():

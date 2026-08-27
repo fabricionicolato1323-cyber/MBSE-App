@@ -1,11 +1,11 @@
-# Persistent OA model creation sequence
+# Persistent model creation sequence
 
 The flow is a deterministic interview. It introduces only one modeling decision
 at a time and does not attempt to answer open-ended methodology questions.
 
-## 1. Create operational capabilities
+## 1. Create required outcomes
 
-For each capability:
+For each required outcome:
 
 1. show its ontology definition and example the first time;
 2. require a name in the form `verb + desired state/object + optional condition`;
@@ -17,25 +17,25 @@ For each capability:
 
 The user explicitly chooses between:
 
-- Operational Actor — a non-decomposable Operational Entity, usually a human person or role;
-- Operational Entity — group, organization, place, resource, context, or
-existing external participant.
+- individual participant — non-decomposable and usually a human person or role;
+- collective or contextual participant — group, organization, place, resource,
+  context, or existing external participant.
 
-If an Operational Entity name or description contains `system`, the flow asks
+If a participant name or description contains `system`, the flow asks
 the user to confirm that it is an existing external participant and not the
 system of interest. An unconfirmed system candidate is not persisted.
 
-For an Operational Actor, the flow records whether it is human. A proposed
+For an individual participant, the flow records whether it is human. A proposed
 non-human actor triggers the usual-human warning and requires explicit
 confirmation that it remains non-decomposable. The flow then asks whether the
-participant is involved in a capability.
+participant contributes to a required outcome.
 
-## 3. Create operational activities
+## 3. Create activities
 
 An activity name must use `action verb + object + optional complements`. The
-user selects one or more performers and the capability supported by the activity.
+user selects one or more performers and the required outcome supported by the activity.
 
-## 4. Create operational exchanges
+## 4. Create exchanged items
 
 An exchange is a persistent element, not a label on an edge. It requires:
 
@@ -44,9 +44,9 @@ An exchange is a persistent element, not a label on an edge. It requires:
 - one source activity;
 - one target activity.
 
-## 5. Create communication means
+## 5. Create communication methods
 
-A communication mean is also a persistent element. It requires:
+A communication method is also a persistent element. It requires:
 
 - noun-phrase name;
 - core description;
@@ -56,26 +56,23 @@ A communication mean is also a persistent element. It requires:
 
 ## 6. Capture structure and location
 
-The flow keeps structural containment separate from operational location:
-
-```text
-OperationalEntity --CONTAINS--> OperationalEntity/OperationalActor
-OperationalActor/Entity --LOCATED_IN--> OperationalEntity
-```
+The flow keeps structural containment separate from location. Collective or
+contextual participants may contain other participants, while any participant
+may be linked to a modeled place or context.
 
 An actor cannot contain another participant. A child has at most one composition
 parent, and a composition or location cycle is rejected.
 
 ## 7. Ask about decomposition and refinement
 
-| Parent concept | Rule |
+| Parent category | Rule |
 |---|---|
-| Operational Actor | Leaf; cannot decompose |
-| Operational Entity | `CONTAINS` entity or actor |
-| Operational Activity | `DECOMPOSES_INTO` activity |
-| Operational Capability | `REFINES_INTO` capability |
-| Operational Exchange | `REFINES_INTO` exchange |
-| Communication Mean | `REFINES_INTO` communication mean |
+| Individual participant | Leaf; cannot decompose |
+| Collective or contextual participant | May contain either participant category |
+| Activity | May break down into activities |
+| Required outcome | May refine into required outcomes |
+| Exchanged item | May refine into exchanged items |
+| Communication method | May refine into communication methods |
 
 The user may answer **Not now**. After creating a child, every existing parent
 relationship must be explicitly retained, moved, or duplicated when the ontology
@@ -109,10 +106,11 @@ unpersisted characteristic and restarts it from its name. It does not modify any
 previously approved graph element or relationship.
 
 Model review displays the complete characteristic values, scope, aggregation,
-condition, rationale, semantic warnings, and relationships instead of showing
-only parameter and constraint counts. `/show` also displays each element's full
-stable ID, type, Capella mapping, status, applicable summary/review metadata, and
-relationship endpoint IDs.
+condition, semantic warnings, and relationships instead of showing only
+parameter and constraint counts. A range displays both its lower and upper
+limits. `/show` also displays each element's full stable ID, plain-language
+category, status, applicable summary/review metadata, and relationship endpoint
+IDs.
 
 ## Presentation policy
 

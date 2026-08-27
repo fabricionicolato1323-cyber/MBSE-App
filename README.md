@@ -1,21 +1,22 @@
-# Arcadia OA Guided Builder
+# Guided Operational Model Builder
 
-A small, deterministic terminal application for building the persistent portion
-of an Arcadia Operational Analysis model. The application asks one question at a
-time and the user remains responsible for every modeling decision.
+A small, deterministic terminal application for building a solution-independent
+view of needs, participants, activities, exchanged items, and communication
+methods. The application asks one question at a time and the user remains
+responsible for every modeling decision.
 
 The runtime does not require AI or a separate server.
 
-## Persistent ontology
+## Persistent model
 
-The saved model contains exactly six OA concepts:
+The guided flow uses six plain-language categories:
 
-1. `OperationalCapability`
-2. `OperationalActor`
-3. `OperationalEntity`
-4. `OperationalActivity`
-5. `OperationalExchange`
-6. `CommunicationMean`
+1. required outcomes;
+2. individual participants;
+3. collective or contextual participants;
+4. activities;
+5. exchanged items;
+6. communication methods.
 
 Every concept and relationship has a definition and an example in `ontology.py`.
 The flow shows them when a concept or relationship is first introduced, after a
@@ -25,16 +26,16 @@ is embedded in every saved JSON model.
 Every element records:
 
 - canonical UUID `id` and an immutable, unique optional `sid` alias;
-- OA type and Capella mapping;
+- an internal category and compatibility mapping, hidden from the guided interface;
 - name and mandatory core description;
 - optional summary, status, and review data;
 - structured parameters and operational constraints;
 - ontology definition and example;
 - creation and update timestamps.
 
-An `OperationalActor` is a non-decomposable `OperationalEntity` and is usually
-human. A proposed non-human actor displays that warning and is persisted only
-after explicit confirmation that it remains non-decomposable.
+An individual participant is non-decomposable and is usually human. A proposed
+non-human individual displays that warning and is persisted only after explicit
+confirmation that it remains non-decomposable.
 
 An entity whose name or description contains the word `system` requires explicit
 confirmation that it is an existing external participant rather than the system
@@ -44,18 +45,12 @@ of interest being designed.
 
 The deterministic write barrier supports:
 
-- `PERFORMS`
-- `INVOLVED_IN_CAPABILITY`
-- `SUPPORTS_CAPABILITY`
-- `SOURCE_ACTIVITY`
-- `TARGET_ACTIVITY`
-- `SOURCE_PARTICIPANT`
-- `TARGET_PARTICIPANT`
-- `SUPPORTS_EXCHANGE`
-- `CONTAINS`
-- `LOCATED_IN`
-- `DECOMPOSES_INTO`
-- `REFINES_INTO`
+- participants performing activities;
+- participants and activities contributing to required outcomes;
+- producing and consuming activities for exchanged items;
+- source and target participants for communication methods;
+- communication methods supporting exchanged items;
+- containment, location, decomposition, and refinement.
 
 Invalid type combinations, duplicates, multiple endpoint assignments,
 self-composition, composition cycles, and multiple composition parents are
@@ -69,8 +64,8 @@ does, the customer/user supplies:
 
 - measured quantity and description;
 - quantity kind and unit;
-- minimum, maximum, exact value, or range;
-- applicable condition and rationale;
+- minimum, maximum, exact value, or a range with explicit lower and upper limits;
+- applicable condition;
 - `LOCAL` or `HIERARCHY` scope;
 - `SUM`, `MIN`, `MAX`, `ALL`, `ANY`, or `CUSTOM` aggregation when hierarchical.
 
@@ -83,11 +78,11 @@ re-enter the supplied values; warnings never change values automatically.
 
 ## Composition and editing
 
-- Operational Actors are leaves.
-- Operational Entities may `CONTAIN` entities or actors.
-- Operational Activities may `DECOMPOSE_INTO` activities.
-- Capabilities, Exchanges, and Communication Means may `REFINE_INTO` elements of
-  the same type.
+- Individual participants are leaves.
+- Collective or contextual participants may contain other participants.
+- Activities may be broken down into subordinate activities.
+- Required outcomes, exchanged items, and communication methods may be refined
+  into items of the same category.
 - The user may answer **Not now** and return later through `/edit`.
 - When a child is created, each existing parent relationship is explicitly kept
   on the parent, moved to the child, or placed at both levels.
@@ -120,6 +115,7 @@ Python 3.12 is recommended.
 cd D:\AI
 git clone https://github.com/fabricionicolato1323-cyber/MBSE-App.git
 cd MBSE-App
+git switch feature/persistent-oa-ontology
 py -3.12 -m venv .venv
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\.venv\Scripts\Activate.ps1
@@ -131,7 +127,8 @@ If the repository is already cloned:
 
 ```powershell
 cd D:\AI\MBSE-App
-git pull
+git switch feature/persistent-oa-ontology
+git pull --ff-only
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
@@ -154,10 +151,11 @@ Available commands during any question:
 previous interview question. While entering a measurable characteristic, use
 `/retry` to discard that unpersisted characteristic and start it again.
 
-`/show` displays the complete user-facing model: every concept instance with its
-full stable ID, type, description, status and applicable review metadata; every
-measurable attribute with numeric values, unit, scope, aggregation, condition,
-rationale and warnings; and every relationship with both endpoint IDs.
+`/show` displays the complete user-facing model: every item with its full stable
+ID, plain-language category, description, status and applicable review metadata;
+every measurable attribute with numeric values, unit, scope, aggregation,
+condition and warnings; and every relationship with both endpoint IDs. Ranges
+show their lower and upper limits explicitly.
 
 ## Test
 
@@ -167,7 +165,7 @@ python app_flow_test.py
 python -m unittest discover -s tests -v
 ```
 
-The verification covers the six persistent concepts, allowed relationships,
+The verification covers the six persistent categories, allowed relationships,
 composition rules, endpoint cardinality, dimensional constraints, canonical
 identity, atomic undo, validated loading, confirmed legacy migration, and
 exceptional non-human actor confirmation. Regression coverage also includes
@@ -177,7 +175,7 @@ review, and confirmation of external systems.
 ## Files
 
 - `app.py` — deterministic guided interview and editing flow.
-- `ontology.py` — concepts, relationships, definitions, examples, and grammar rules.
+- `ontology.py` — internal categories, relationships, plain-language guidance, and grammar rules.
 - `graph_model.py` — persistent NetworkX graph and write barrier.
 - `arcadia_oa_ontology.mmd` — Mermaid view of the persistent ontology.
 - `MODEL_CREATION_SEQUENCE.md` — detailed elicitation sequence.
