@@ -1,5 +1,16 @@
 # Changelog
 
+## Graph integrity foundation
+
+- Aligned Operational Actor guidance with the approved “non-decomposable and
+  usually human” definition and added explicit confirmation for non-human actors.
+- Added atomic user-action checkpoints for compound relationship changes.
+- Preserved canonical UUID `id` separately from the NetworkX JSON node key.
+- Added complete candidate-graph validation before replacing the active model.
+- Added confirmed, in-memory schema-version-1 migration with deterministic
+  missing-`sid` repair and duplicate-`sid` rejection.
+- Added focused regression tests for graph integrity, migration, and actor semantics.
+
 ## Persistent ontology flow
 
 - Reduced the runtime model to six persistent OA concepts.

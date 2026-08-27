@@ -17,11 +17,14 @@ For each capability:
 
 The user explicitly chooses between:
 
-- Operational Actor — one indivisible human person or role;
+- Operational Actor — a non-decomposable Operational Entity, usually a human person or role;
 - Operational Entity — group, organization, place, resource, context, or
   existing external participant.
 
-The flow then asks whether the participant is involved in a capability.
+For an Operational Actor, the flow records whether it is human. A proposed
+non-human actor triggers the usual-human warning and requires explicit
+confirmation that it remains non-decomposable. The flow then asks whether the
+participant is involved in a capability.
 
 ## 3. Create operational activities
 
@@ -75,12 +78,21 @@ relationship must be explicitly retained, moved, or duplicated when the ontology
 allows it. Constraints remain local or apply through the hierarchy according to
 the customer-supplied scope and aggregation rule.
 
-## 8. Review and edit
+## 8. Review, load, and edit
 
 The review loop supports adding, editing, decomposing, deleting, checking, saving,
 and finishing. Every element keeps the same stable ID after an edit. An invalid
 edit remains a preview and cannot overwrite the current valid model. Deletion
 shows all affected relationships before confirmation.
+
+Saved JSON is validated as a complete candidate graph before `/load` replaces
+the active graph. A schema-version-1 model is migrated only in memory, shows a
+summary, and requires explicit confirmation. Missing legacy `sid` values are set
+to the canonical UUID `id`; duplicate `sid` values reject migration.
+
+`/undo` and `/back` restore the graph state before the latest complete compound
+mutation. Endpoint replacement and relationship moves therefore do not expose
+partial low-level rollback states.
 
 ## Presentation policy
 

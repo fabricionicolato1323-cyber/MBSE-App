@@ -24,13 +24,17 @@ is embedded in every saved JSON model.
 
 Every element records:
 
-- stable UUID and `sid`;
+- canonical UUID `id` and an immutable, unique optional `sid` alias;
 - OA type and Capella mapping;
 - name and mandatory core description;
 - optional summary, status, and review data;
 - structured parameters and operational constraints;
 - ontology definition and example;
 - creation and update timestamps.
+
+An `OperationalActor` is a non-decomposable `OperationalEntity` and is usually
+human. A proposed non-human actor displays that warning and is persisted only
+after explicit confirmation that it remains non-decomposable.
 
 ## Relationships
 
@@ -81,6 +85,20 @@ Nothing is inferred or propagated automatically.
 - Renaming or editing does not change the stable element ID.
 - Invalid edit previews do not replace valid stored data.
 - Deletion shows affected relationships and requires explicit confirmation.
+- `/undo` and `/back` group compound graph changes into one user-action boundary,
+  so endpoint replacement and relationship moves cannot be partly undone.
+
+## Validated loading and migration
+
+`/load` parses a saved file into a candidate graph and validates concept types,
+UUID identity, unique `sid` aliases, names, descriptions, parameters,
+constraints, relationship signatures, endpoint cardinality, parent cardinality,
+and cycles before replacing the active graph.
+
+Invalid JSON or graph data leaves the active graph unchanged. Schema-version-1
+files are migrated in memory only, show a summary, and require explicit user
+confirmation. Missing legacy `sid` values are set to canonical `id`; duplicate
+legacy aliases reject migration. The source file is not changed by loading.
 
 ## Windows installation
 
@@ -124,11 +142,14 @@ Available commands during any question:
 
 ```powershell
 python smoke_test.py
+python app_flow_test.py
+python -m unittest discover -s tests -v
 ```
 
-The smoke test verifies all six persistent concepts, allowed relationships,
-composition rules, endpoint cardinality, dimensional constraints, stable IDs,
-ontology definitions/examples, and save/load behavior.
+The verification covers the six persistent concepts, allowed relationships,
+composition rules, endpoint cardinality, dimensional constraints, canonical
+identity, atomic undo, validated loading, confirmed legacy migration, and
+exceptional non-human actor confirmation.
 
 ## Files
 

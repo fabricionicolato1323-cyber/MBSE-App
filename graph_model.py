@@ -6,8 +6,11 @@ import copy
 import json
 import re
 import uuid
+from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Iterator
 
 import networkx as nx
 from networkx.readwrite import json_graph
@@ -29,6 +32,29 @@ from ontology import (
 
 
 SCHEMA_VERSION = 2
+NODE_KEY_FIELD = "nodeKey"
+
+
+class ModelLoadError(ValueError):
+    """Raised when a saved model cannot pass the deterministic load barrier."""
+
+
+@dataclass(frozen=True)
+class LoadPlan:
+    source: Path
+    graph: nx.MultiDiGraph
+    source_schema_version: int
+    migration_summary: tuple[str, ...] = ()
+
+    @property
+    def requires_confirmation(self) -> bool:
+        return self.source_schema_version < SCHEMA_VERSION
+
+
+class MigrationConfirmationRequired(ModelLoadError):
+    def __init__(self, plan: LoadPlan) -> None:
+        super().__init__("The saved model requires confirmed migration before loading.")
+        self.plan = plan
 
 
 def _canonical(value: str) -> str:
@@ -39,6 +65,46 @@ def _new_uuid() -> str:
     return str(uuid.uuid4())
 
 
+def _node_link_data(graph: nx.MultiDiGraph) -> dict:
+    """Serialize with the configured edge key across supported NetworkX 3.x APIs."""
+    try:
+        return json_graph.node_link_data(
+            graph,
+            edges="edges",
+            name=NODE_KEY_FIELD,
+        )
+    except TypeError as exc:
+        if "unexpected keyword argument 'edges'" not in str(exc):
+            raise
+        return json_graph.node_link_data(
+            graph,
+            link="edges",
+            name=NODE_KEY_FIELD,
+        )
+
+
+def _node_link_graph(graph_data: dict, node_key_field: str) -> nx.MultiDiGraph:
+    """Deserialize NetworkX node-link data across supported NetworkX 3.x APIs."""
+    try:
+        return json_graph.node_link_graph(
+            graph_data,
+            edges="edges",
+            name=node_key_field,
+            directed=True,
+            multigraph=True,
+        )
+    except TypeError as exc:
+        if "unexpected keyword argument 'edges'" not in str(exc):
+            raise
+        return json_graph.node_link_graph(
+            graph_data,
+            link="edges",
+            name=node_key_field,
+            directed=True,
+            multigraph=True,
+        )
+
+
 class OAGraph:
     def __init__(self) -> None:
         self.graph = nx.MultiDiGraph(
@@ -46,13 +112,52 @@ class OAGraph:
             schema_version=SCHEMA_VERSION,
         )
         self._history: list[nx.MultiDiGraph] = []
+        self._action_depth = 0
+        self._action_snapshot: nx.MultiDiGraph | None = None
+        self._action_dirty = False
 
-    def _checkpoint(self) -> None:
-        self._history.append(copy.deepcopy(self.graph))
+    def _append_history(self, snapshot: nx.MultiDiGraph) -> None:
+        self._history.append(snapshot)
         if len(self._history) > 100:
             self._history.pop(0)
 
+    def _checkpoint(self) -> None:
+        if self._action_depth:
+            self._action_dirty = True
+            return
+        self._append_history(copy.deepcopy(self.graph))
+
+    @contextmanager
+    def user_action(self) -> Iterator[None]:
+        """Group multiple validated mutations into one atomic undo boundary."""
+        outermost = self._action_depth == 0
+        if outermost:
+            self._action_snapshot = copy.deepcopy(self.graph)
+            self._action_dirty = False
+        self._action_depth += 1
+        try:
+            yield
+        except Exception:
+            self._action_depth -= 1
+            if outermost:
+                assert self._action_snapshot is not None
+                self.graph = self._action_snapshot
+                self._action_snapshot = None
+                self._action_dirty = False
+            raise
+        else:
+            self._action_depth -= 1
+            if outermost:
+                snapshot = self._action_snapshot
+                dirty = self._action_dirty
+                self._action_snapshot = None
+                self._action_dirty = False
+                if dirty and snapshot is not None and not nx.utils.graphs_equal(snapshot, self.graph):
+                    self._append_history(snapshot)
+
     def undo(self) -> bool:
+        if self._action_depth:
+            return False
         if not self._history:
             return False
         self.graph = self._history.pop()
@@ -85,6 +190,40 @@ class OAGraph:
         missing = [field for field in required if not str(parameter.get(field, "")).strip()]
         if missing:
             return False, "Parameter is missing: " + ", ".join(missing) + "."
+        return True, ""
+
+    @classmethod
+    def _validate_characteristics(
+        cls,
+        parameters: object,
+        constraints: object,
+    ) -> tuple[bool, str]:
+        if not isinstance(parameters, list):
+            return False, "Element parameters must be a list."
+        if not isinstance(constraints, list):
+            return False, "Element constraints must be a list."
+        parameter_ids: set[str] = set()
+        for parameter in parameters:
+            if not isinstance(parameter, dict):
+                return False, "Every parameter must be an object."
+            ok, error = cls._validate_parameter(parameter)
+            if not ok:
+                return False, error
+            parameter_id = str(parameter["id"])
+            if parameter_id in parameter_ids:
+                return False, "Parameter IDs must be unique within an element."
+            parameter_ids.add(parameter_id)
+        constraint_ids: set[str] = set()
+        for constraint in constraints:
+            if not isinstance(constraint, dict):
+                return False, "Every constraint must be an object."
+            ok, error = cls._validate_constraint(constraint, parameter_ids)
+            if not ok:
+                return False, error
+            constraint_id = str(constraint["id"])
+            if constraint_id in constraint_ids:
+                return False, "Constraint IDs must be unique within an element."
+            constraint_ids.add(constraint_id)
         return True, ""
 
     @staticmethod
@@ -137,18 +276,9 @@ class OAGraph:
 
         parameters = copy.deepcopy(parameters or [])
         constraints = copy.deepcopy(constraints or [])
-        parameter_ids = set()
-        for parameter in parameters:
-            ok, error = self._validate_parameter(parameter)
-            if not ok:
-                return False, "", error
-            if parameter["id"] in parameter_ids:
-                return False, "", "Parameter IDs must be unique within an element."
-            parameter_ids.add(parameter["id"])
-        for constraint in constraints:
-            ok, error = self._validate_constraint(constraint, parameter_ids)
-            if not ok:
-                return False, "", error
+        ok, error = self._validate_characteristics(parameters, constraints)
+        if not ok:
+            return False, "", error
 
         node_id = node_id or _new_uuid()
         if node_id in self.graph:
@@ -197,17 +327,12 @@ class OAGraph:
         if duplicate:
             return False, f"'{candidate['name']}' is already in the model."
 
-        parameters = candidate.get("parameters", [])
-        parameter_ids = set()
-        for parameter in parameters:
-            ok, error = self._validate_parameter(parameter)
-            if not ok:
-                return False, error
-            parameter_ids.add(parameter["id"])
-        for constraint in candidate.get("constraints", []):
-            ok, error = self._validate_constraint(constraint, parameter_ids)
-            if not ok:
-                return False, error
+        ok, error = self._validate_characteristics(
+            candidate.get("parameters", []),
+            candidate.get("constraints", []),
+        )
+        if not ok:
+            return False, error
 
         candidate["updated_at"] = datetime.now(timezone.utc).isoformat()
         self._checkpoint()
@@ -477,7 +602,7 @@ class OAGraph:
                 "loss_policy": "preserve user descriptions, parameters, constraints, and links",
             },
             "ontology": ontology_catalog(),
-            "graph": json_graph.node_link_data(self.graph, edges="edges"),
+            "graph": _node_link_data(self.graph),
         }
 
     def save(self, path: str) -> Path:
@@ -489,14 +614,241 @@ class OAGraph:
         )
         return output
 
-    def load(self, path: str) -> Path:
-        source = Path(path)
-        document = json.loads(source.read_text(encoding="utf-8"))
+    @staticmethod
+    def _uuid_is_valid(value: object) -> bool:
+        try:
+            uuid.UUID(str(value))
+        except (ValueError, TypeError, AttributeError):
+            return False
+        return True
+
+    @classmethod
+    def _validate_loaded_graph(cls, candidate: nx.MultiDiGraph) -> None:
+        if not isinstance(candidate, nx.MultiDiGraph):
+            raise ModelLoadError("The saved Project Graph must be a directed multigraph.")
+
+        identity_values: set[str] = set()
+        sid_values: set[str] = set()
+        duplicate_names: set[tuple[str, str]] = set()
+        for node_id, data in candidate.nodes(data=True):
+            if not isinstance(node_id, str) or not node_id:
+                raise ModelLoadError("Every graph key must be a non-empty UUID string.")
+            if not isinstance(data, dict):
+                raise ModelLoadError(f"Element '{node_id}' does not contain an attribute object.")
+            canonical_id = data.get("id")
+            if canonical_id != node_id:
+                raise ModelLoadError(
+                    f"Element '{node_id}' has a canonical id that does not match its graph key."
+                )
+            if not cls._uuid_is_valid(canonical_id):
+                raise ModelLoadError(f"Element '{node_id}' does not use a valid UUID id.")
+            if canonical_id in identity_values:
+                raise ModelLoadError(f"Duplicate canonical id '{canonical_id}'.")
+            identity_values.add(canonical_id)
+
+            sid = data.get("sid")
+            if sid not in (None, ""):
+                if not isinstance(sid, str):
+                    raise ModelLoadError(f"Element '{node_id}' has a non-text sid.")
+                if sid in sid_values:
+                    raise ModelLoadError(
+                        f"Duplicate sid '{sid}'. Resolve the external aliases before loading."
+                    )
+                sid_values.add(sid)
+
+            node_type = data.get("type")
+            if node_type not in NODE_TYPES:
+                raise ModelLoadError(
+                    f"Element '{node_id}' uses unsupported Project Graph type '{node_type}'."
+                )
+            name = str(data.get("name", ""))
+            valid_name, error = validate_concept_name(str(node_type), name)
+            if not valid_name:
+                raise ModelLoadError(f"Element '{node_id}' has an invalid name: {error}")
+            if not str(data.get("description", "")).strip():
+                raise ModelLoadError(f"Element '{node_id}' has no core description.")
+            family = "OperationalParticipant" if node_type in PARTICIPANT_TYPES else str(node_type)
+            name_key = (family, _canonical(name))
+            if name_key in duplicate_names:
+                raise ModelLoadError(
+                    f"Duplicate name '{name}' exists in the '{family}' identity scope."
+                )
+            duplicate_names.add(name_key)
+
+            guidance = CONCEPT_GUIDANCE[str(node_type)]
+            if data.get("capella_type") != guidance["capella_type"]:
+                raise ModelLoadError(
+                    f"Element '{node_id}' has an invalid Capella concept mapping."
+                )
+            if not str(data.get("ontology_definition", "")).strip():
+                raise ModelLoadError(f"Element '{node_id}' has no ontology definition.")
+            if not str(data.get("ontology_example", "")).strip():
+                raise ModelLoadError(f"Element '{node_id}' has no ontology example.")
+            ok, error = cls._validate_characteristics(
+                data.get("parameters", []),
+                data.get("constraints", []),
+            )
+            if not ok:
+                raise ModelLoadError(f"Element '{node_id}' is invalid: {error}")
+
+        seen_relations: set[tuple[str, str, str]] = set()
+        parent_for: dict[str, tuple[str, str]] = {}
+        endpoint_for: set[tuple[str, str]] = set()
+        relation_graphs = {
+            relation: nx.DiGraph()
+            for relation in COMPOSITION_RELATIONS | {"LOCATED_IN"}
+        }
+        for source, target, data in candidate.edges(data=True):
+            if not isinstance(data, dict):
+                raise ModelLoadError("Every relationship must contain an attribute object.")
+            relation = data.get("type")
+            signature = (
+                candidate.nodes[source].get("type"),
+                relation,
+                candidate.nodes[target].get("type"),
+            )
+            if signature not in ALLOWED_RELATIONS:
+                raise ModelLoadError(
+                    f"Relationship '{source}' --{relation}--> '{target}' is not allowed."
+                )
+            relation_key = (str(source), str(relation), str(target))
+            if relation_key in seen_relations:
+                raise ModelLoadError(
+                    f"Duplicate relationship '{source}' --{relation}--> '{target}'."
+                )
+            seen_relations.add(relation_key)
+            if source == target and relation in COMPOSITION_RELATIONS | {"LOCATED_IN"}:
+                raise ModelLoadError("An element cannot compose, refine, or locate itself.")
+            if relation in COMPOSITION_RELATIONS:
+                if target in parent_for:
+                    existing_source, existing_relation = parent_for[str(target)]
+                    raise ModelLoadError(
+                        f"Element '{target}' has multiple parents: "
+                        f"'{existing_source}' via {existing_relation} and '{source}' via {relation}."
+                    )
+                parent_for[str(target)] = (str(source), str(relation))
+            if relation in ENDPOINT_RELATIONS:
+                endpoint_key = (str(source), str(relation))
+                if endpoint_key in endpoint_for:
+                    raise ModelLoadError(f"Element '{source}' has more than one {relation} endpoint.")
+                endpoint_for.add(endpoint_key)
+            if relation in relation_graphs:
+                relation_graphs[str(relation)].add_edge(source, target)
+            if not str(data.get("ontology_definition", "")).strip():
+                raise ModelLoadError(
+                    f"Relationship '{source}' --{relation}--> '{target}' has no definition."
+                )
+            if not str(data.get("ontology_example", "")).strip():
+                raise ModelLoadError(
+                    f"Relationship '{source}' --{relation}--> '{target}' has no example."
+                )
+
+        for relation, relation_graph in relation_graphs.items():
+            if not nx.is_directed_acyclic_graph(relation_graph):
+                raise ModelLoadError(f"The loaded graph contains a {relation} cycle.")
+
+    @staticmethod
+    def _graph_data(document: dict) -> tuple[dict, str]:
         graph_data = document.get("graph", document)
-        loaded = json_graph.node_link_graph(graph_data, edges="edges", directed=True, multigraph=True)
+        if not isinstance(graph_data, dict):
+            raise ModelLoadError("The saved model does not contain a graph object.")
+        nodes = graph_data.get("nodes", [])
+        if not isinstance(nodes, list):
+            raise ModelLoadError("The saved model graph has no valid nodes list.")
+        node_key_field = (
+            NODE_KEY_FIELD
+            if any(isinstance(node, dict) and NODE_KEY_FIELD in node for node in nodes)
+            else "id"
+        )
+        return graph_data, node_key_field
+
+    @classmethod
+    def prepare_load(cls, path: str) -> LoadPlan:
+        source = Path(path)
+        try:
+            document = json.loads(source.read_text(encoding="utf-8"))
+        except OSError as exc:
+            raise ModelLoadError(f"The model file could not be read: {exc}") from exc
+        except json.JSONDecodeError as exc:
+            raise ModelLoadError(
+                f"The model file is not valid JSON at line {exc.lineno}, column {exc.colno}."
+            ) from exc
+        if not isinstance(document, dict):
+            raise ModelLoadError("The saved model root must be a JSON object.")
+        raw_version = document.get("schema_version", 1)
+        if not isinstance(raw_version, int):
+            raise ModelLoadError("schema_version must be an integer.")
+        if raw_version not in {1, SCHEMA_VERSION}:
+            raise ModelLoadError(
+                f"Unsupported schema_version {raw_version}; supported versions are 1 and {SCHEMA_VERSION}."
+            )
+
+        graph_data, node_key_field = cls._graph_data(document)
+        try:
+            loaded = _node_link_graph(graph_data, node_key_field)
+        except (KeyError, TypeError, ValueError, nx.NetworkXError) as exc:
+            raise ModelLoadError(f"The saved graph structure is invalid: {exc}") from exc
         if not isinstance(loaded, nx.MultiDiGraph):
             loaded = nx.MultiDiGraph(loaded)
+
+        missing_sid = 0
+        restored_id = 0
+        migrated_metadata = 0
+        for node_id, data in loaded.nodes(data=True):
+            if "id" not in data:
+                data["id"] = node_id
+                restored_id += 1
+            node_type = data.get("type")
+            if raw_version == 1 and node_type in NODE_TYPES:
+                guidance = CONCEPT_GUIDANCE[str(node_type)]
+                if not data.get("sid"):
+                    data["sid"] = data["id"]
+                    missing_sid += 1
+                for key, value in (
+                    ("capella_type", guidance["capella_type"]),
+                    ("ontology_definition", guidance["definition"]),
+                    ("ontology_example", guidance["example"]),
+                    ("parameters", []),
+                    ("constraints", []),
+                ):
+                    if key not in data:
+                        data[key] = copy.deepcopy(value)
+                        migrated_metadata += 1
+        if raw_version == 1:
+            for _, _, data in loaded.edges(data=True):
+                relation = data.get("type")
+                if relation in RELATION_GUIDANCE:
+                    guidance = RELATION_GUIDANCE[str(relation)]
+                    for key, value in (
+                        ("ontology_definition", guidance["definition"]),
+                        ("ontology_example", guidance["example"]),
+                        ("confirmed_by", "user"),
+                    ):
+                        if key not in data:
+                            data[key] = value
+                            migrated_metadata += 1
+
+        loaded.graph["model"] = loaded.graph.get("model", "Arcadia Operational Analysis")
+        loaded.graph["schema_version"] = SCHEMA_VERSION
+        cls._validate_loaded_graph(loaded)
+
+        summary: list[str] = []
+        if raw_version == 1:
+            summary.append(f"Schema version 1 will be migrated to {SCHEMA_VERSION} in memory.")
+            summary.append(f"Missing sid values set to canonical id: {missing_sid}.")
+            summary.append(f"Missing ontology or model metadata restored: {migrated_metadata}.")
+            if restored_id:
+                summary.append(f"Canonical ids restored from graph keys: {restored_id}.")
+            summary.append("The source file will remain unchanged until a later save.")
+        return LoadPlan(source, loaded, raw_version, tuple(summary))
+
+    def apply_load(self, plan: LoadPlan) -> Path:
         self._checkpoint()
-        self.graph = loaded
-        self.graph.graph["schema_version"] = document.get("schema_version", 1)
-        return source
+        self.graph = copy.deepcopy(plan.graph)
+        return plan.source
+
+    def load(self, path: str, *, confirm_migration: bool = False) -> Path:
+        plan = self.prepare_load(path)
+        if plan.requires_confirmation and not confirm_migration:
+            raise MigrationConfirmationRequired(plan)
+        return self.apply_load(plan)

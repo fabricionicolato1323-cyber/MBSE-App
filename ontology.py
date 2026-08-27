@@ -38,11 +38,11 @@ CONCEPT_GUIDANCE = {
     "OperationalActor": {
         "friendly_name": "operational actor",
         "definition": (
-            "One indivisible human operational participant, person, or role. "
-            "A human collective is an Operational Entity."
+            "A non-decomposable Operational Entity that participates directly "
+            "in the operation and is usually a human person or role."
         ),
         "example": "Field Coordinator",
-        "expected_format": "singular noun phrase naming one human role or person",
+        "expected_format": "concise noun phrase naming one non-decomposable participant",
         "capella_type": "OperationalActor",
         "composition_relation": None,
     },
@@ -254,12 +254,7 @@ def validate_concept_name(concept: str, value: str) -> tuple[bool, str]:
             return False, "Add the desired state, object, or operational outcome."
     elif concept == "OperationalActor":
         if len(words) > 8:
-            return False, "Use one concise noun phrase for one human role or person."
-        if words[-1].casefold().endswith("s"):
-            return False, (
-                "An Operational Actor represents one indivisible person or role; "
-                "use Operational Entity for a human collective."
-            )
+            return False, "Use one concise noun phrase for one non-decomposable participant."
     elif concept in {"OperationalExchange", "CommunicationMean"}:
         if first in _COMMON_OPERATIONAL_VERBS:
             return False, "Use a noun phrase, not an action phrase."

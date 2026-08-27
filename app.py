@@ -9,7 +9,7 @@ import uuid
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-from graph_model import OAGraph
+from graph_model import MigrationConfirmationRequired, ModelLoadError, OAGraph
 from ontology import (
     CONCEPT_GUIDANCE,
     NODE_TYPES,
@@ -93,8 +93,23 @@ class OAApp:
             if not DEFAULT_SAVE_PATH.exists():
                 self.add_notice(f"No saved model found at {DEFAULT_SAVE_PATH}.")
             else:
-                self.model.load(str(DEFAULT_SAVE_PATH))
-                self.add_notice(f"Loaded: {DEFAULT_SAVE_PATH}")
+                try:
+                    self.model.load(str(DEFAULT_SAVE_PATH))
+                except MigrationConfirmationRequired as migration:
+                    summary = "\n".join(f"- {item}" for item in migration.plan.migration_summary)
+                    decision = self.ask_decision(
+                        "Load this legacy model after applying the migration in memory?",
+                        summary,
+                    )
+                    if decision == "yes":
+                        self.model.apply_load(migration.plan)
+                        self.add_notice(f"Migrated and loaded: {DEFAULT_SAVE_PATH}")
+                    else:
+                        self.add_notice("Load cancelled; the active model was not changed.")
+                except ModelLoadError as error:
+                    self.add_notice(f"Load rejected; the active model was not changed: {error}")
+                else:
+                    self.add_notice(f"Loaded: {DEFAULT_SAVE_PATH}")
         elif command == "/edit":
             self.edit_element()
         elif command == "/delete":
@@ -377,6 +392,28 @@ class OAApp:
             expected="one concise sentence describing its operational meaning",
             explanation="The description is required before the element can be created.",
         )
+        actor_attributes: dict[str, object] = {}
+        if concept == "OperationalActor":
+            if self.ask_decision(
+                f"Is '{name}' a human person or human role?",
+                "Operational Actors are usually human but may exceptionally be non-human.",
+            ) == "yes":
+                actor_attributes["actor_nature"] = "HUMAN"
+            else:
+                confirmed = self.ask_decision(
+                    f"Confirm '{name}' as an exceptional non-human Operational Actor?",
+                    "A non-human actor must still be one non-decomposable Operational Entity.",
+                )
+                if confirmed != "yes":
+                    self.add_notice(
+                        "Operational Actor creation cancelled. Choose Operational Entity if it can be decomposed."
+                    )
+                    return ""
+                actor_attributes.update({
+                    "actor_nature": "NON_HUMAN",
+                    "exception_confirmed_by": "user",
+                    "non_decomposable": True,
+                })
         parameters, constraints = self.ask_limitations(concept, name)
         ok, node_id, error = self.model.add_node(
             concept,
@@ -385,6 +422,7 @@ class OAApp:
             parameters=parameters,
             constraints=constraints,
             confirmed_by="user",
+            **actor_attributes,
         )
         if not ok:
             self.add_notice(f"The element was not created: {error}")
@@ -417,11 +455,12 @@ class OAApp:
             concept = self.ask_choice(
                 "What kind of operational participant is it?",
                 [
-                    ("OperationalActor", "One indivisible human person or role"),
+                    ("OperationalActor", "Non-decomposable entity, usually a human person or role"),
                     ("OperationalEntity", "Group, organization, place, resource, context, or external participant"),
                 ],
                 context_lines=[
-                    "  An Operational Actor is always one indivisible human participant.",
+                    "  An Operational Actor is non-decomposable and usually human.",
+                    "  A non-human actor requires an explicit exceptional confirmation.",
                     "  Human collectives are Operational Entities.",
                 ],
             )
@@ -567,13 +606,14 @@ class OAApp:
             new_source = child_id if source == parent_id else source
             new_target = child_id if target == parent_id else target
             if decision == "child":
-                self.model.remove_relation(source, relation, target)
-                ok, error = self.model.add_relation(new_source, relation, new_target)
-                if not ok:
-                    self.model.add_relation(source, relation, target)
-                    self.add_notice(
-                        f"The relationship stayed on the parent because it is not valid for the child: {error}"
-                    )
+                with self.model.user_action():
+                    self.model.remove_relation(source, relation, target)
+                    ok, error = self.model.add_relation(new_source, relation, new_target)
+                    if not ok:
+                        self.model.add_relation(source, relation, target)
+                        self.add_notice(
+                            f"The relationship stayed on the parent because it is not valid for the child: {error}"
+                        )
                 continue
             if decision == "both":
                 ok, error = self.model.add_relation(new_source, relation, new_target)
@@ -623,15 +663,16 @@ class OAApp:
             return
         self.introduce_relation(relation, force=True)
         old_target = current[0] if current else None
-        if old_target:
-            self.model.remove_relation(node_id, relation, old_target)
-        ok, error = self.model.add_relation(node_id, relation, new_target)
-        if not ok:
+        with self.model.user_action():
             if old_target:
-                self.model.add_relation(node_id, relation, old_target)
-            self.add_notice(f"Endpoint edit rejected: {error}")
-        else:
-            self.add_notice("Endpoint updated.")
+                self.model.remove_relation(node_id, relation, old_target)
+            ok, error = self.model.add_relation(node_id, relation, new_target)
+            if not ok:
+                if old_target:
+                    self.model.add_relation(node_id, relation, old_target)
+                self.add_notice(f"Endpoint edit rejected: {error}")
+            else:
+                self.add_notice("Endpoint updated.")
 
     def edit_relationships(self, node_id: str) -> None:
         node_type = self.model.graph.nodes[node_id]["type"]

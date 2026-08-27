@@ -143,11 +143,14 @@ def main() -> None:
         path = model.save(str(Path(directory) / "model.json"))
         document = json.loads(path.read_text(encoding="utf-8"))
         assert document["schema_version"] == 2
+        assert all("nodeKey" in item and "id" in item for item in document["graph"]["nodes"])
         assert set(document["ontology"]["concepts"]) == NODE_TYPES
         assert document["ontology"]["relationships"]["PERFORMS"]["example"]
         loaded = OAGraph()
         loaded.load(str(path))
         assert loaded.name(stable_id) == "Maintain controlled access"
+        assert loaded.graph.nodes[stable_id]["id"] == stable_id
+        assert loaded.graph.nodes[stable_id]["sid"] == stable_id
         assert loaded.graph.number_of_nodes() == model.graph.number_of_nodes()
         assert loaded.graph.number_of_edges() == model.graph.number_of_edges()
 

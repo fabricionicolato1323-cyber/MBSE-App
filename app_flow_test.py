@@ -20,6 +20,7 @@ def main() -> None:
             "",  # actor definition
             "Field Coordinator",
             "Human role responsible for coordinating access decisions.",
+            "1",  # actor is human
             "2",  # no actor limitation
             "1",  # involved in capability
             "1",  # capability
