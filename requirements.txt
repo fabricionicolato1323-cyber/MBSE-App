@@ -2,3 +2,4 @@ networkx>=3.3
 langdetect>=1.0.9
 rdflib>=7.0.0
 pyshacl>=0.30.0
+pytest>=8.3
