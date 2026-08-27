@@ -127,37 +127,43 @@ OperationalEntity --LOCATED_IN--> OperationalEntity
 `PART_OF` is the inverse reading of `CONTAINS` and is not stored as a duplicate edge.
 Operational Actors remain structural leaves.
 
-## 8. Capture operational interactions
+## 8. Refine composition and decomposition
 
-Actions may exchange information, material, requests, or other operational items.
+Before interactions are captured, the user may break a broad model item into
+smaller parts through one consistent user-facing flow:
 
-## 9. Capture communication means
+```text
+Goal
+Participant / context
+Action
+```
 
-When an interaction crosses participant boundaries, the assistant can ask how
-the relevant participants communicate. Shared activities with multiple performers
-are supported.
-
-## 10. Refine goals and actions with explicit decomposition
-
-After the basic model exists, the user may break a broad goal or action into
-smaller parts.
-
-Internally:
+Internally the existing graph semantics remain authoritative:
 
 ```text
 OperationalCapability --DECOMPOSES--> OperationalCapability
 OperationalActivity   --DECOMPOSES--> OperationalActivity
+OperationalEntity     --CONTAINS-->   OperationalEntity
+OperationalEntity     --CONTAINS-->   OperationalActor
 ```
 
-Participant/context composition continues to use `CONTAINS`; the model does not
-store a second competing composition edge for the same structural fact.
+Participant/context composition deliberately reuses `CONTAINS`; the model does
+not store a second competing composition edge for the same structural fact.
+Only Operational Entities are offered as composition parents. Operational Actors
+remain structural leaves.
+
+The user may either reuse an existing participant/context element or add a new
+one under the selected parent. If a newly contained element is active, its
+actions are captured immediately so the later interaction and communication
+stages can use them.
 
 Deterministic rules enforce:
 
-- no self-decomposition;
-- no decomposition cycles;
-- one decomposition parent per child;
-- goal-to-goal and action-to-action decomposition only;
+- no self-composition or self-decomposition;
+- no composition/decomposition cycles;
+- one parent per child for each hierarchy;
+- goal-to-goal and action-to-action explicit decomposition only;
+- entity-to-entity or entity-to-actor structural composition only;
 - Operational Actors remain leaves.
 
 Nothing is inherited automatically from a parent. In particular, a smaller
@@ -165,7 +171,18 @@ action does not automatically receive the parent's performer, goal connection,
 or characteristics. The user is asked explicitly when those relationships are
 needed.
 
-`/show` includes the resulting hierarchy.
+`/show` includes goal, participant/context, and action hierarchies.
+
+## 9. Capture operational interactions
+
+Actions may exchange information, material, requests, or other operational items.
+Actions created during composition/decomposition are already available here.
+
+## 10. Capture communication means
+
+When an interaction crosses participant boundaries, the assistant can ask how
+the relevant participants communicate. Shared activities with multiple performers
+are supported.
 
 ## 11. Capture structured characteristics
 
