@@ -1,48 +1,29 @@
-flowchart LR
-
-    TEXT["User wording / goal"]
-    CAND["Candidate Mention\n(transient helper)"]
-    SFRAME["Semantic Frame / Clause\n(transient parser)"]
-
+flowchart TB
     OC["Operational Capability"]
     OA["Operational Actor"]
     OE["Operational Entity"]
     ACT["Operational Activity"]
+    EX["Operational Exchange"]
     CM["Communication Mean"]
-
-    TEXT -.->|"extract exact noun phrases"| CAND
-    CAND -.->|"user confirms + classify"| OA
-    CAND -.->|"user confirms + classify"| OE
-
-    TEXT -.->|"parse subjects / verbs / objects / complements"| SFRAME
-    SFRAME -.->|"complex interpretation confirmed"| ACT
-    SFRAME -.->|"additional explicit subjects may become performers"| OA
-    SFRAME -.->|"additional explicit subjects may become performers"| OE
 
     OA -->|"PERFORMS"| ACT
     OE -->|"PERFORMS"| ACT
+    OA -->|"INVOLVED_IN_CAPABILITY"| OC
+    OE -->|"INVOLVED_IN_CAPABILITY"| OC
     ACT -->|"SUPPORTS_CAPABILITY"| OC
-    ACT -->|"OPERATIONAL_EXCHANGE"| ACT
 
-    OA -->|"COMMUNICATION_MEAN"| OA
-    OA -->|"COMMUNICATION_MEAN"| OE
-    OE -->|"COMMUNICATION_MEAN"| OA
-    OE -->|"COMMUNICATION_MEAN"| OE
+    EX -->|"SOURCE_ACTIVITY"| ACT
+    EX -->|"TARGET_ACTIVITY"| ACT
+    CM -->|"SOURCE_PARTICIPANT"| OA
+    CM -->|"TARGET_PARTICIPANT"| OE
+    CM -->|"SUPPORTS_EXCHANGE"| EX
 
     OE -->|"CONTAINS"| OE
     OE -->|"CONTAINS"| OA
-
     OA -.->|"LOCATED_IN"| OE
     OE -.->|"LOCATED_IN"| OE
 
-    NOTE0["Candidate Mention is not persisted.\nIt only guides elicitation and must be confirmed by the user."]
-    NOTE4["Semantic Frame / Clause is not persisted as an Arcadia node.\nIt structures natural-language behavior before graph writes."]
-    NOTE1["PART_OF is the inverse meaning of CONTAINS\nand is not stored as a duplicate edge"]
-    NOTE2["Operational Actors are structural leaves"]
-    NOTE3["CONTAINS/PART_OF = structure\nLOCATED_IN = operational/physical location"]
-
-    CAND --- NOTE0
-    SFRAME --- NOTE4
-    OE --- NOTE1
-    OA --- NOTE2
-    OE --- NOTE3
+    ACT -->|"DECOMPOSES_INTO"| ACT
+    OC -->|"REFINES_INTO"| OC
+    EX -->|"REFINES_INTO"| EX
+    CM -->|"REFINES_INTO"| CM

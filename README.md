@@ -1,254 +1,137 @@
-# Arcadia OA Guided Builder
+# Guided Operational Model Builder
 
-A local, human-in-the-loop assistant for guided construction of an Arcadia
-Operational Analysis model.
+A small, deterministic terminal application for building a solution-independent
+view of needs, participants, activities, exchanged items, and communication
+methods. The application asks one question at a time and the user remains
+responsible for every modeling decision.
 
-The application is a support tool. It detects candidates, presents transparent
-rules, requests optional advice from a local Ollama model, and checks the graph.
-The user remains responsible for every classification and for the quality of the
-final model.
+The runtime does not require AI or a separate server.
 
-It is built with Python, a NetworkX `MultiDiGraph`, a dynamically selected local
-Ollama model, RDF/OWL knowledge graphs through `rdflib`, and SHACL validation
-through `pyshacl`.
+## Persistent model
 
-## Design principles
+The guided flow uses six plain-language categories:
 
-- The deterministic Python layer is the write barrier.
-- Ollama is advisory and is not required for simple participant classification.
-- No candidate becomes a model element without an explicit user decision.
-- Operational Actor means one indivisible human person or human role.
-- Human collectives and non-human operational participants are Operational Entities.
-- Participant type, nature, and operational role are separate dimensions.
-- The future System of Interest is not introduced in Operational Analysis.
-- Every Ollama operation reports wall-clock response time; Ollama's own API
-  duration is also reported when available.
-- No model name is hardcoded in source code or documentation.
+1. required outcomes;
+2. individual participants;
+3. collective or contextual participants;
+4. activities;
+5. exchanged items;
+6. communication methods.
 
-## Graph-grounded Arcadia help
+Every concept and relationship has a definition and an example in `ontology.py`.
+The flow shows them when a concept or relationship is first introduced, after a
+grammar error, and before a consequential composition decision. The same catalog
+is embedded in every saved JSON model.
 
-The repository includes a curated Arcadia Operational Analysis knowledge base in
-[`knowledge_base`](knowledge_base). It contains:
+Every element records:
 
-- an in-depth methodology guide;
-- an RDF/OWL ontology;
-- atomic knowledge claims with source, locator, and guidance status;
-- SHACL rules for comparing the user's model with the reference graph;
-- an integration and governance blueprint.
+- canonical UUID `id` and an immutable, unique optional `sid` alias;
+- an internal category and compatibility mapping, hidden from the guided interface;
+- name and mandatory core description;
+- optional summary, status, and review data;
+- structured parameters and operational constraints;
+- ontology definition and example;
+- creation and update timestamps.
 
-The runtime keeps three concerns separate:
+An individual participant is non-decomposable and is usually human. A proposed
+non-human individual displays that warning and is persisted only after explicit
+confirmation that it remains non-decomposable.
 
-```text
-Arcadia reference graph (read-only facts and provenance)
-Arcadia SHACL graph   (comparison rules)
-User model graph      (only user-approved model elements)
-```
+An entity whose name or description contains the word `system` requires explicit
+confirmation that it is an existing external participant rather than the system
+of interest being designed.
 
-Use the knowledge graph from any question prompt:
+## Relationships
 
-```text
-/ask What is the difference between an Operational Actor and an Operational Entity?
-/compare
-```
+The deterministic write barrier supports:
 
-`/ask` retrieves a small evidence packet before the local LLM runs. The LLM may
-only verbalize those claims in English and must cite their claim IDs. Unknown or
-invalid citations are rejected. If no graph evidence is available, the app
-abstains instead of completing the answer from model memory.
+- participants performing activities;
+- participants and activities contributing to required outcomes;
+- producing and consuming activities for exchanged items;
+- source and target participants for communication methods;
+- communication methods supporting exchanged items;
+- containment, location, decomposition, and refinement.
 
-`/compare` converts the current approved NetworkX model to a separate RDF Project
-Graph and runs the curated SHACL rules. Violations, warnings, and information
-items never write back to the user model. The same comparison runs automatically
-at the end of the guided workflow.
+Invalid type combinations, duplicates, multiple endpoint assignments,
+self-composition, composition cycles, and multiple composition parents are
+rejected before they reach the saved graph.
 
-Both operations report elapsed time. The LLM remains unable to write directly to
-NetworkX, and the user remains the final authority over model content.
+## Attributes and limitations
 
-## Processing flow
+For every element, the flow explicitly asks whether a measurable target, range,
+capacity, maximum distance, duration, area, or other limitation applies. If it
+does, the customer/user supplies:
 
-```text
-User text
-   |
-Deterministic extraction/classification rules
-   |
-Advisory suggestion + explanation
-   |                         \
-User decision                Optional Ollama opinion
-   |
-Ontology validation
-   |
-Confirmed NetworkX model
-```
+- measured quantity and description;
+- quantity kind and unit;
+- minimum, maximum, exact value, or a range with explicit lower and upper limits;
+- applicable condition;
+- `LOCAL` or `HIERARCHY` scope;
+- `SUM`, `MIN`, `MAX`, `ALL`, `ANY`, or `CUSTOM` aggregation when hierarchical.
 
-Ollama is mainly used for complex semantic frames, optional goal candidate
-discovery, ambiguous validation, and an explicitly requested second opinion.
-Simple activity phrases and participant classifications have deterministic paths.
+Nothing is inferred or propagated automatically.
 
-## Participant ontology
+Numeric fields reject nonnumeric and non-finite values, inverted ranges are
+rejected, and `CUSTOM` aggregation requires an explicit rule. Recognized
+quantity-kind/unit mismatches produce a warning and require the user to keep or
+re-enter the supplied values; warnings never change values automatically.
 
-```text
-OperationalParticipant
-|- OperationalActor
-`- OperationalEntity
-   |- organization
-   |- organizational_unit
-   |- team_or_collective
-   |- existing_technical_system
-   |- infrastructure_or_facility
-   |- external_operational_service
-   |- population_or_community
-   `- environmental_participant
-```
+## Composition and editing
 
-Rules and editable vocabulary are stored in:
+- Individual participants are leaves.
+- Collective or contextual participants may contain other participants.
+- Activities may be broken down into subordinate activities.
+- Required outcomes, exchanged items, and communication methods may be refined
+  into items of the same category.
+- The user may answer **Not now** and return later through `/edit`.
+- When a child is created, each existing parent relationship is explicitly kept
+  on the parent, moved to the child, or placed at both levels.
+- Renaming or editing does not change the stable element ID.
+- Invalid edit previews do not replace valid stored data.
+- Deletion shows affected relationships and requires explicit confirmation.
+- `/undo` and `/back` group compound graph changes into one user-action boundary,
+  so endpoint replacement and relationship moves cannot be partly undone.
+- Undo reports the element or relationship action that was restored.
+- `/retry` discards only the measurable characteristic currently being entered;
+  it does not alter the approved Project Graph.
 
-```text
-participant_rules.py
-participant_lexicon.json
-```
+## Validated loading and migration
 
-Each confirmed participant records:
+`/load` parses a saved file into a candidate graph and validates concept types,
+UUID identity, unique `sid` aliases, names, descriptions, parameters,
+constraints, relationship signatures, endpoint cardinality, parent cardinality,
+and cycles before replacing the active graph.
 
-- `nature`
-- `status=confirmed`
-- `confirmed_by=user`
-- `classification_source`
-- `classification_evidence`
-- `classification_reason`
-- `classification_rules`
-
-## Internal model
-
-The graph uses:
-
-- `OperationalCapability`
-- `OperationalActor`
-- `OperationalEntity`
-- `OperationalActivity`
-- `OperationalExchange`
-- `CommunicationMean`
-
-Main relations:
-
-```text
-OperationalActor/Entity --PERFORMS--> OperationalActivity
-OperationalActivity --SUPPORTS_CAPABILITY--> OperationalCapability
-OperationalActivity --OPERATIONAL_EXCHANGE--> OperationalActivity
-OperationalActor/Entity --COMMUNICATION_MEAN--> OperationalActor/Entity
-OperationalEntity --CONTAINS--> OperationalEntity/Actor
-OperationalActor/Entity --LOCATED_IN--> OperationalEntity
-```
-
-Operational Actors are structural leaves. `CONTAINS` and `LOCATED_IN` are kept
-separate so organizational membership is not confused with operational location.
-
-## Ollama configuration
-
-Install and start Ollama, then install an instruct/chat model of your choice.
-The application never assumes a particular model.
-
-List installed models:
-
-```powershell
-ollama list
-```
-
-Select a model using either:
-
-1. The `MBSE_OLLAMA_MODEL` environment variable; or
-2. `ollama.model` in `config.json`.
-
-PowerShell example using a placeholder rather than a fixed model:
-
-```powershell
-$env:MBSE_OLLAMA_MODEL = "<installed-model-name>"
-python app.py
-```
-
-If exactly one model is installed and neither setting is supplied, it is selected
-automatically. If zero or several models are installed, the app explains how to
-select one and continues with deterministic rules.
-
-`config.json`:
-
-```json
-{
-  "ollama": {
-    "enabled": true,
-    "base_url": "http://localhost:11434",
-    "model": null,
-    "model_env": "MBSE_OLLAMA_MODEL",
-    "timeout_seconds": 120,
-    "keep_alive": "10m",
-    "num_ctx": 4096
-  }
-}
-```
-
-Setting `model` to `null` is intentional: it prevents a model from being
-hardcoded in the repository.
-
-When a non-human entity is added, the application asks:
-
-```text
-Does Restricted Area actively do something in this operation? (yes/no)
-```
-
-If the answer is `no`, the entity remains in the model as operational context and
-the completeness checker does not require an action for it.
-
-## Write protection
-
-The LLM never writes directly to NetworkX.
-
-```text
-User answer
-    |
-Optional local Ollama model
-    |
-semantic interpretation
-    |
-deterministic Python validation
-    |
-WRITE BARRIER
-    |
-NetworkX MultiDiGraph
-```
-
-The Python layer blocks invalid ontology relations, duplicates, containment
-cycles, location cycles, obvious solution/implementation bias, and non-English
-natural-language input.
-
-## Commands
-
-The command bar is shown with every question:
-
-```text
-/help  /ask QUESTION  /compare  /show  /check  /why  /save  /undo  /clc  /done  /quit
-```
-
-- `/ask QUESTION` — answer from retrieved knowledge-graph evidence only
-- `/compare` — compare the current model against Arcadia SHACL rules
-
-`/clc` is the only command that clears the terminal. The normal question flow
-preserves terminal history.
+Invalid JSON or graph data leaves the active graph unchanged. Schema-version-1
+files are migrated in memory only, show a summary, and require explicit user
+confirmation. Missing legacy `sid` values are set to canonical `id`; duplicate
+legacy aliases reject migration. The source file is not changed by loading.
 
 ## Windows installation
 
-Use Python 3.12.
+Python 3.12 is recommended.
 
 ```powershell
 cd D:\AI
 git clone https://github.com/fabricionicolato1323-cyber/MBSE-App.git
 cd MBSE-App
+git switch feature/persistent-oa-ontology
 py -3.12 -m venv .venv
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-No GGUF file is copied into this repository and `llama-cpp-python` is not used.
-Ollama owns local model installation and execution.
+If the repository is already cloned:
+
+```powershell
+cd D:\AI\MBSE-App
+git switch feature/persistent-oa-ontology
+git pull --ff-only
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
 
 ## Run
 
@@ -256,22 +139,44 @@ Ollama owns local model installation and execution.
 python app.py
 ```
 
-The model is saved as `oa_model.json`.
+The model is saved as `oa_model.json` in the application folder.
 
-## Tests
+Available commands during any question:
 
-Run all regression scripts:
+```text
+/show  /check  /save  /load  /edit  /delete  /undo  /back  /retry  /clc  /done  /quit
+```
+
+`/back` and `/undo` restore the latest graph action; they never navigate to the
+previous interview question. While entering a measurable characteristic, use
+`/retry` to discard that unpersisted characteristic and start it again.
+
+`/show` displays the complete user-facing model: every item with its full stable
+ID, plain-language category, description, status and applicable review metadata;
+every measurable attribute with numeric values, unit, scope, aggregation,
+condition and warnings; and every relationship with both endpoint IDs. Ranges
+show their lower and upper limits explicitly.
+
+## Test
 
 ```powershell
 python smoke_test.py
-python goal_fast_path_test.py
-python participant_classification_test.py
-python participant_rules_test.py
-python candidate_discovery_test.py
-python semantic_frames_test.py
-python ollama_service_test.py
-python knowledge_graph_test.py
+python app_flow_test.py
+python -m unittest discover -s tests -v
 ```
 
-The Ollama service test uses a fake HTTP response and does not require a running
-model. A live end-to-end run requires Ollama.
+The verification covers the six persistent categories, allowed relationships,
+composition rules, endpoint cardinality, dimensional constraints, canonical
+identity, atomic undo, validated loading, confirmed legacy migration, and
+exceptional non-human actor confirmation. Regression coverage also includes
+descriptive undo feedback, attribute retry, dimensional warnings, detailed model
+review, and confirmation of external systems.
+
+## Files
+
+- `app.py` — deterministic guided interview and editing flow.
+- `ontology.py` — internal categories, relationships, plain-language guidance, and grammar rules.
+- `graph_model.py` — persistent NetworkX graph and write barrier.
+- `arcadia_oa_ontology.mmd` — Mermaid view of the persistent ontology.
+- `MODEL_CREATION_SEQUENCE.md` — detailed elicitation sequence.
+- `knowledge_base/` — research/reference material; it is not an interactive help service.
