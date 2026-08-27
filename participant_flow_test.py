@@ -4,16 +4,16 @@ from participant_flow import ParticipantFlowMixin
 
 
 class DummyModel:
-    def __init__(self) -> None:
-        self._participants = ["existing"]
+    def __init__(self, participants: list[str] | None = None) -> None:
+        self._participants = list(participants or [])
 
     def participants(self) -> list[str]:
         return list(self._participants)
 
 
 class DummyApp(ParticipantFlowMixin):
-    def __init__(self) -> None:
-        self.model = DummyModel()
+    def __init__(self, participants: list[str] | None = None) -> None:
+        self.model = DummyModel(participants)
         self.current_why = ""
         self.notices: list[str] = []
         self.questions: list[str] = []
@@ -54,15 +54,10 @@ class DummyApp(ParticipantFlowMixin):
     def capture_actions_for_participant(self, participant_id: str) -> None:
         self.captured_actions.append(participant_id)
 
-    def add_manual_participant(self) -> str:
-        raise AssertionError("The mandatory first-participant path should not run in this test.")
-
 
 def main() -> None:
-    app = DummyApp()
-
-    # 1. Additional participant is entered directly; there is no yes/no gate.
-    # 2. 'done' terminates the loop without being classified or persisted.
+    # 1. With an existing participant, the next participant is entered directly.
+    app = DummyApp(["existing"])
     with patch("builtins.input", side_effect=["Fire Brigade", "done"]):
         app.capture_participants_and_actions()
 
@@ -75,10 +70,38 @@ def main() -> None:
         "Who or what else is involved?",
     ]
 
-    # 3. Context-only entities still keep the established no-action notice.
+    # 2. Context-only entities still keep the established no-action notice.
     assert any("operational context" in notice for notice in app.notices)
 
-    print("Participant flow test passed (3 UX checks).")
+    # 3. When no participant exists, direct entry is used instead of the old
+    # mandatory first-participant path.
+    first = DummyApp()
+    with patch("builtins.input", side_effect=["Fire Brigade", "done"]):
+        first.capture_participants_and_actions()
+
+    assert first.created == ["Fire Brigade"]
+    assert first.classified == ["Fire Brigade"]
+    assert first.questions == [
+        "Who or what is involved?",
+        "Who or what else is involved?",
+    ]
+
+    # 4. 'done' is valid even before any participant has been accepted.
+    empty = DummyApp()
+    with patch("builtins.input", side_effect=["done"]):
+        empty.capture_participants_and_actions()
+
+    assert empty.created == []
+    assert empty.classified == []
+    assert empty.model.participants() == []
+    assert empty.questions == ["Who or what is involved?"]
+
+    # 5. No yes/no gate is used anywhere in the manual participant loop.
+    assert all("yes/no" not in question.casefold() for question in app.questions)
+    assert all("yes/no" not in question.casefold() for question in first.questions)
+    assert all("yes/no" not in question.casefold() for question in empty.questions)
+
+    print("Participant flow test passed (5 UX checks).")
 
 
 if __name__ == "__main__":
