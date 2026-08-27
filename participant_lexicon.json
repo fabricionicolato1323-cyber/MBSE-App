@@ -21,6 +21,7 @@
     "victim"
   ],
   "collective_heads": [
+    "brigade",
     "community",
     "crew",
     "group",
@@ -47,7 +48,8 @@
     "centre",
     "facility",
     "hospital",
-    "station"
+    "station",
+    "tower"
   ],
   "technical_heads": [
     "equipment",
