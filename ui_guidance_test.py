@@ -4,6 +4,7 @@ import tempfile
 from pathlib import Path
 
 from guidance_flow import GuidanceFlowMixin
+from ontology import CONCEPT_GUIDANCE
 from ui_guidance import (
     GUIDANCE_ENV,
     configured_example,
@@ -32,6 +33,18 @@ class DummyApp(GuidanceFlowMixin, CaptureBase):
 
 
 def main() -> None:
+    forbidden = (
+        "operations coordinator",
+        "fire brigade",
+        "control tower",
+        "maintain safe",
+        "maintain timely operational awareness",
+        "assess the situation",
+        "coordinate service requests",
+        "status information",
+        "direct communication",
+    )
+
     # 1. Repository defaults are neutral placeholders, not scenario examples.
     data = load_ui_guidance()
     examples = data.get("examples_by_expected_structure", {})
@@ -39,19 +52,27 @@ def main() -> None:
     assert not literal_domain_examples_allowed()
 
     serialized = json.dumps(examples).casefold()
-    forbidden = (
-        "operations coordinator",
-        "fire brigade",
-        "control tower",
-        "maintain safe",
-        "assess the situation",
-        "status information",
-        "direct communication",
-    )
     assert not any(term in serialized for term in forbidden)
     assert all("<" in str(value) for value in examples.values())
 
-    # 2. A literal example passed by legacy code is ignored at the render boundary.
+    # 2. Semantic concept guidance contains definitions/formats, not examples.
+    assert all("example" not in guidance for guidance in CONCEPT_GUIDANCE.values())
+
+    # 3. Active runtime Python no longer contains the former literal examples.
+    root = Path(__file__).resolve().parent
+    runtime_files = (
+        "app_base.py",
+        "participant_flow.py",
+        "composition_flow.py",
+        "ontology.py",
+    )
+    runtime_text = "\n".join(
+        (root / filename).read_text(encoding="utf-8").casefold()
+        for filename in runtime_files
+    )
+    assert not any(term in runtime_text for term in forbidden)
+
+    # 4. A literal example passed by compatibility code is ignored at the render boundary.
     app = DummyApp()
     structure = "verb + desired state/object [+ optional complement]"
     app.draw_question(
@@ -62,7 +83,7 @@ def main() -> None:
     assert app.rendered_example == configured_example(structure)
     assert app.rendered_example != "Scenario-specific literal"
 
-    # 3. Guidance can be replaced externally without changing Python code.
+    # 5. Guidance can be replaced externally without changing Python code.
     previous = os.environ.get(GUIDANCE_ENV)
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "ui_guidance.json"
@@ -87,7 +108,7 @@ def main() -> None:
         os.environ[GUIDANCE_ENV] = previous
     load_ui_guidance.cache_clear()
 
-    print("UI guidance test passed (3 policy checks).")
+    print("UI guidance test passed (5 policy checks).")
 
 
 if __name__ == "__main__":
