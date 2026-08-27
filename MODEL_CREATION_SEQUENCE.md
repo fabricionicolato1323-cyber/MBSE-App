@@ -1,17 +1,19 @@
 # Guided model creation sequence
 
-The end user does not need to know Arcadia terminology.
+The end user does not need to know Arcadia terminology. Runtime help uses
+structural placeholders loaded from `ui_guidance.json`; repository defaults do
+not contain scenario-specific examples.
 
 ## 1. Capture the goal
 
-Example:
+The UI presents the expected structure rather than a domain example:
 
 ```text
 What is the main goal?
-> Maintain safe and effective operations
+Expected: <verb + desired operational outcome>
 ```
 
-Internally this becomes an `OperationalCapability`.
+Internally the confirmed answer becomes an `OperationalCapability`.
 
 ## 2. Discover candidates from the user's wording
 
@@ -31,6 +33,11 @@ an Ollama opinion. Only the user's final choice becomes a persistent
 An Operational Actor is one indivisible human person or role. Human collectives
 and non-human operational participants are Operational Entities.
 
+The repository base classifier uses generic semantic-class vocabulary from
+`participant_lexicon.json`. Domain- or organization-specific terms belong in
+`participant_lexicon_extensions.json` or another extension file selected with
+`MBSE_PARTICIPANT_LEXICON_EXTENSIONS_PATH`.
+
 ## 4. Determine whether an entity acts or only provides context
 
 An Operational Entity may actively perform behavior or may only provide
@@ -42,6 +49,7 @@ For each active participant the application asks:
 
 ```text
 What does <participant> do?
+Expected: <verb + object or complement>
 ```
 
 The answer may contain one or several subjects, verbs, objects, recipients,
@@ -111,10 +119,10 @@ input pattern is used whether or not any participant has already been accepted:
 
 ```text
 Who or what is involved?
-> Fire Brigade
+> <participant/context name>
 
 Who or what else is involved?
-> Control Tower
+> <participant/context name>
 ```
 
 The user enters one element at a time and types `done` when the list is complete.
@@ -195,12 +203,21 @@ needed.
 
 Actions may exchange information, material, requests, or other operational items.
 Actions created during composition/decomposition are already available here.
+The UI guidance uses the neutral placeholder:
+
+```text
+<information, material, request, or exchanged item>
+```
 
 ## 10. Capture communication means
 
 When an interaction crosses participant boundaries, the assistant can ask how
 the relevant participants communicate. Shared activities with multiple performers
-are supported.
+are supported. The default guidance uses:
+
+```text
+<real-world communication method>
+```
 
 ## 11. Capture structured characteristics
 
@@ -216,6 +233,13 @@ text value
 The user supplies every characteristic name and value. The local model does not
 invent or infer values. `/show` includes the stored values and `/check` validates
 the persisted structure.
+
+## UI guidance policy
+
+`ui_guidance.json` is the default external source for UI placeholders. A different
+file may be selected with `MBSE_UI_GUIDANCE_PATH`. By default,
+`allow_literal_domain_examples` is `false`, so literal examples passed by legacy
+flow code are ignored at the rendering boundary.
 
 ## Write barrier
 
