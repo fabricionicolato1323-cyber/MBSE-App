@@ -4,11 +4,13 @@ import re
 import time
 import unicodedata
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
+from uuid import uuid4
 
 from rdflib import Dataset, Graph, Literal, Namespace, RDF, RDFS, URIRef
-from rdflib.namespace import DCTERMS, PROV
+from rdflib.namespace import DCTERMS, PROV, XSD
 from pyshacl import validate as shacl_validate
 
 
@@ -19,6 +21,19 @@ ONTOLOGY_GRAPH = URIRef("urn:graph:ontology")
 REFERENCE_GRAPH = URIRef("urn:graph:arcadia-reference")
 SHAPES_GRAPH = URIRef("urn:graph:arcadia-shapes")
 PROJECT_GRAPH = URIRef("urn:graph:project-approved")
+CANDIDATE_GRAPH = URIRef("urn:graph:project-candidates")
+VALIDATION_GRAPH = URIRef("urn:graph:validation")
+AUDIT_GRAPH = URIRef("urn:graph:audit")
+
+NAMED_GRAPHS = (
+    ONTOLOGY_GRAPH,
+    REFERENCE_GRAPH,
+    SHAPES_GRAPH,
+    PROJECT_GRAPH,
+    CANDIDATE_GRAPH,
+    VALIDATION_GRAPH,
+    AUDIT_GRAPH,
+)
 
 
 @dataclass(frozen=True)
@@ -61,12 +76,21 @@ class ModelComparison:
         return sum(issue.severity == severity for issue in self.issues)
 
 
-class ArcadiaKnowledgeBase:
-    """Read-only Arcadia reference graph plus project-model SHACL comparison.
+@dataclass(frozen=True)
+class ExportArtifacts:
+    json_path: Path
+    turtle_path: Path
+    validation_report_path: Path
+    comparison: ModelComparison
 
-    The RDF reference graphs and the user's NetworkX model remain separate. The
-    only path from the reference graph to the UI is an evidence packet. This
-    class never mutates the user's operational model.
+
+class ArcadiaKnowledgeBase:
+    """Arcadia reference dataset plus derived project validation layers.
+
+    NetworkX remains the executable project graph. RDF/OWL, SPARQL and SHACL are
+    authority, query, validation and export layers. Candidate statements are kept
+    in a named graph that is intentionally separate from the user-approved graph.
+    Nothing in this class writes a candidate directly into the NetworkX model.
     """
 
     _STOPWORDS = {
@@ -206,7 +230,7 @@ class ArcadiaKnowledgeBase:
         "A interação possui a mesma atividade como fonte e destino; confirme se a autorrelação é intencional.": "The interaction has the same source and target activity; confirm whether the self-relation is intentional.",
         "O item de interação ainda não referencia dados/conceitos do domínio; isso pode limitar análise de conteúdo.": "The interaction item does not yet reference domain data or concepts; this may limit content analysis.",
         "Um meio de comunicação deve conectar pelo menos duas entidades/atores.": "A communication mean must connect at least two entities or actors.",
-        "O meio de comunicação não está relacionado a nenhuma interação operacional.": "The communication mean is not related to an operational interaction.",
+        "O meio de comunicação não está relacionado a nenhuma interação operacional.": "The communication mean is not related to any operational interaction.",
         "O processo não descreve nenhuma capacidade operacional.": "The process does not describe an operational capability.",
         "O processo possui menos de dois elementos e ainda não representa um caminho operacional significativo.": "The process has fewer than two elements and does not yet represent a meaningful operational path.",
         "O cenário não descreve nenhuma capacidade operacional.": "The scenario does not describe an operational capability.",
@@ -214,8 +238,8 @@ class ArcadiaKnowledgeBase:
         "A ocorrência deve referenciar exatamente uma atividade ou interação.": "The occurrence must reference exactly one activity or interaction.",
         "A ocorrência não possui um índice de sequência válido.": "The occurrence does not have a valid sequence index.",
         "A restrição não está aplicada a nenhum elemento operacional.": "The constraint is not applied to an operational element.",
-        "O parâmetro dimensionante não possui valor ou critério.": "The dimensioning parameter has no value or criterion.",
-        "A afirmação de conhecimento não possui texto.": "The knowledge claim has no assertion text.",
+        "O parâmetro dimensionante não possui valor ou critério.": "The dimensioning parameter does not have a value or criterion.",
+        "A afirmação de conhecimento não possui texto.": "The knowledge claim does not have assertion text.",
         "A afirmação precisa declarar se é referência Arcadia, recomendação, política ou heurística.": "The claim must state whether it is an Arcadia reference, recommendation, policy, or heuristic.",
         "Uma afirmação marcada como referência Arcadia precisa apontar para uma fonte.": "A claim marked as an Arcadia reference must point to a source.",
     }
@@ -226,6 +250,10 @@ class ArcadiaKnowledgeBase:
         self.ontology = self.dataset.graph(ONTOLOGY_GRAPH)
         self.reference = self.dataset.graph(REFERENCE_GRAPH)
         self.shapes = self.dataset.graph(SHAPES_GRAPH)
+        self.project = self.dataset.graph(PROJECT_GRAPH)
+        self.candidates = self.dataset.graph(CANDIDATE_GRAPH)
+        self.validation = self.dataset.graph(VALIDATION_GRAPH)
+        self.audit = self.dataset.graph(AUDIT_GRAPH)
 
         self.ontology.parse(
             self.base_dir / "02_arcadia_oa_ontology.ttl",
@@ -333,8 +361,17 @@ class ArcadiaKnowledgeBase:
             "ontology_triples": len(self.ontology),
             "reference_triples": len(self.reference),
             "shape_triples": len(self.shapes),
+            "project_triples": len(self.project),
+            "candidate_triples": len(self.candidates),
+            "validation_triples": len(self.validation),
+            "audit_triples": len(self.audit),
+            "named_graphs": len(NAMED_GRAPHS),
             "claims": len(self.claims),
         }
+
+    @staticmethod
+    def named_graph_iris() -> tuple[str, ...]:
+        return tuple(str(identifier) for identifier in NAMED_GRAPHS)
 
     def _resolve_intents(self, question: str) -> tuple[str, ...]:
         normalized = self._normalize(question)
@@ -505,12 +542,63 @@ class ArcadiaKnowledgeBase:
         return "\n".join(lines)
 
     @staticmethod
-    def _project_uri(node_id: str) -> URIRef:
-        return URIRef(f"urn:mbse-app:project:{quote(node_id, safe='')}")
+    def _project_uri(identifier: str) -> URIRef:
+        return URIRef(f"urn:mbse-app:project:{quote(identifier, safe='')}")
 
     @staticmethod
-    def _synthetic_uri(kind: str, index: int) -> URIRef:
-        return URIRef(f"urn:mbse-app:project:{kind}:{index}")
+    def _synthetic_uri(kind: str, identifier: str) -> URIRef:
+        return URIRef(
+            f"urn:mbse-app:project:{quote(kind, safe='')}:{quote(identifier, safe='')}"
+        )
+
+    def _record_audit(self, action: str, detail: str) -> None:
+        event = URIRef(f"urn:mbse-app:audit:{uuid4()}")
+        self.audit.add((event, RDF.type, PROV.Activity))
+        self.audit.add((event, DCTERMS.type, Literal(action)))
+        self.audit.add((event, DCTERMS.description, Literal(detail)))
+        self.audit.add(
+            (
+                event,
+                PROV.generatedAtTime,
+                Literal(datetime.now(timezone.utc).isoformat(), datatype=XSD.dateTime),
+            )
+        )
+
+    def stage_candidate(
+        self,
+        candidate_id: str,
+        suggested_type: str,
+        name: str,
+        *,
+        evidence: str = "",
+        source: str = "assistant",
+    ) -> URIRef:
+        """Store an unapproved extraction only in the candidate named graph."""
+        candidate_id = str(candidate_id).strip()
+        if not candidate_id:
+            raise ValueError("Candidate ID is required.")
+        resource = URIRef(f"urn:mbse-app:candidate:{quote(candidate_id, safe='')}")
+        self.candidates.remove((resource, None, None))
+        self.candidates.add((resource, RDF.type, OA.CandidateMention))
+        self.candidates.add((resource, OA.identifier, Literal(candidate_id)))
+        self.candidates.add((resource, OA.name, Literal(str(name))))
+        self.candidates.add((resource, OA.suggestedType, Literal(str(suggested_type))))
+        self.candidates.add((resource, DCTERMS.source, Literal(str(source))))
+        if evidence:
+            self.candidates.add((resource, OA.evidenceText, Literal(str(evidence))))
+        self._record_audit("candidate_staged", candidate_id)
+        return resource
+
+    def discard_candidate(self, candidate_id: str) -> bool:
+        resource = URIRef(f"urn:mbse-app:candidate:{quote(str(candidate_id), safe='')}")
+        existed = any(self.candidates.triples((resource, None, None)))
+        self.candidates.remove((resource, None, None))
+        if existed:
+            self._record_audit("candidate_discarded", str(candidate_id))
+        return existed
+
+    def candidate_count(self) -> int:
+        return len(set(self.candidates.subjects(RDF.type, OA.CandidateMention)))
 
     def project_rdf(self, model) -> Graph:
         project = Graph(identifier=PROJECT_GRAPH)
@@ -522,16 +610,19 @@ class ArcadiaKnowledgeBase:
             rdf_type = self._TYPE_MAP.get(node_type)
             if rdf_type is None:
                 continue
-            resource = self._project_uri(node_id)
+            identifier = str(data.get("uuid") or node_id)
+            resource = self._project_uri(identifier)
             node_uris[node_id] = resource
             project.add((resource, RDF.type, OA.ProjectElement))
             project.add((resource, RDF.type, rdf_type))
             if node_type == "OperationalActor":
                 project.add((resource, RDF.type, OA.OperationalEntity))
                 project.add((resource, OA.isDecomposable, Literal(False)))
-            project.add((resource, OA.identifier, Literal(node_id)))
+            project.add((resource, OA.identifier, Literal(identifier)))
             project.add((resource, OA.name, Literal(str(data.get("name", node_id)))))
             project.add((resource, OA.isSystemOfInterest, Literal(False)))
+            if data.get("sid"):
+                project.add((resource, DCTERMS.identifier, Literal(str(data["sid"]))))
 
         interactions: list[tuple[URIRef, str, str]] = []
         communication_edges: list[tuple[URIRef, str, str]] = []
@@ -545,6 +636,7 @@ class ArcadiaKnowledgeBase:
             relation = data.get("type")
             source_uri = node_uris[source]
             target_uri = node_uris[target]
+            edge_id = str(data.get("uuid") or f"legacy-edge-{index}")
             if relation == "PERFORMS":
                 project.add((source_uri, OA.performsActivity, target_uri))
                 project.add((target_uri, OA.performedBy, source_uri))
@@ -557,12 +649,12 @@ class ArcadiaKnowledgeBase:
                         project.add((performer_uri, OA.involvedInCapability, target_uri))
                         project.add((target_uri, OA.hasInvolvedEntity, performer_uri))
             elif relation == "OPERATIONAL_EXCHANGE":
-                interaction = self._synthetic_uri("interaction", index)
-                item = self._synthetic_uri("interaction-item", index)
+                interaction = self._synthetic_uri("interaction", edge_id)
+                item = self._synthetic_uri("interaction-item", edge_id)
                 name = str(data.get("name") or "Operational exchange")
                 for resource, rdf_type, identifier, item_name in (
-                    (interaction, OA.OperationalInteraction, f"exchange-{index}", name),
-                    (item, OA.InteractionItem, f"exchange-item-{index}", name),
+                    (interaction, OA.OperationalInteraction, edge_id, name),
+                    (item, OA.InteractionItem, f"{edge_id}:item", name),
                 ):
                     project.add((resource, RDF.type, OA.ProjectElement))
                     project.add((resource, RDF.type, rdf_type))
@@ -574,11 +666,11 @@ class ArcadiaKnowledgeBase:
                 project.add((interaction, OA.conveys, item))
                 interactions.append((interaction, source, target))
             elif relation == "COMMUNICATION_MEAN":
-                mean = self._synthetic_uri("communication-mean", index)
+                mean = self._synthetic_uri("communication-mean", edge_id)
                 name = str(data.get("name") or "Communication mean")
                 project.add((mean, RDF.type, OA.ProjectElement))
                 project.add((mean, RDF.type, OA.CommunicationMean))
-                project.add((mean, OA.identifier, Literal(f"communication-{index}")))
+                project.add((mean, OA.identifier, Literal(edge_id)))
                 project.add((mean, OA.name, Literal(name)))
                 project.add((mean, OA.isSystemOfInterest, Literal(False)))
                 project.add((mean, OA.connectsEntity, source_uri))
@@ -599,6 +691,12 @@ class ArcadiaKnowledgeBase:
 
         return project
 
+    @staticmethod
+    def _replace_graph(target: Graph, source: Graph) -> None:
+        target.remove((None, None, None))
+        for triple in source:
+            target.add(triple)
+
     def compare_model(self, model) -> ModelComparison:
         started = time.perf_counter()
         project = self.project_rdf(model)
@@ -610,6 +708,13 @@ class ArcadiaKnowledgeBase:
             advanced=True,
             allow_warnings=True,
             allow_infos=True,
+        )
+
+        self._replace_graph(self.project, project)
+        self._replace_graph(self.validation, report_graph)
+        self._record_audit(
+            "model_validated",
+            f"conforms={bool(conforms)} project_triples={len(project)}",
         )
 
         issues: list[ValidationIssue] = []
@@ -671,3 +776,72 @@ class ArcadiaKnowledgeBase:
             )
         lines.extend(["", f"Elapsed comparison time: {comparison.elapsed_ms:.1f} ms"])
         return "\n".join(lines)
+
+    @staticmethod
+    def _write_text_atomic(path: Path, text: str) -> Path:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(path.name + ".tmp")
+        temporary.write_text(text, encoding="utf-8")
+        temporary.replace(path)
+        return path
+
+    def validation_report_markdown(self, comparison: ModelComparison) -> str:
+        lines = [
+            "# OA Validation Report",
+            "",
+            f"- Mandatory Arcadia rules: {'PASS' if comparison.conforms else 'FAIL'}",
+            f"- Violations: {comparison.count('VIOLATION')}",
+            f"- Warnings: {comparison.count('WARNING')}",
+            f"- Information items: {comparison.count('INFO')}",
+            f"- Approved project RDF triples: {comparison.project_triples}",
+            f"- Validation elapsed time: {comparison.elapsed_ms:.1f} ms",
+            "",
+            "## Findings",
+            "",
+        ]
+        if not comparison.issues:
+            lines.append("No SHACL findings were produced.")
+        else:
+            for issue in comparison.issues:
+                lines.append(
+                    f"- **{issue.severity}** — {issue.focus_name} "
+                    f"(`{issue.focus_id}`): {issue.message} "
+                    f"_Rule: {issue.source_shape or 'unspecified'}_"
+                )
+        lines.extend(
+            [
+                "",
+                "Candidate statements are excluded from this report and from the approved RDF export.",
+                "",
+            ]
+        )
+        return "\n".join(lines)
+
+    def export_approved_model(
+        self,
+        model,
+        output_dir: str | Path,
+    ) -> ExportArtifacts:
+        """Export canonical JSON, approved Turtle and a SHACL Markdown report."""
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        json_path = model.save(output_dir / "oa_model.json")
+        comparison = self.compare_model(model)
+        turtle_path = output_dir / "oa_project_approved.ttl"
+        turtle_text = self.project.serialize(format="turtle")
+        self._write_text_atomic(turtle_path, str(turtle_text))
+        validation_path = output_dir / "oa_validation_report.md"
+        self._write_text_atomic(
+            validation_path,
+            self.validation_report_markdown(comparison),
+        )
+        self._record_audit(
+            "model_exported",
+            f"json={json_path.name} turtle={turtle_path.name} report={validation_path.name}",
+        )
+        return ExportArtifacts(
+            json_path=json_path,
+            turtle_path=turtle_path,
+            validation_report_path=validation_path,
+            comparison=comparison,
+        )
