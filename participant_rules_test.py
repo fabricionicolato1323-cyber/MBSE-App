@@ -15,9 +15,19 @@ def main() -> None:
     assert team.concept == "OperationalEntity", team
     assert team.nature == "team_or_collective", team
 
+    brigade = classify_participant("Fire Brigade")
+    assert brigade.concept == "OperationalEntity", brigade
+    assert brigade.nature == "team_or_collective", brigade
+    assert brigade.evidence_level == "strong", brigade
+
     organization = classify_participant("Aviation Authority")
     assert organization.concept == "OperationalEntity", organization
     assert organization.nature == "organization", organization
+
+    tower = classify_participant("Control Tower")
+    assert tower.concept == "OperationalEntity", tower
+    assert tower.nature == "infrastructure_or_facility", tower
+    assert tower.evidence_level == "partial", tower
 
     existing = classify_participant("Existing external radar")
     assert existing.concept == "OperationalEntity", existing
