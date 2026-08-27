@@ -7,11 +7,14 @@ from composition_flow import CompositionFlowMixin
 
 
 class OAApp(CompositionFlowMixin, CharacteristicsFlowMixin, _base.OAApp):
-    """Existing guided builder plus decomposition and structured characteristics."""
+    """Existing guided builder plus composition/decomposition and characteristics."""
+
+    def capture_structure_and_environment(self) -> None:
+        super().capture_structure_and_environment()
+        self.capture_decomposition()
 
     def capture_communication(self) -> None:
         super().capture_communication()
-        self.capture_decomposition()
         self.capture_characteristics()
 
 
