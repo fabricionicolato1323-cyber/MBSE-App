@@ -196,7 +196,7 @@ class OAApp:
         elif cmd == "/ask":
             self.add_notice(
                 "Add an English Arcadia question after the command.\n"
-                "Example: /ask What is the difference between an actor and an entity?"
+                "Format: /ask <method question>"
             )
         elif cmd.startswith("/ask "):
             question = raw[5:].strip()
@@ -484,9 +484,9 @@ class OAApp:
         self,
         question: str,
         explanation: str,
-        example: str,
-        expected_concept: str,
-        why: str,
+        example: str = "",
+        expected_concept: str = "",
+        why: str = "",
         context: str = "",
     ) -> str:
         self.current_why = why
@@ -596,7 +596,6 @@ class OAApp:
                     "Name one person, role, organization, group, facility, "
                     "place, resource, or other real-world element involved."
                 ),
-                example="Operations Coordinator",
                 expected_structure=EXPECTED_STRUCTURES["participant"],
             )
             value = input("> ").strip()
@@ -718,9 +717,6 @@ class OAApp:
                 explanation=(
                     "You may describe one action or a natural sentence with "
                     "multiple subjects, objects, complements, or actions."
-                ),
-                example=(
-                    "Coordinate service requests and report status to operations"
                 ),
                 expected_structure=EXPECTED_STRUCTURES["OperationalActivity"],
             )
@@ -983,7 +979,6 @@ class OAApp:
                     "Describe the desired operational outcome, not a "
                     "system or implementation."
                 ),
-                example="Maintain safe and effective operations",
                 expected_concept="OperationalCapability",
                 why=(
                     "The goal gives the rest of the model a clear purpose "
@@ -1268,7 +1263,6 @@ class OAApp:
                         "Name the information, material, request, or item "
                         "in a few words."
                     ),
-                    example="Status information",
                     expected_concept="OperationalExchange",
                     why=(
                         "Naming what is exchanged makes the operational "
@@ -1355,7 +1349,6 @@ class OAApp:
                             "Name the real-world communication method, "
                             "not software or implementation details."
                         ),
-                        example="Direct communication",
                         expected_concept="CommunicationMean",
                         why=(
                             "This records how two operational participants "
