@@ -1,27 +1,16 @@
 {
   "actor_heads": [
-    "commander",
+    "agent",
     "controller",
     "coordinator",
-    "dispatcher",
-    "doctor",
-    "driver",
-    "engineer",
-    "inspector",
-    "maintainer",
-    "medic",
+    "manager",
     "operator",
-    "passenger",
-    "patient",
-    "pilot",
-    "responder",
+    "representative",
     "supervisor",
-    "technician",
     "user",
-    "victim"
+    "worker"
   ],
   "collective_heads": [
-    "brigade",
     "community",
     "crew",
     "group",
@@ -35,45 +24,36 @@
     "authority",
     "company",
     "department",
-    "ministry",
     "office",
     "organization",
     "organisation"
   ],
   "facility_heads": [
-    "airport",
-    "base",
     "building",
     "center",
     "centre",
     "facility",
-    "hospital",
-    "station",
-    "tower"
+    "site",
+    "station"
   ],
   "technical_heads": [
+    "device",
     "equipment",
     "machine",
     "network",
-    "radar",
-    "satellite",
     "system",
     "vehicle"
   ],
   "environment_heads": [
-    "airspace",
     "area",
     "environment",
+    "location",
     "region",
-    "river",
-    "sea",
-    "storm",
     "zone"
   ],
   "communication_heads": [
     "channel",
-    "data-link",
-    "datalink",
+    "communication",
     "email",
     "radio",
     "telephone"
