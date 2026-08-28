@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass
 from functools import lru_cache
@@ -8,6 +9,8 @@ from pathlib import Path
 
 
 LEXICON_PATH = Path(__file__).with_name("participant_lexicon.json")
+DEFAULT_EXTENSION_PATH = Path(__file__).with_name("participant_lexicon_extensions.json")
+LEXICON_EXTENSION_ENV = "MBSE_PARTICIPANT_LEXICON_EXTENSIONS_PATH"
 
 ENTITY_NATURES = (
     "organization",
@@ -36,14 +39,40 @@ class ParticipantSuggestion:
         return self.concept in {"OperationalActor", "OperationalEntity"}
 
 
-@lru_cache(maxsize=1)
-def load_lexicon() -> dict[str, set[str]]:
-    raw = json.loads(LEXICON_PATH.read_text(encoding="utf-8"))
+def _load_lexicon_file(path: Path) -> dict[str, set[str]]:
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
     return {
         key: {str(value).casefold() for value in values}
         for key, values in raw.items()
         if isinstance(values, list)
     }
+
+
+@lru_cache(maxsize=1)
+def load_lexicon() -> dict[str, set[str]]:
+    """Load domain-neutral base vocabulary plus optional user extensions.
+
+    The repository base lexicon contains only generic semantic class heads and
+    exclusion markers. Domain- or organization-specific vocabulary belongs in an
+    external extension file, selectable through
+    MBSE_PARTICIPANT_LEXICON_EXTENSIONS_PATH.
+    """
+    merged = _load_lexicon_file(LEXICON_PATH)
+    configured = os.getenv(LEXICON_EXTENSION_ENV, "").strip()
+    extension_path = (
+        Path(configured).expanduser()
+        if configured
+        else DEFAULT_EXTENSION_PATH
+    )
+    extensions = _load_lexicon_file(extension_path)
+    for key, values in extensions.items():
+        merged.setdefault(key, set()).update(values)
+    return merged
 
 
 def _tokens(value: str) -> list[str]:

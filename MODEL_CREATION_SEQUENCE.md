@@ -1,17 +1,19 @@
 # Guided model creation sequence
 
-The end user does not need to know Arcadia terminology.
+The end user does not need to know Arcadia terminology. Runtime help uses
+structural placeholders loaded from `ui_guidance.json`; repository defaults do
+not contain scenario-specific examples.
 
 ## 1. Capture the goal
 
-Example:
+The UI presents the expected structure rather than a domain example:
 
 ```text
 What is the main goal?
-> Maintain safe and effective operations
+Expected: <verb + desired operational outcome>
 ```
 
-Internally this becomes an `OperationalCapability`.
+Internally the confirmed answer becomes an `OperationalCapability`.
 
 ## 2. Discover candidates from the user's wording
 
@@ -31,6 +33,11 @@ an Ollama opinion. Only the user's final choice becomes a persistent
 An Operational Actor is one indivisible human person or role. Human collectives
 and non-human operational participants are Operational Entities.
 
+The repository base classifier uses generic semantic-class vocabulary from
+`participant_lexicon.json`. Domain- or organization-specific terms belong in
+`participant_lexicon_extensions.json` or another extension file selected with
+`MBSE_PARTICIPANT_LEXICON_EXTENSIONS_PATH`.
+
 ## 4. Determine whether an entity acts or only provides context
 
 An Operational Entity may actively perform behavior or may only provide
@@ -42,6 +49,7 @@ For each active participant the application asks:
 
 ```text
 What does <participant> do?
+Expected: <verb + object or complement>
 ```
 
 The answer may contain one or several subjects, verbs, objects, recipients,
@@ -68,7 +76,7 @@ SemanticFrame
   +-- SemanticClause ...
 ```
 
-General decomposition rules:
+General decomposition rules for natural-language input:
 
 ```text
 one verb + several objects
@@ -106,12 +114,30 @@ nodes.
 
 ## 6. Ask for anything not mentioned earlier
 
+The assistant asks directly for each participant/context element. This same
+input pattern is used whether or not any participant has already been accepted:
+
 ```text
-Is anyone or anything else involved? (yes/no)
+Who or what is involved?
+> <participant/context name>
+
+Who or what else is involved?
+> <participant/context name>
 ```
 
-This prevents the model from being limited to nouns that happened to appear in
-the initial goal wording.
+The user enters one element at a time and types `done` when the list is complete.
+`done` is also valid when no participant has been accepted yet:
+
+```text
+Who or what is involved?
+> done
+```
+
+There is no separate yes/no gate and no mandatory first-participant trap after a
+candidate is rejected. The model may therefore proceed with no participant, but
+`/check` will report the resulting completeness gap. Classification,
+confirmation, language, and write-barrier rules remain unchanged for every
+element that is actually added.
 
 ## 7. Capture structure and environment
 
@@ -125,16 +151,95 @@ OperationalEntity --LOCATED_IN--> OperationalEntity
 ```
 
 `PART_OF` is the inverse reading of `CONTAINS` and is not stored as a duplicate edge.
+Operational Actors remain structural leaves.
 
-## 8. Capture operational interactions
+## 8. Refine composition and decomposition
+
+Before interactions are captured, the user may break a broad model item into
+smaller parts through one consistent user-facing flow:
+
+```text
+Goal
+Participant / context
+Action
+```
+
+Internally the existing graph semantics remain authoritative:
+
+```text
+OperationalCapability --DECOMPOSES--> OperationalCapability
+OperationalActivity   --DECOMPOSES--> OperationalActivity
+OperationalEntity     --CONTAINS-->   OperationalEntity
+OperationalEntity     --CONTAINS-->   OperationalActor
+```
+
+Participant/context composition deliberately reuses `CONTAINS`; the model does
+not store a second competing composition edge for the same structural fact.
+Only Operational Entities are offered as composition parents. Operational Actors
+remain structural leaves.
+
+The user may either reuse an existing participant/context element or add a new
+one under the selected parent. If a newly contained element is active, its
+actions are captured immediately so the later interaction and communication
+stages can use them.
+
+Deterministic rules enforce:
+
+- no self-composition or self-decomposition;
+- no composition/decomposition cycles;
+- one parent per child for each hierarchy;
+- goal-to-goal and action-to-action explicit decomposition only;
+- entity-to-entity or entity-to-actor structural composition only;
+- Operational Actors remain leaves.
+
+Nothing is inherited automatically from a parent. In particular, a smaller
+action does not automatically receive the parent's performer, goal connection,
+or characteristics. The user is asked explicitly when those relationships are
+needed.
+
+`/show` includes goal, participant/context, and action hierarchies.
+
+## 9. Capture operational interactions
 
 Actions may exchange information, material, requests, or other operational items.
+Actions created during composition/decomposition are already available here.
+The UI guidance uses the neutral placeholder:
 
-## 9. Capture communication means
+```text
+<information, material, request, or exchanged item>
+```
+
+## 10. Capture communication means
 
 When an interaction crosses participant boundaries, the assistant can ask how
 the relevant participants communicate. Shared activities with multiple performers
-are supported.
+are supported. The default guidance uses:
+
+```text
+<real-world communication method>
+```
+
+## 11. Capture structured characteristics
+
+The user may add descriptive or measurable characteristics to goals,
+participants/context, actions, and interactions. Supported value forms are:
+
+```text
+single numeric value + optional unit
+numeric range with lower bound + upper bound + optional unit
+text value
+```
+
+The user supplies every characteristic name and value. The local model does not
+invent or infer values. `/show` includes the stored values and `/check` validates
+the persisted structure.
+
+## UI guidance policy
+
+`ui_guidance.json` is the default external source for UI placeholders. A different
+file may be selected with `MBSE_UI_GUIDANCE_PATH`. By default,
+`allow_literal_domain_examples` is `false`, so literal examples passed by legacy
+flow code are ignored at the rendering boundary.
 
 ## Write barrier
 

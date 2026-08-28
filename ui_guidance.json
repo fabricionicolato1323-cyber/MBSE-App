@@ -1,0 +1,15 @@
+{
+  "examples_by_expected_structure": {
+    "verb + desired state/object [+ optional complement]": "<verb + desired operational outcome>",
+    "noun phrase — person, role, group, organization, place, resource, or context": "<person, role, group, organization, place, resource, or context>",
+    "participant/context name or 'done'": "<participant/context name> or done",
+    "subject(s) optional + verb(s) + object(s)/complement(s); multiple actions are allowed in one natural sentence": "<verb + object or complement>",
+    "noun phrase — information, material, request, or exchanged item": "<information, material, request, or exchanged item>",
+    "noun phrase — real-world communication method": "<real-world communication method>",
+    "Short English phrase": "<short English phrase>"
+  },
+  "policy": {
+    "allow_literal_domain_examples": false,
+    "fallback": "none"
+  }
+}

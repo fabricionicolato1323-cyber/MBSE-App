@@ -4,6 +4,8 @@ import math
 import re
 from typing import Any
 
+import networkx as nx
+
 from graph_model_base import OAGraph as _BaseOAGraph
 
 
@@ -12,6 +14,15 @@ CHARACTERISTIC_NODE_TYPES = {
     "OperationalCapability",
     "OperationalActor",
     "OperationalEntity",
+    "OperationalActivity",
+}
+DECOMPOSABLE_NODE_TYPES = {
+    "OperationalCapability",
+    "OperationalActivity",
+    "OperationalEntity",
+}
+EXPLICIT_DECOMPOSITION_TYPES = {
+    "OperationalCapability",
     "OperationalActivity",
 }
 
@@ -44,12 +55,180 @@ def _coerce_number(value: Any) -> int | float | None:
 
 
 class OAGraph(_BaseOAGraph):
-    """Extend the existing OA graph with generic user-owned characteristics.
+    """Extend the existing graph with characteristics and decomposition rules."""
 
-    Characteristics remain attributes of model elements/interaction edges. They are
-    intentionally not promoted to graph nodes in this feature.
-    """
+    # ------------------------------------------------------------------
+    # Composition / decomposition
+    # ------------------------------------------------------------------
+    def decomposition_parent(self, node_id: str) -> str | None:
+        if node_id not in self.graph:
+            return None
+        node_type = self.graph.nodes[node_id].get("type")
+        relation = "DECOMPOSES" if node_type in EXPLICIT_DECOMPOSITION_TYPES else "CONTAINS"
+        for source, _, data in self.graph.in_edges(node_id, data=True):
+            if data.get("type") == relation:
+                return source
+        return None
 
+    def decomposition_children(self, node_id: str) -> list[str]:
+        if node_id not in self.graph:
+            return []
+        node_type = self.graph.nodes[node_id].get("type")
+        if node_type in EXPLICIT_DECOMPOSITION_TYPES:
+            relation = "DECOMPOSES"
+        elif node_type == "OperationalEntity":
+            relation = "CONTAINS"
+        else:
+            return []
+        return [
+            target
+            for _, target, data in self.graph.out_edges(node_id, data=True)
+            if data.get("type") == relation
+        ]
+
+    def decomposition_relations(self) -> list[tuple[str, str, str]]:
+        result: list[tuple[str, str, str]] = []
+        for source, target, data in self.graph.edges(data=True):
+            relation = data.get("type")
+            source_type = self.graph.nodes[source].get("type")
+            if relation == "DECOMPOSES":
+                result.append((source, target, relation))
+            elif relation == "CONTAINS" and source_type == "OperationalEntity":
+                result.append((source, target, relation))
+        return result
+
+    def add_relation(
+        self,
+        source_id: str,
+        relation: str,
+        target_id: str,
+        **attributes,
+    ) -> tuple[bool, str]:
+        if relation != "DECOMPOSES":
+            return super().add_relation(source_id, relation, target_id, **attributes)
+
+        if source_id not in self.graph or target_id not in self.graph:
+            return False, "Both model elements must already exist."
+
+        source_type = self.graph.nodes[source_id].get("type")
+        target_type = self.graph.nodes[target_id].get("type")
+        if source_type not in EXPLICIT_DECOMPOSITION_TYPES or target_type != source_type:
+            return False, "Only goals can decompose goals and actions can decompose actions."
+        if source_id == target_id:
+            return False, "An item cannot be a smaller part of itself."
+        if self.decomposition_parent(target_id) is not None:
+            return False, "That item already belongs to another decomposition parent."
+        if self._would_create_cycle(source_id, target_id, "DECOMPOSES"):
+            return False, "That decomposition would create a cycle."
+
+        return super().add_relation(source_id, relation, target_id, **attributes)
+
+    def _decomposition_tree_lines(
+        self,
+        node_ids: list[str],
+        *,
+        indent: str = "    ",
+    ) -> list[str]:
+        node_set = set(node_ids)
+        roots = [
+            node_id
+            for node_id in node_ids
+            if self.decomposition_parent(node_id) not in node_set
+        ]
+        lines: list[str] = []
+        visited: set[str] = set()
+
+        def walk(node_id: str, depth: int) -> None:
+            if node_id in visited:
+                lines.append(f"{indent}{'  ' * depth}- {self.name(node_id)} [cycle]")
+                return
+            visited.add(node_id)
+            lines.append(f"{indent}{'  ' * depth}- {self.name(node_id)}")
+            for child in self.decomposition_children(node_id):
+                if child in node_set:
+                    walk(child, depth + 1)
+
+        for root in roots:
+            if self.decomposition_children(root):
+                walk(root, 0)
+
+        # Persisted data could be malformed and contain only cyclic components.
+        for node_id in node_ids:
+            if node_id not in visited and self.decomposition_children(node_id):
+                walk(node_id, 0)
+        return lines
+
+    def _decomposition_lines(self) -> list[str]:
+        groups = [
+            ("Goals", self.nodes_of_type("OperationalCapability")),
+            ("Actions", self.nodes_of_type("OperationalActivity")),
+            (
+                "Participants / context",
+                self.nodes_of_type("OperationalEntity", "OperationalActor"),
+            ),
+        ]
+        lines: list[str] = []
+        for title, node_ids in groups:
+            tree = self._decomposition_tree_lines(node_ids)
+            if not tree:
+                continue
+            lines.append(f"  {title}")
+            lines.extend(tree)
+        return lines
+
+    def decomposition_issues(self) -> list[str]:
+        issues: list[str] = []
+
+        explicit_graph = nx.DiGraph()
+        containment_graph = nx.DiGraph()
+        for source, target, data in self.graph.edges(data=True):
+            relation = data.get("type")
+            source_type = self.graph.nodes[source].get("type")
+            target_type = self.graph.nodes[target].get("type")
+
+            if relation == "DECOMPOSES":
+                explicit_graph.add_edge(source, target)
+                if source_type not in EXPLICIT_DECOMPOSITION_TYPES or target_type != source_type:
+                    issues.append(
+                        f"Invalid decomposition between '{self.name(source)}' and '{self.name(target)}'."
+                    )
+            elif relation == "CONTAINS":
+                containment_graph.add_edge(source, target)
+                if source_type == "OperationalActor":
+                    issues.append(f"'{self.name(source)}' cannot contain smaller participants.")
+
+        if explicit_graph.number_of_edges() and not nx.is_directed_acyclic_graph(explicit_graph):
+            issues.append("Goal/action decomposition contains a cycle.")
+        if containment_graph.number_of_edges() and not nx.is_directed_acyclic_graph(containment_graph):
+            issues.append("Participant/context composition contains a cycle.")
+
+        for node_id, data in self.graph.nodes(data=True):
+            node_type = data.get("type")
+            if node_type in EXPLICIT_DECOMPOSITION_TYPES:
+                parents = [
+                    source
+                    for source, _, edge_data in self.graph.in_edges(node_id, data=True)
+                    if edge_data.get("type") == "DECOMPOSES"
+                ]
+                if len(parents) > 1:
+                    issues.append(
+                        f"'{self.name(node_id)}' belongs to more than one decomposition parent."
+                    )
+            elif node_type in {"OperationalActor", "OperationalEntity"}:
+                parents = [
+                    source
+                    for source, _, edge_data in self.graph.in_edges(node_id, data=True)
+                    if edge_data.get("type") == "CONTAINS"
+                ]
+                if len(parents) > 1:
+                    issues.append(
+                        f"'{self.name(node_id)}' belongs to more than one structural parent."
+                    )
+        return issues
+
+    # ------------------------------------------------------------------
+    # Characteristics
+    # ------------------------------------------------------------------
     @staticmethod
     def _normalize_characteristic(characteristic: dict) -> tuple[bool, dict, str]:
         if not isinstance(characteristic, dict):
@@ -240,19 +419,35 @@ class OAGraph(_BaseOAGraph):
         return issues
 
     def completeness_messages(self) -> list[str]:
-        return [*super().completeness_messages(), *self.characteristic_issues()]
+        return [
+            *super().completeness_messages(),
+            *self.decomposition_issues(),
+            *self.characteristic_issues(),
+        ]
 
     def friendly_show(self) -> str:
-        base = super().friendly_show().rstrip()
+        sections = [super().friendly_show().rstrip()]
+
+        hierarchy = self._decomposition_lines()
+        if hierarchy:
+            sections.extend(
+                [
+                    "",
+                    "Composition / decomposition",
+                    "-" * 64,
+                    *hierarchy,
+                ]
+            )
+
         details = self._characteristic_lines()
-        if not details:
-            return base
-        return "\n".join(
-            [
-                base,
-                "",
-                "Characteristics",
-                "-" * 64,
-                *details,
-            ]
-        )
+        if details:
+            sections.extend(
+                [
+                    "",
+                    "Characteristics",
+                    "-" * 64,
+                    *details,
+                ]
+            )
+
+        return "\n".join(sections)

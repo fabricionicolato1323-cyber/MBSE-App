@@ -20,10 +20,14 @@ through `pyshacl`.
 - Operational Actor means one indivisible human person or human role.
 - Human collectives and non-human operational participants are Operational Entities.
 - Participant type, nature, and operational role are separate dimensions.
+- Composition/decomposition is explicitly confirmed by the user.
+- Smaller actions do not inherit performers, goal links, or characteristics automatically.
 - The future System of Interest is not introduced in Operational Analysis.
 - Every Ollama operation reports wall-clock response time; Ollama's own API
   duration is also reported when available.
 - No model name is hardcoded in source code or documentation.
+- Default UI guidance uses domain-neutral structural placeholders, not scenario examples.
+- Domain-specific participant vocabulary is optional configuration, not repository logic.
 
 ## Graph-grounded Arcadia help
 
@@ -47,7 +51,7 @@ User model graph      (only user-approved model elements)
 Use the knowledge graph from any question prompt:
 
 ```text
-/ask What is the difference between an Operational Actor and an Operational Entity?
+/ask <method question>
 /compare
 ```
 
@@ -100,11 +104,21 @@ OperationalParticipant
    `- environmental_participant
 ```
 
-Rules and editable vocabulary are stored in:
+Rules and editable vocabulary are separated:
 
 ```text
 participant_rules.py
-participant_lexicon.json
+participant_lexicon.json                 # domain-neutral repository base
+participant_lexicon_extensions.json      # optional local/domain extension
+```
+
+The repository base lexicon contains generic semantic-class heads and exclusion
+markers. Domain- or organization-specific vocabulary should be added to an
+extension file instead of changing Python logic. To use another extension file:
+
+```powershell
+$env:MBSE_PARTICIPANT_LEXICON_EXTENSIONS_PATH = "<path-to-extension-json>"
+python app.py
 ```
 
 Each confirmed participant records:
@@ -116,6 +130,30 @@ Each confirmed participant records:
 - `classification_evidence`
 - `classification_reason`
 - `classification_rules`
+
+## Domain-neutral UI guidance
+
+Default guidance is stored in `ui_guidance.json`. The values are structural
+placeholders such as:
+
+```text
+<verb + desired operational outcome>
+<person, role, group, organization, place, resource, or context>
+<verb + object or complement>
+<information, material, request, or exchanged item>
+<real-world communication method>
+```
+
+`GuidanceFlowMixin` applies the configured guidance at the terminal rendering
+boundary. With the default policy, literal examples passed by legacy flow code
+are ignored so they cannot bias the user.
+
+A custom guidance file can be selected without code changes:
+
+```powershell
+$env:MBSE_UI_GUIDANCE_PATH = "<path-to-ui-guidance-json>"
+python app.py
+```
 
 ## Internal model
 
@@ -133,6 +171,8 @@ Main relations:
 ```text
 OperationalActor/Entity --PERFORMS--> OperationalActivity
 OperationalActivity --SUPPORTS_CAPABILITY--> OperationalCapability
+OperationalCapability --DECOMPOSES--> OperationalCapability
+OperationalActivity --DECOMPOSES--> OperationalActivity
 OperationalActivity --OPERATIONAL_EXCHANGE--> OperationalActivity
 OperationalActor/Entity --COMMUNICATION_MEAN--> OperationalActor/Entity
 OperationalEntity --CONTAINS--> OperationalEntity/Actor
@@ -141,6 +181,33 @@ OperationalActor/Entity --LOCATED_IN--> OperationalEntity
 
 Operational Actors are structural leaves. `CONTAINS` and `LOCATED_IN` are kept
 separate so organizational membership is not confused with operational location.
+
+## Composition and decomposition
+
+The user sees one consistent refinement step for:
+
+```text
+Goal
+Participant / context
+Action
+```
+
+Goals and actions use `DECOMPOSES`. Participant/context structure reuses the
+existing `CONTAINS` relation so there is no second competing representation of
+the same fact. Only Operational Entities can be structural parents; Operational
+Actors remain leaves.
+
+A contained participant/context element can be selected from existing model
+elements or added during the refinement step. New active elements have their
+actions captured before interaction elicitation, so those actions are available
+for later exchanges and communication methods.
+
+The deterministic graph blocks self-composition, cycles, multiple parents, and
+invalid cross-type decomposition. Parent performers, goal links, and
+characteristics are never copied automatically to smaller actions.
+
+`/show` displays the three hierarchies together with structured characteristics.
+`/check` includes composition/decomposition integrity checks.
 
 ## Ollama configuration
 
@@ -157,8 +224,6 @@ Select a model using either:
 
 1. The `MBSE_OLLAMA_MODEL` environment variable; or
 2. `ollama.model` in `config.json`.
-
-PowerShell example using a placeholder rather than a fixed model:
 
 ```powershell
 $env:MBSE_OLLAMA_MODEL = "<installed-model-name>"
@@ -188,14 +253,10 @@ select one and continues with deterministic rules.
 Setting `model` to `null` is intentional: it prevents a model from being
 hardcoded in the repository.
 
-When a non-human entity is added, the application asks:
-
-```text
-Does Restricted Area actively do something in this operation? (yes/no)
-```
-
-If the answer is `no`, the entity remains in the model as operational context and
-the completeness checker does not require an action for it.
+When a non-human entity is added, the application asks whether that confirmed
+entity actively performs behavior. If the answer is `no`, the entity remains in
+the model as operational context and the completeness checker does not require
+an action for it.
 
 ## Write protection
 
@@ -260,18 +321,33 @@ The model is saved as `oa_model.json`.
 
 ## Tests
 
-Run all regression scripts:
+Run the regression scripts:
 
 ```powershell
 python smoke_test.py
 python goal_fast_path_test.py
 python participant_classification_test.py
 python participant_rules_test.py
+python participant_flow_test.py
 python candidate_discovery_test.py
 python semantic_frames_test.py
+python characteristics_test.py
+python decomposition_test.py
+python ui_guidance_test.py
 python ollama_service_test.py
 python knowledge_graph_test.py
 ```
+
+`participant_rules_test.py` checks the domain-neutral base lexicon and verifies
+that domain vocabulary can be supplied through an external extension file.
+
+`ui_guidance_test.py` checks that repository guidance is neutral, that literal
+legacy examples are ignored by default, and that external UI guidance can replace
+the repository defaults.
+
+`decomposition_test.py` checks goal, participant/context, and action hierarchies,
+including cycle protection, single-parent rules, actor leaves, inheritance rules,
+and `/show` integration.
 
 The Ollama service test uses a fake HTTP response and does not require a running
 model. A live end-to-end run requires Ollama.

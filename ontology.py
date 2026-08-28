@@ -85,6 +85,11 @@ ALLOWED_RELATIONS = {
     ("OperationalEntity", "COMMUNICATION_MEAN", "OperationalActor"),
     ("OperationalEntity", "COMMUNICATION_MEAN", "OperationalEntity"),
 
+    # Explicit same-type decomposition. Entity/participant composition continues
+    # to use CONTAINS so structural membership remains represented only once.
+    ("OperationalCapability", "DECOMPOSES", "OperationalCapability"),
+    ("OperationalActivity", "DECOMPOSES", "OperationalActivity"),
+
     # Structural decomposition. Operational Actors are leaves: they may be
     # contained by an Operational Entity but do not contain other participants.
     ("OperationalEntity", "CONTAINS", "OperationalEntity"),
@@ -104,7 +109,6 @@ CONCEPT_GUIDANCE = {
         ),
         "friendly_name": "goal",
         "expected_format": "One short English outcome phrase.",
-        "example": "Maintain safe and effective operations",
         "language_required": True,
     },
     "OperationalActor": {
@@ -114,7 +118,6 @@ CONCEPT_GUIDANCE = {
         ),
         "friendly_name": "human participant",
         "expected_format": "One human role or person name.",
-        "example": "Operations Coordinator",
         "language_required": False,
     },
     "OperationalEntity": {
@@ -126,7 +129,6 @@ CONCEPT_GUIDANCE = {
         ),
         "friendly_name": "collective or non-human participant/context",
         "expected_format": "One collective or real-world participant/context name.",
-        "example": "Operations Facility",
         "language_required": False,
     },
     "OperationalActivity": {
@@ -141,7 +143,6 @@ CONCEPT_GUIDANCE = {
             "One English action phrase or a natural sentence containing one or more "
             "subjects, actions, objects, and complements."
         ),
-        "example": "Coordinate service requests and report status",
         "language_required": True,
     },
     "OperationalExchange": {
@@ -151,7 +152,6 @@ CONCEPT_GUIDANCE = {
         ),
         "friendly_name": "interaction",
         "expected_format": "One short English noun phrase naming what is exchanged.",
-        "example": "Status information",
         "language_required": True,
     },
     "CommunicationMean": {
@@ -161,7 +161,6 @@ CONCEPT_GUIDANCE = {
         ),
         "friendly_name": "communication method",
         "expected_format": "One short English phrase naming the communication method.",
-        "example": "Direct communication",
         "language_required": True,
     },
 }

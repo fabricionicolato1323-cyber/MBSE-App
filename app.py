@@ -3,10 +3,23 @@ from __future__ import annotations
 import app_base as _base
 from app_base import *  # noqa: F401,F403 - preserve the public surface of app.py
 from characteristics_flow import CharacteristicsFlowMixin
+from composition_flow import CompositionFlowMixin
+from guidance_flow import GuidanceFlowMixin
+from participant_flow import ParticipantFlowMixin
 
 
-class OAApp(CharacteristicsFlowMixin, _base.OAApp):
-    """Existing guided builder plus optional structured characteristics."""
+class OAApp(
+    GuidanceFlowMixin,
+    ParticipantFlowMixin,
+    CompositionFlowMixin,
+    CharacteristicsFlowMixin,
+    _base.OAApp,
+):
+    """Guided builder with neutral UI guidance and Feature 4 refinements."""
+
+    def capture_structure_and_environment(self) -> None:
+        super().capture_structure_and_environment()
+        self.capture_decomposition()
 
     def capture_communication(self) -> None:
         super().capture_communication()
