@@ -1,0 +1,35 @@
+.tree-line.communication-endpoints {
+  font-weight: 650;
+}
+
+.tree-line.communication-carried-exchange {
+  color: #5d4a2d;
+}
+
+.tree-line.communication-unassigned {
+  font-style: italic;
+}
+
+.oa-diagram-edge-label.communication-label {
+  font-size: 11.5px;
+  font-weight: 850;
+  stroke-width: 5px;
+}
+
+.oa-diagram-edge-label.communication-label .communication-name-line {
+  fill: #30302c;
+  font-size: 11.5px;
+  font-weight: 850;
+}
+
+.oa-diagram-edge-label.communication-label .communication-endpoints-line {
+  fill: #65655f;
+  font-size: 8.5px;
+  font-weight: 700;
+}
+
+.oa-diagram-edge-label.communication-label .communication-exchange-line {
+  fill: var(--oa-interaction-dark, #835018);
+  font-size: 8.5px;
+  font-weight: 750;
+}
