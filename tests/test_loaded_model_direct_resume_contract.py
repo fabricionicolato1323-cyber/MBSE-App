@@ -8,6 +8,14 @@ def test_loaded_model_skips_redundant_edit_confirmation():
     assert 'ask_yes_no(' not in source
 
 
+def test_loaded_model_uses_targeted_interaction_communication_flow():
+    source = Path('loaded_model_direct_resume.py').read_text(encoding='utf-8')
+    assert 'def _capture_communication_for_exchange(' in source
+    assert 'self.capture_communication_for_exchange(' in source
+    assert 'self.capture_interactions()' in source
+    assert 'BaseOAApp.capture_communication' not in source
+
+
 def test_resume_worker_uses_direct_loaded_model_flow_before_base_loaded_flow():
     source = Path('web_worker_resume.py').read_text(encoding='utf-8')
     direct = source.index('DirectLoadedModelResumeMixin,')
