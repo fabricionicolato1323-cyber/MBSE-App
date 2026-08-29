@@ -51,10 +51,16 @@ def test_exchange_routes_through_ports_when_communication_mean_is_associated():
     assert "port.textContent = 'P'" in RENDER
 
 
-def test_edges_are_behind_blocks_and_ports_are_above_them():
+def test_participant_containers_are_below_edges_and_leaf_blocks_are_above_edges():
     assert ".oa-diagram-edges { z-index:10" in STYLE
-    assert ".oa-diagram-nodes { z-index:20" in STYLE
+    assert ".oa-diagram-nodes { z-index:auto" in STYLE
+    assert ".oa-diagram-node.participant-container { z-index:5" in STYLE
+    assert ".oa-diagram-node.leaf-node { z-index:20" in STYLE
     assert ".oa-diagram-ports { z-index:40" in STYLE
+
+
+def test_live_canvas_does_not_show_instructional_placeholder():
+    assert ".oa-diagram-empty { display:none!important; }" in STYLE
 
 
 def test_capella_compatible_operational_analysis_color_tokens_are_defined():
