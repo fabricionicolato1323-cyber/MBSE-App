@@ -4,6 +4,7 @@ import app_base as _base
 from app_base import *  # noqa: F401,F403 - preserve the public surface of app.py
 from characteristic_operators import install_characteristic_operator_support
 from characteristics_flow import CharacteristicsFlowMixin
+from communication_exchange_link import CommunicationExchangeLinkFlowMixin
 from composition_flow import CompositionFlowMixin
 from guidance_flow import GuidanceFlowMixin
 from participant_composition import (
@@ -25,6 +26,7 @@ class OAApp(
     ParticipantFlowMixin,
     OperationalActorCompositionFlowMixin,
     CompositionFlowMixin,
+    CommunicationExchangeLinkFlowMixin,
     CharacteristicsFlowMixin,
     _base.OAApp,
 ):
