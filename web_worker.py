@@ -114,7 +114,7 @@ class WebInteractionMixin:
         choices: list[tuple[str, str]],
     ) -> list[tuple[str, str]]:
         """Hide AI/suggestion affordances that are not available in the current state."""
-        if self.llm is not None:
+        if getattr(self, "llm", None) is not None:
             return list(choices)
         return [
             (key, label)
