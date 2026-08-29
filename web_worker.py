@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from contextlib import contextmanager
 from pathlib import Path
+import sys
 from typing import Callable, Iterator
 
 import app_base
@@ -12,6 +13,27 @@ from graph_model import OAGraph
 from web_ai import AIControlManager
 from web_guided_flow import WebGuidedFlowMixin
 from web_protocol import encode_interaction, normalize_interaction
+
+
+def _configure_web_streams() -> None:
+    """Use UTF-8 explicitly for the browser/worker subprocess protocol.
+
+    Windows console code pages do not necessarily represent symbols such as ≥
+    and ≤.  The web bridge uses UTF-8 pipes, so configure the child process to
+    use the same encoding instead of inheriting the console locale.
+    """
+    for stream_name in ("stdin", "stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        reconfigure = getattr(stream, "reconfigure", None)
+        if not callable(reconfigure):
+            continue
+        try:
+            reconfigure(
+                encoding="utf-8",
+                errors="replace" if stream_name == "stdin" else "backslashreplace",
+            )
+        except (OSError, ValueError):
+            pass
 
 
 class AutosaveOAGraph(OAGraph):
@@ -242,6 +264,8 @@ class WebInteractionMixin:
 
 
 def main() -> None:
+    _configure_web_streams()
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-path", required=True)
     args = parser.parse_args()
