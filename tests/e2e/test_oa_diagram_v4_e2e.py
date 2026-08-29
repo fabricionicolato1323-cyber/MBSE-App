@@ -74,10 +74,7 @@ def _diagram_model() -> dict:
             {"source": "detector", "target": "rate", "type": "PERFORMS"},
             {"source": "soldier", "target": "battlefield", "type": "LOCATED_IN"},
             {"source": "detector", "target": "battlefield", "type": "LOCATED_IN"},
-            # Legacy loaded interaction: it predates exchange_refs but there is
-            # exactly one Communication Mean between the two performers.
             {"source": "detect", "target": "engage", "type": "OPERATIONAL_EXCHANGE", "name": "Threat location"},
-            # New interaction explicitly associated with the existing Radio link.
             {"source": "report", "target": "rate", "type": "OPERATIONAL_EXCHANGE", "name": "Kill count", "communication_assignment": "assigned"},
             {
                 "source": "detector",
@@ -97,7 +94,7 @@ def _diagram_model() -> dict:
 
 
 def _drag(page, selector: str, dx: float, dy: float, button: str = "left") -> None:
-    target = page.locator(selector)
+    target = page.locator(selector).first
     box = target.bounding_box()
     assert box is not None
     x = box["x"] + box["width"] / 2
@@ -134,10 +131,6 @@ def test_scroll_area_zoom_fullscreen_four_direction_growth_and_movable_ports(dia
             page.evaluate("() => window.oaDiagram.resetLayout()")
             page.wait_for_timeout(350)
 
-            # The old Threat location interaction and the newer Kill count
-            # interaction must both route through the sole Radio link. There
-            # must be no direct Activity-to-Activity exchange in this legacy
-            # compatibility case.
             expect(page.locator("#oaDiagramEdges .direct-exchange")).to_have_count(0)
             expect(page.locator("#oaDiagramEdges .source-segment")).to_have_count(2)
             expect(page.locator("#oaDiagramEdges .target-segment")).to_have_count(2)
@@ -148,7 +141,6 @@ def test_scroll_area_zoom_fullscreen_four_direction_growth_and_movable_ports(dia
             expect(communication_label).to_contain_text("Threat location")
             expect(communication_label).to_contain_text("Kill count")
 
-            # Arrow tips are exactly half of their previous marker dimensions.
             marker_sizes = page.evaluate(
                 """() => ({
                     interaction: [
@@ -164,7 +156,6 @@ def test_scroll_area_zoom_fullscreen_four_direction_growth_and_movable_ports(dia
             assert marker_sizes["interaction"] == ["4.5", "4.5"]
             assert marker_sizes["relation"] == ["4", "4"]
 
-            # Communication ports P slide vertically on the participant border.
             first_port = page.locator(".oa-diagram-port").first
             port_before = first_port.bounding_box()
             assert port_before is not None
@@ -180,8 +171,6 @@ def test_scroll_area_zoom_fullscreen_four_direction_growth_and_movable_ports(dia
             )
             assert saved_ports and any(saved_ports[0].values())
 
-            # Native scrollbars support both axes. Artificially enlarge the scene
-            # here so the browser must expose real horizontal and vertical scroll.
             overflow = page.evaluate("() => getComputedStyle(document.getElementById('oaDiagramViewport')).overflow")
             assert overflow == "auto"
             scroll = page.evaluate(
@@ -203,9 +192,6 @@ def test_scroll_area_zoom_fullscreen_four_direction_growth_and_movable_ports(dia
                 assert result is not None
                 return result
 
-            # Move an internal activity far enough left/up to cross its current
-            # parent padding. The activity must keep the requested position and
-            # the Soldier container must expand by moving its left/top boundaries.
             report_before = box("report")
             soldier_before = box("soldier")
             battlefield_before = box("battlefield")
@@ -225,7 +211,6 @@ def test_scroll_area_zoom_fullscreen_four_direction_growth_and_movable_ports(dia
             assert battlefield_after["width"] >= battlefield_before["width"]
             assert battlefield_after["height"] >= battlefield_before["height"]
 
-            # Right-button drag selects an area and zooms it to the viewport.
             page.evaluate("() => window.oaDiagram.resetLayout()")
             page.wait_for_timeout(250)
             zoom_before = page.evaluate("() => window.oaDiagram.getView().zoom")
@@ -247,8 +232,6 @@ def test_scroll_area_zoom_fullscreen_four_direction_growth_and_movable_ports(dia
             zoom_after = page.evaluate("() => window.oaDiagram.getView().zoom")
             assert zoom_after > zoom_before
 
-            # Test the deterministic fullscreen fallback rather than depending on
-            # browser fullscreen permissions in a headless CI environment.
             page.evaluate(
                 """() => Object.defineProperty(Element.prototype, 'requestFullscreen', {
                     configurable: true, value: undefined
