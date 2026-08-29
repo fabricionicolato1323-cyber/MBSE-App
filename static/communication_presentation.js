@@ -227,6 +227,12 @@
     scheduleDiagramEnhancement();
   }
 
+  window.addEventListener('oa:diagram-model-rendered', event => {
+    latestModel = event?.detail?.model || {nodes: [], edges: []};
+    ensureDiagramObserver();
+    scheduleDiagramEnhancement();
+  });
+
   const bodyObserver = new MutationObserver(() => ensureDiagramObserver());
   bodyObserver.observe(document.body, {childList: true, subtree: true});
 
