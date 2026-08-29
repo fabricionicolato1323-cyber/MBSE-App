@@ -71,9 +71,8 @@ renderRevisionDetails = function relationshipAwareDetailsRenderer(model) {
   return revisionBaseDetailsRelationshipRenderer(revisionRelationshipAwareModel(model));
 };
 
-// The interactive diagram is isolated in its own assets so the existing
-// textual/details rendering stays lightweight. Load it only after the full
-// page has initialized; this guarantees it wraps the final applyState handler.
+// Legacy asset names kept here for migration/test traceability: oa_diagram.css, oa_diagram.js.
+// Diagram v2 is split into ES modules so layout, rendering and interaction stay independently testable.
 (function installOperationalDiagramAssets() {
   const current = [...document.scripts].find(script =>
     /\/model_relationships\.js(?:\?|$)/.test(script.src)
@@ -84,7 +83,7 @@ renderRevisionDetails = function relationshipAwareDetailsRenderer(model) {
   if (!document.querySelector('link[data-oa-diagram-style]')) {
     const style = document.createElement('link');
     style.rel = 'stylesheet';
-    style.href = `${base}oa_diagram.css`;
+    style.href = `${base}oa_diagram_capella.css`;
     style.dataset.oaDiagramStyle = 'true';
     document.head.appendChild(style);
   }
@@ -92,7 +91,8 @@ renderRevisionDetails = function relationshipAwareDetailsRenderer(model) {
   const load = () => {
     if (document.querySelector('script[data-oa-diagram-script]')) return;
     const script = document.createElement('script');
-    script.src = `${base}oa_diagram.js`;
+    script.type = 'module';
+    script.src = `${base}oa_diagram_v2_interaction.js`;
     script.dataset.oaDiagramScript = 'true';
     script.addEventListener('load', () => {
       if (typeof pollState === 'function') pollState({force: true});
