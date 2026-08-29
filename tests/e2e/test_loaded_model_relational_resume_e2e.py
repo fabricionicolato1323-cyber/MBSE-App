@@ -96,16 +96,14 @@ def test_loaded_model_new_action_continues_to_relationship_question(web_server, 
             page.locator("#loadModelInput").set_input_files(str(model_file))
 
             expect(
+                page.get_by_text("What would you like to change in the loaded model?", exact=True)
+            ).to_be_visible(timeout=20_000)
+            expect(
                 page.get_by_text(
                     "The loaded model has no obvious mandatory gaps. Would you like to edit or refine something?",
                     exact=True,
                 )
-            ).to_be_visible(timeout=20_000)
-            page.get_by_role("button", name="Yes", exact=True).click()
-
-            expect(
-                page.get_by_text("What would you like to change in the loaded model?", exact=True)
-            ).to_be_visible(timeout=20_000)
+            ).to_have_count(0)
             page.get_by_role("button", name="Add new action", exact=True).click()
 
             expect(page.get_by_text("What is the new action?", exact=True)).to_be_visible(timeout=20_000)
