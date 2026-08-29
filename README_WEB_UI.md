@@ -37,3 +37,34 @@ python app.py
 existing terminal workflow. `web_worker.py` runs the existing OAApp unchanged in a child
 Python process and uses an autosaving `OAGraph` subclass so the right-hand model view is
 updated after every accepted graph change.
+
+## Semantic neutrality
+
+The runtime separates deterministic rules from vocabulary:
+
+- `ontology.py` contains structural concepts, relations and definitions only.
+- `participant_lexicon.json` contains replaceable, domain-neutral participant vocabulary.
+- `semantic_policy.json` contains replaceable linguistic and solution-bias heuristics.
+- `ui_guidance.json` contains structural placeholders and disables literal domain examples.
+- User facts are written to the model only after explicit user confirmation.
+
+The participant base lexicon can be replaced without Python changes:
+
+```powershell
+$env:MBSE_PARTICIPANT_LEXICON_PATH = "<path-to-json>"
+```
+
+Optional participant vocabulary can be added separately:
+
+```powershell
+$env:MBSE_PARTICIPANT_LEXICON_EXTENSIONS_PATH = "<path-to-json>"
+```
+
+The semantic heuristic policy can also be replaced:
+
+```powershell
+$env:MBSE_SEMANTIC_POLICY_PATH = "<path-to-json>"
+```
+
+These files contain no application scenario. Domain-specific vocabulary belongs only in
+an explicitly selected local configuration, not in runtime Python or the ontology.

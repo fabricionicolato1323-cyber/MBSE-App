@@ -4,6 +4,7 @@ import tempfile
 from pathlib import Path
 
 from participant_rules import (
+    LEXICON_ENV,
     LEXICON_EXTENSION_ENV,
     classify_participant,
     load_lexicon,
@@ -25,6 +26,10 @@ def main() -> None:
     organization = classify_participant("Service Authority")
     assert organization.concept == "OperationalEntity", organization
     assert organization.nature == "organization", organization
+
+    unit = classify_participant("Service Department")
+    assert unit.concept == "OperationalEntity", unit
+    assert unit.nature == "organizational_unit", unit
 
     facility = classify_participant("Operations Center")
     assert facility.concept == "OperationalEntity", facility
@@ -57,20 +62,31 @@ def main() -> None:
         == "team_or_collective"
     )
 
-    # Scenario vocabulary is intentionally absent from the repository base.
-    assert not classify_participant("Fire Brigade").actionable
-    assert not classify_participant("Control Tower").actionable
+    previous_base = os.environ.get(LEXICON_ENV)
+    previous_extension = os.environ.get(LEXICON_EXTENSION_ENV)
 
-    # Domain vocabulary can be supplied externally without changing Python or
-    # the repository base lexicon.
-    previous = os.environ.get(LEXICON_EXTENSION_ENV)
     with tempfile.TemporaryDirectory() as tmp:
-        extension = Path(tmp) / "participant_extensions.json"
+        directory = Path(tmp)
+
+        replacement = directory / "replacement.json"
+        replacement.write_text(
+            json.dumps({"actor_heads": ["configuredrole"]}),
+            encoding="utf-8",
+        )
+        os.environ[LEXICON_ENV] = str(replacement)
+        os.environ.pop(LEXICON_EXTENSION_ENV, None)
+        load_lexicon.cache_clear()
+
+        configured = classify_participant("Neutral ConfiguredRole")
+        assert configured.concept == "OperationalActor", configured
+        assert not classify_participant("Process Coordinator").actionable
+
+        extension = directory / "extensions.json"
         extension.write_text(
             json.dumps(
                 {
-                    "collective_heads": ["brigade"],
-                    "facility_heads": ["tower"],
+                    "collective_heads": ["configuredcollective"],
+                    "facility_heads": ["configuredfacility"],
                 }
             ),
             encoding="utf-8",
@@ -78,19 +94,24 @@ def main() -> None:
         os.environ[LEXICON_EXTENSION_ENV] = str(extension)
         load_lexicon.cache_clear()
 
-        brigade = classify_participant("Fire Brigade")
-        tower = classify_participant("Control Tower")
-        assert brigade.concept == "OperationalEntity", brigade
-        assert brigade.nature == "team_or_collective", brigade
-        assert tower.concept == "OperationalEntity", tower
-        assert tower.nature == "infrastructure_or_facility", tower
+        collective = classify_participant("Neutral ConfiguredCollective")
+        facility = classify_participant("Neutral ConfiguredFacility")
+        assert collective.concept == "OperationalEntity", collective
+        assert collective.nature == "team_or_collective", collective
+        assert facility.concept == "OperationalEntity", facility
+        assert facility.nature == "infrastructure_or_facility", facility
 
-    if previous is None:
+    if previous_base is None:
+        os.environ.pop(LEXICON_ENV, None)
+    else:
+        os.environ[LEXICON_ENV] = previous_base
+
+    if previous_extension is None:
         os.environ.pop(LEXICON_EXTENSION_ENV, None)
     else:
-        os.environ[LEXICON_EXTENSION_ENV] = previous
-    load_lexicon.cache_clear()
+        os.environ[LEXICON_EXTENSION_ENV] = previous_extension
 
+    load_lexicon.cache_clear()
     print("Participant rules test passed.")
 
 

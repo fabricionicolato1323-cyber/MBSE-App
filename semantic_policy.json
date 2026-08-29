@@ -1,0 +1,47 @@
+{
+  "technical_solution_terms": [
+    "system",
+    "software",
+    "application",
+    "platform",
+    "algorithm",
+    "database",
+    "microservice",
+    "sensor network",
+    "api",
+    "database schema",
+    "rest api",
+    "python script",
+    "c++ class",
+    "software module",
+    "cloud architecture",
+    "kubernetes",
+    "docker container",
+    "implementation class",
+    "source code",
+    "software architecture"
+  ],
+  "non_english_markers": [
+    "o", "a", "os", "as", "de", "da", "do", "das", "dos", "para", "com", "sem",
+    "e", "ou", "que", "como", "avaliar", "fornecer", "informar", "controlar",
+    "manter", "proteger", "reduzir", "garantir", "melhorar",
+    "informação", "informações", "posição", "velocidade",
+    "der", "die", "das", "den", "dem", "des", "und", "oder", "mit", "ohne", "für",
+    "über", "melden", "bereitstellen", "steuern", "überwachen", "halten", "schützen",
+    "el", "la", "los", "las", "y", "con", "sin", "proporcionar", "mantener",
+    "le", "les", "et", "avec", "sans", "fournir", "maintenir", "protéger"
+  ],
+  "plural_markers": [
+    "both", "many", "multiple", "numerous", "several", "various",
+    "people", "persons", "personnel", "children", "men", "women"
+  ],
+  "singular_s_endings": [
+    "analysis", "business", "corps", "news", "process", "series", "species", "status"
+  ],
+  "human_role_reason_cues": [
+    "profession", "occupation", "job title", "human role", "professional role"
+  ],
+  "policy": {
+    "allow_scenario_vocabulary": false
+  }
+}

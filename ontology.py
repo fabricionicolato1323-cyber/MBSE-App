@@ -84,19 +84,10 @@ ALLOWED_RELATIONS = {
     ("OperationalActor", "COMMUNICATION_MEAN", "OperationalEntity"),
     ("OperationalEntity", "COMMUNICATION_MEAN", "OperationalActor"),
     ("OperationalEntity", "COMMUNICATION_MEAN", "OperationalEntity"),
-
-    # Explicit same-type decomposition. Entity/participant composition continues
-    # to use CONTAINS so structural membership remains represented only once.
     ("OperationalCapability", "DECOMPOSES", "OperationalCapability"),
     ("OperationalActivity", "DECOMPOSES", "OperationalActivity"),
-
-    # Structural decomposition. Operational Actors are leaves: they may be
-    # contained by an Operational Entity but do not contain other participants.
     ("OperationalEntity", "CONTAINS", "OperationalEntity"),
     ("OperationalEntity", "CONTAINS", "OperationalActor"),
-
-    # Operational / physical location. This is deliberately distinct from
-    # CONTAINS/PART_OF.
     ("OperationalActor", "LOCATED_IN", "OperationalEntity"),
     ("OperationalEntity", "LOCATED_IN", "OperationalEntity"),
 }
@@ -163,21 +154,4 @@ CONCEPT_GUIDANCE = {
         "expected_format": "One short English phrase naming the communication method.",
         "language_required": True,
     },
-}
-
-# High-confidence implementation terms used only as a deterministic safety net.
-# They are technology categories, not scenario-specific examples.
-SOLUTION_BIAS_TERMS = {
-    "microservice",
-    "database schema",
-    "rest api",
-    "python script",
-    "c++ class",
-    "software module",
-    "cloud architecture",
-    "kubernetes",
-    "docker container",
-    "implementation class",
-    "source code",
-    "software architecture",
 }
