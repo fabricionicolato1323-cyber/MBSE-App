@@ -3,6 +3,50 @@ import {PARTICIPANTS, state, clean, typeName, selectionKey, edgeId, isVisibleNod
 
 export const el = {};
 const SVG_NS = 'http://www.w3.org/2000/svg';
+const PORT_LAYOUT_VERSION = 1;
+const portOffsets = new Map();
+let loadedPortSession = null;
+
+function portStorageKey() {
+  return `oa-diagram-ports:v${PORT_LAYOUT_VERSION}:${state.session}`;
+}
+
+function ensurePortOffsetsLoaded() {
+  if (loadedPortSession === state.session) return;
+  loadedPortSession = state.session;
+  portOffsets.clear();
+  try {
+    const saved = JSON.parse(localStorage.getItem(portStorageKey()) || '{}') || {};
+    Object.entries(saved).forEach(([id, value]) => {
+      const ratio = Number(value);
+      if (Number.isFinite(ratio)) portOffsets.set(id, Math.max(0, Math.min(1, ratio)));
+    });
+  } catch (_error) { /* optional diagram layout state */ }
+}
+
+export function portVerticalRatio(id) {
+  ensurePortOffsetsLoaded();
+  return portOffsets.has(id) ? portOffsets.get(id) : 0.5;
+}
+
+export function setPortVerticalRatio(id, value) {
+  ensurePortOffsetsLoaded();
+  const ratio = Math.max(0, Math.min(1, Number(value)));
+  if (Number.isFinite(ratio)) portOffsets.set(id, ratio);
+}
+
+export function persistPortOffsets() {
+  ensurePortOffsetsLoaded();
+  try { localStorage.setItem(portStorageKey(), JSON.stringify(Object.fromEntries(portOffsets))); }
+  catch (_error) { /* optional diagram layout state */ }
+}
+
+export function resetPortOffsets() {
+  ensurePortOffsetsLoaded();
+  portOffsets.clear();
+  try { localStorage.removeItem(portStorageKey()); }
+  catch (_error) { /* optional diagram layout state */ }
+}
 
 export function installMarkup() {
   const tab = document.getElementById('diagramTab');
@@ -23,7 +67,7 @@ export function installMarkup() {
     <div id="oaDiagramNodes" class="oa-diagram-nodes"></div><div id="oaDiagramPorts" class="oa-diagram-ports"></div>
   </div><div id="oaDiagramEmpty" class="oa-diagram-empty">The diagram will appear here as the model is built.</div>`;
   const status = document.createElement('div'); status.id = 'oaDiagramStatus'; status.className = 'oa-diagram-selection-status';
-  status.setAttribute('aria-live', 'polite'); status.textContent = 'Drag activities directly; drag participant containers from their header. Ctrl/Cmd-click keeps multiple elements selected.';
+  status.setAttribute('aria-live', 'polite'); status.textContent = 'Drag activities directly; drag participant containers from their header. Communication ports P can be moved up or down.';
   const legacy = tab.querySelector('.legacy-diagram-layer'); tab.insertBefore(toolbar, legacy); tab.insertBefore(viewport, legacy); tab.insertBefore(status, legacy);
 }
 
@@ -54,7 +98,7 @@ export function updateSelection() {
     else if (state.invalidContainments.length) el.status.textContent = 'Invalid containment kept outside actor: Operational Actors cannot contain Operational Entities.';
     else el.status.textContent = state.mode === 'scenario'
       ? 'Scenario selection mode: click elements to add or remove them.'
-      : 'Drag activities directly; drag participant containers from their header. Ctrl/Cmd-click keeps multiple elements selected.';
+      : 'Drag activities directly; drag participant containers from their header. Communication ports P can be moved up or down.';
   }
   window.dispatchEvent(new CustomEvent('oa:diagram-selection-change', {detail: {mode: state.mode, selected}}));
 }
@@ -109,6 +153,16 @@ function anchor(id, toward) { const p = state.layout.get(id), c = center(id), t 
 function anchorToPoint(id, point) { const p = state.layout.get(id), c = center(id); if (!p || !c || !point) return null;
   if (Math.abs(point.x - c.x) >= Math.abs(point.y - c.y)) return {x: point.x >= c.x ? p.x + p.w : p.x, y: c.y}; return {x: c.x, y: point.y >= c.y ? p.y + p.h : p.y}; }
 
+function communicationPortAnchor(participantId, towardId, portId) {
+  const p = state.layout.get(participantId), c = center(participantId), t = center(towardId);
+  if (!p || !c || !t) return null;
+  const sideX = t.x >= c.x ? p.x + p.w : p.x;
+  const margin = Math.min(18, Math.max(10, p.h * 0.06));
+  const usable = Math.max(1, p.h - margin * 2);
+  const y = p.y + margin + usable * portVerticalRatio(portId);
+  return {x: sideX, y};
+}
+
 function addEdgeInteraction(node, id, type = '') {
   node.dataset.oaSelectKey = selectionKey('edge', id); node.dataset.edgeId = id;
   if (type) node.dataset.edgeType = type;
@@ -117,9 +171,10 @@ function addEdgeInteraction(node, id, type = '') {
 }
 function addPort(id, participantId, x, y) {
   const port = document.createElement('button'); port.type = 'button'; port.className = 'oa-diagram-port'; port.textContent = 'P';
-  port.dataset.oaSelectKey = selectionKey('port', id); port.dataset.participantId = participantId; port.setAttribute('aria-pressed', 'false');
+  port.dataset.oaSelectKey = selectionKey('port', id); port.dataset.portId = id; port.dataset.participantId = participantId; port.setAttribute('aria-pressed', 'false');
   Object.assign(port.style, {left: `${x - 11}px`, top: `${y - 11}px`});
-  port.setAttribute('aria-label', `Communication port on ${clean(state.byId.get(participantId)?.name || participantId)}`);
+  port.setAttribute('aria-label', `Communication port on ${clean(state.byId.get(participantId)?.name || participantId)}. Drag vertically to reposition.`);
+  port.title = 'Drag up or down along the participant boundary';
   port.addEventListener('click', e => { e.stopPropagation(); select('port', id, e); }); el.ports.appendChild(port);
 }
 
@@ -145,19 +200,25 @@ function communicationForExchange(edge) {
   const explicit = candidates.filter(item => Array.isArray(item.cm.exchange_refs) && item.cm.exchange_refs.some(ref => refMatchesExchange(ref, edge)));
   if (explicit.length === 1) return explicit[0];
   if (explicit.length > 1) return null;
+  if (clean(edge.communication_assignment).toLowerCase() === 'none') return null;
 
-  // Backward compatibility for older saved models: infer routing only when a
-  // single unambiguous communication mean connects the two performers.
-  const legacyById = new Map();
-  candidates.forEach(item => {
-    if (!Array.isArray(item.cm.exchange_refs) || item.cm.exchange_refs.length === 0) legacyById.set(item.cm._diagramId, item);
-  });
-  return legacyById.size === 1 ? [...legacyById.values()][0] : null;
+  // Backward compatibility for loaded models created before exchange_refs.
+  // If there is still exactly one possible Communication Mean between the
+  // performers, preserve the old implicit route even if that medium now also
+  // contains explicit refs for newer interactions. New explicit "none"
+  // decisions are protected by communication_assignment above.
+  const byMedium = new Map();
+  candidates.forEach(item => byMedium.set(item.cm._diagramId, item));
+  return byMedium.size === 1 ? [...byMedium.values()][0] : null;
 }
 
 function communicationGeometry(cm, sourceParticipant = cm.source, targetParticipant = cm.target) {
-  const sourcePort = anchor(sourceParticipant, targetParticipant), targetPort = anchor(targetParticipant, sourceParticipant); if (!sourcePort || !targetPort) return null;
-  return {sourcePort, targetPort, sourcePortId: `${cm._diagramId}:${sourceParticipant}`, targetPortId: `${cm._diagramId}:${targetParticipant}`};
+  const sourcePortId = `${cm._diagramId}:${sourceParticipant}`;
+  const targetPortId = `${cm._diagramId}:${targetParticipant}`;
+  const sourcePort = communicationPortAnchor(sourceParticipant, targetParticipant, sourcePortId);
+  const targetPort = communicationPortAnchor(targetParticipant, sourceParticipant, targetPortId);
+  if (!sourcePort || !targetPort) return null;
+  return {sourcePort, targetPort, sourcePortId, targetPortId};
 }
 function renderCommunicationMean(cm, sourceParticipant, targetParticipant, rendered) {
   if (rendered.has(cm._diagramId)) return communicationGeometry(cm, sourceParticipant, targetParticipant);
@@ -171,7 +232,7 @@ function renderCommunicationMean(cm, sourceParticipant, targetParticipant, rende
 function renderExchangeThroughCommunication(edge, id, match, rendered) {
   const g = renderCommunicationMean(match.cm, match.sourceParticipant, match.targetParticipant, rendered); if (!g) return false;
   const a = anchorToPoint(edge.source, g.sourcePort), b = anchorToPoint(edge.target, g.targetPort); if (!a || !b) return false;
-  const first = svg('path', {d: curve(a, g.sourcePort), class: 'oa-diagram-edge operational-exchange exchange-access routed-segment source-segment', 'marker-end': 'url(#oaInteractionArrow)'});
+  const first = svg('path', {d: curve(a, g.sourcePort), class: 'oa-diagram-edge operational-exchange exchange-access routed-segment source-segment'});
   const second = svg('path', {d: curve(g.targetPort, b), class: 'oa-diagram-edge operational-exchange exchange-access routed-segment target-segment', 'marker-end': 'url(#oaInteractionArrow)'});
   addEdgeInteraction(first, id, 'OPERATIONAL_EXCHANGE'); addEdgeInteraction(second, id, 'OPERATIONAL_EXCHANGE'); el.edges.appendChild(first); el.edges.appendChild(second);
   const label = svg('text', {x: (a.x + g.sourcePort.x) / 2, y: (a.y + g.sourcePort.y) / 2 - 8, class: 'oa-diagram-edge-label interaction-label'});
@@ -198,8 +259,10 @@ function renderOrdinary(edge, id) {
 
 export function renderEdges() {
   if (!state.ready) return;
-  el.edges.innerHTML = `<defs><marker id="oaInteractionArrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" class="oa-interaction-arrow-head"></path></marker>
-    <marker id="oaRelationArrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="oa-relation-arrow-head"></path></marker></defs>`;
+  // Arrowheads are intentionally 50% smaller than the previous markers so
+  // direction remains visible without dominating the Operational Activities.
+  el.edges.innerHTML = `<defs><marker id="oaInteractionArrow" markerWidth="4.5" markerHeight="4.5" refX="4" refY="2.25" orient="auto"><path d="M0,0 L4.5,2.25 L0,4.5 z" class="oa-interaction-arrow-head"></path></marker>
+    <marker id="oaRelationArrow" markerWidth="4" markerHeight="4" refX="3.5" refY="2" orient="auto"><path d="M0,0 L4,2 L0,4 z" class="oa-relation-arrow-head"></path></marker></defs>`;
   el.ports.innerHTML = ''; const rendered = new Set(), edges = state.model.edges || [];
   edges.forEach((edge, i) => {
     if (edge.type !== 'OPERATIONAL_EXCHANGE') return;
