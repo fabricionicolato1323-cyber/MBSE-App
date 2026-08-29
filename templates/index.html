@@ -3,86 +3,166 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Guided Model Builder</title>
+  <title>Operational Analysis · Guided Model Builder</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='interaction.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='revision.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='question_notice_separation.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='choice_help.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='ai_control.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='workspace_layout.css') }}">
 </head>
 <body>
-  <main class="workspace">
-    <section class="chat-panel">
-      <header class="topbar">
+  <div class="workspace-shell">
+    <header class="viewpoint-header">
+      <div class="viewpoint-title-row">
         <div>
-          <div class="eyebrow">Guided modeling workspace</div>
-          <h1>Model Builder</h1>
+          <div class="eyebrow">Arcadia viewpoint sequence</div>
+          <h1>Operational Analysis</h1>
         </div>
-        <div class="topbar-actions">
-          <div id="aiControl" class="ai-control" data-status="off" aria-live="polite">
-            <div class="ai-status-summary">
-              <span class="ai-status-dot" aria-hidden="true"></span>
-              <span id="aiStatusText">AI Off</span>
-              <span id="aiModelText" class="ai-model-name" hidden></span>
-            </div>
-            <button id="aiActionButton" class="ai-action-button" type="button">Activate AI</button>
+        <div class="panel-visibility-controls" aria-label="Visible panels">
+          <span>Panels</span>
+          <button type="button" class="panel-toggle active" data-panel-toggle="chat">Conversation</button>
+          <button type="button" class="panel-toggle active" data-panel-toggle="completion">Completion</button>
+          <button type="button" class="panel-toggle active" data-panel-toggle="model">Model</button>
+        </div>
+      </div>
+
+      <div class="oa-brief" aria-label="Operational Analysis purpose">
+        <div><strong>Purpose</strong><span>Understand the operational need and context before defining the solution.</span></div>
+        <div><strong>Objective</strong><span>Capture goals, participants, activities, interactions, communication and constraints.</span></div>
+        <div><strong>Key question</strong><span>What must happen in the operational environment, by whom, and under which conditions?</span></div>
+      </div>
+
+      <nav class="viewpoint-tabs" aria-label="Arcadia viewpoints">
+        <button type="button" class="viewpoint-tab active" aria-current="page">Operational Analysis</button>
+        <button type="button" class="viewpoint-tab placeholder" aria-disabled="true" title="Placeholder — not implemented yet">System Analysis</button>
+        <button type="button" class="viewpoint-tab placeholder" aria-disabled="true" title="Placeholder — not implemented yet">Logical Architecture</button>
+        <button type="button" class="viewpoint-tab placeholder" aria-disabled="true" title="Placeholder — not implemented yet">Physical Architecture</button>
+      </nav>
+    </header>
+
+    <main id="workspace" class="workspace">
+      <section id="chatPanel" class="workspace-panel chat-panel" data-panel="chat">
+        <header class="topbar panel-drag-handle">
+          <div class="panel-heading-copy">
+            <div class="eyebrow">Operational Analysis</div>
+            <h2>Guided conversation</h2>
           </div>
-          <button id="resetButton" class="ghost-button">New model</button>
+          <div class="topbar-actions">
+            <div class="chat-primary-actions">
+              <div id="aiControl" class="ai-control" data-status="off" aria-live="polite">
+                <div class="ai-status-summary">
+                  <span class="ai-status-dot" aria-hidden="true"></span>
+                  <span id="aiStatusText">AI Off</span>
+                  <span id="aiModelText" class="ai-model-name" hidden></span>
+                </div>
+                <button id="aiActionButton" class="ai-action-button" type="button">Activate AI</button>
+              </div>
+              <button id="resetButton" class="ghost-button">New model</button>
+            </div>
+            <div class="panel-controls" aria-label="Conversation panel controls">
+              <button type="button" class="panel-control" data-panel-action="dock" title="Undock panel" aria-label="Undock panel">↗</button>
+              <button type="button" class="panel-control" data-panel-action="minimize" title="Minimize panel" aria-label="Minimize panel">−</button>
+              <button type="button" class="panel-control" data-panel-action="maximize" title="Maximize panel" aria-label="Maximize panel">□</button>
+              <button type="button" class="panel-control" data-panel-action="close" title="Hide panel" aria-label="Hide panel">×</button>
+            </div>
+          </div>
+        </header>
+
+        <!-- Compatibility hook for the legacy script. Commands are contextual to the active question. -->
+        <div id="commandBar" hidden></div>
+
+        <div id="chat" class="chat" aria-live="polite"></div>
+        <div id="quickActions" class="quick-actions" aria-label="Answer options"></div>
+
+        <form id="composer" class="composer">
+          <textarea id="messageInput" rows="1" placeholder="Describe the next part of the model…" autocomplete="off" aria-label="Answer"></textarea>
+          <button id="sendButton" type="submit" aria-label="Send">Send</button>
+        </form>
+        <div id="statusLine" class="status-line">Starting the guided model…</div>
+      </section>
+
+      <div class="panel-splitter" data-splitter="completion" role="separator" aria-orientation="vertical" aria-label="Resize completion panel"></div>
+
+      <aside id="completionPanel" class="workspace-panel completion-panel" data-panel="completion">
+        <header class="panel-header panel-drag-handle">
+          <div class="panel-heading-copy">
+            <div class="eyebrow">Operational Analysis</div>
+            <h2>Model completion</h2>
+          </div>
+          <div class="panel-controls" aria-label="Completion panel controls">
+            <button type="button" class="panel-control" data-panel-action="dock" title="Undock panel" aria-label="Undock panel">↗</button>
+            <button type="button" class="panel-control" data-panel-action="minimize" title="Minimize panel" aria-label="Minimize panel">−</button>
+            <button type="button" class="panel-control" data-panel-action="maximize" title="Maximize panel" aria-label="Maximize panel">□</button>
+            <button type="button" class="panel-control" data-panel-action="close" title="Hide panel" aria-label="Hide panel">×</button>
+          </div>
+        </header>
+
+        <div class="completion-body">
+          <div class="completion-score-wrap">
+            <div id="completionPercent" class="completion-percent">0%</div>
+            <div class="completion-score-copy">
+              <strong>Structural coverage</strong>
+              <span>Estimate of expected Operational Analysis building blocks, not a model-quality score.</span>
+            </div>
+          </div>
+          <div class="completion-bar" aria-hidden="true">
+            <span id="completionBarFill"></span>
+          </div>
+          <div id="completionList" class="completion-list" aria-live="polite"></div>
         </div>
-      </header>
+      </aside>
 
-      <!-- Compatibility hook for the legacy script. Commands are contextual to the active question. -->
-      <div id="commandBar" hidden></div>
+      <div class="panel-splitter" data-splitter="model" role="separator" aria-orientation="vertical" aria-label="Resize model panel"></div>
 
-      <div id="chat" class="chat" aria-live="polite"></div>
-      <div id="quickActions" class="quick-actions" aria-label="Answer options"></div>
+      <aside id="modelPanel" class="workspace-panel model-panel" data-panel="model">
+        <header class="model-header panel-drag-handle">
+          <div class="panel-heading-copy">
+            <div class="eyebrow">Live Operational Analysis model</div>
+            <h2>Model in progress</h2>
+          </div>
+          <div class="model-header-actions">
+            <div id="modelCount" class="model-count">0 · 0</div>
+            <div class="panel-controls" aria-label="Model panel controls">
+              <button type="button" class="panel-control" data-panel-action="dock" title="Undock panel" aria-label="Undock panel">↗</button>
+              <button type="button" class="panel-control" data-panel-action="minimize" title="Minimize panel" aria-label="Minimize panel">−</button>
+              <button type="button" class="panel-control" data-panel-action="maximize" title="Maximize panel" aria-label="Maximize panel">□</button>
+              <button type="button" class="panel-control" data-panel-action="close" title="Hide panel" aria-label="Hide panel">×</button>
+            </div>
+          </div>
+        </header>
 
-      <form id="composer" class="composer">
-        <textarea id="messageInput" rows="1" placeholder="Describe the next part of the model…" autocomplete="off" aria-label="Answer"></textarea>
-        <button id="sendButton" type="submit" aria-label="Send">Send</button>
-      </form>
-      <div id="statusLine" class="status-line">Starting the guided model…</div>
-    </section>
-
-    <aside class="model-panel">
-      <header class="model-header">
-        <div>
-          <div class="eyebrow">Live model</div>
-          <h2>Model in progress</h2>
+        <div class="legend">
+          <span><i class="legend-dot confirmed"></i>Confirmed</span>
+          <span><i class="legend-dot temporary"></i>Temporary</span>
         </div>
-        <div id="modelCount" class="model-count">0 · 0</div>
-      </header>
 
-      <div class="legend">
-        <span><i class="legend-dot confirmed"></i>Confirmed</span>
-        <span><i class="legend-dot temporary"></i>Temporary</span>
-      </div>
-
-      <div class="model-tabs" role="tablist" aria-label="Model views">
-        <button class="tab-button active" data-tab="textual" role="tab" aria-selected="true">Textual</button>
-        <button class="tab-button" data-tab="diagram" role="tab" aria-selected="false">Diagram</button>
-        <button class="tab-button" data-tab="details" role="tab" aria-selected="false">Details</button>
-      </div>
-
-      <div id="textualTab" class="tab-content active" role="tabpanel">
-        <div id="modelTextual" class="model-textual"></div>
-      </div>
-      <div id="diagramTab" class="tab-content" role="tabpanel">
-        <div class="diagram-placeholder">
-          <strong>Diagram view</strong>
-          <span>This view is reserved for a later iteration. Use Textual to follow the model while building it.</span>
+        <div class="model-tabs" role="tablist" aria-label="Model views">
+          <button class="tab-button active" data-tab="textual" role="tab" aria-selected="true">Textual</button>
+          <button class="tab-button" data-tab="diagram" role="tab" aria-selected="false">Diagram</button>
+          <button class="tab-button" data-tab="details" role="tab" aria-selected="false">Details</button>
         </div>
-        <div class="legacy-diagram-layer" aria-hidden="true">
-          <svg id="modelDiagram" viewBox="0 0 420 720"></svg>
-          <div id="emptyModel"></div>
+
+        <div id="textualTab" class="tab-content active" role="tabpanel">
+          <div id="modelTextual" class="model-textual"></div>
         </div>
-      </div>
-      <div id="detailsTab" class="tab-content" role="tabpanel">
-        <div id="modelDetails" class="model-details"></div>
-      </div>
-    </aside>
-  </main>
+        <div id="diagramTab" class="tab-content" role="tabpanel">
+          <div class="diagram-placeholder">
+            <strong>Diagram view</strong>
+            <span>This view is reserved for a later iteration. Use Textual to follow the model while building it.</span>
+          </div>
+          <div class="legacy-diagram-layer" aria-hidden="true">
+            <svg id="modelDiagram" viewBox="0 0 420 720"></svg>
+            <div id="emptyModel"></div>
+          </div>
+        </div>
+        <div id="detailsTab" class="tab-content" role="tabpanel">
+          <div id="modelDetails" class="model-details"></div>
+        </div>
+      </aside>
+    </main>
+  </div>
 
   <div id="resetModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="resetTitle" hidden>
     <div class="modal-backdrop" data-close-reset></div>
@@ -124,5 +204,6 @@
   <script src="{{ url_for('static', filename='choice_help.js') }}"></script>
   <script src="{{ url_for('static', filename='question_notice_separation.js') }}"></script>
   <script src="{{ url_for('static', filename='ai_control.js') }}"></script>
+  <script src="{{ url_for('static', filename='workspace_layout.js') }}"></script>
 </body>
 </html>

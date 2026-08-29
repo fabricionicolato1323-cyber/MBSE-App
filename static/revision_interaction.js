@@ -42,7 +42,7 @@ function revisionShouldHideLine(line) {
   return false;
 }
 
-function revisionQuestionTools(canUndo = true) {
+function revisionQuestionTools(canUndo = true, {showHelp = true} = {}) {
   const controls = document.createElement('div');
   controls.className = 'question-context-controls';
 
@@ -54,16 +54,19 @@ function revisionQuestionTools(canUndo = true) {
   undo.textContent = '↶';
   undo.disabled = !canUndo;
   undo.addEventListener('click', () => sendCommand('/undo'));
+  controls.appendChild(undo);
 
-  const help = document.createElement('button');
-  help.type = 'button';
-  help.className = 'question-icon-button';
-  help.title = 'Why this question?';
-  help.setAttribute('aria-label', 'Why this question?');
-  help.textContent = '?';
-  help.addEventListener('click', () => sendCommand('/why'));
+  if (showHelp) {
+    const help = document.createElement('button');
+    help.type = 'button';
+    help.className = 'question-icon-button question-help-button';
+    help.title = 'Why this question?';
+    help.setAttribute('aria-label', 'Why this question?');
+    help.textContent = '?';
+    help.addEventListener('click', () => sendCommand('/why'));
+    controls.appendChild(help);
+  }
 
-  controls.append(undo, help);
   return controls;
 }
 
@@ -101,10 +104,10 @@ function revisionRevealActiveQuestion(chatRoot, activeRow) {
 
 function renderRevisionTurns(
   turns,
-  {showQuestionTools = false, canUndo = true} = {}
+  {showQuestionTools = false, showQuestionHelp = true, canUndo = true} = {}
 ) {
   const chatRoot = document.getElementById('chat');
-  const signature = `${revisionTurnsSignature(turns)}:${showQuestionTools ? 'tools' : 'plain'}:${canUndo}`;
+  const signature = `${revisionTurnsSignature(turns)}:${showQuestionTools ? 'tools' : 'plain'}:${showQuestionHelp ? 'help' : 'no-help'}:${canUndo}`;
   if (signature === revisionLastTurnsSignature) return;
   revisionLastTurnsSignature = signature;
   chatRoot.innerHTML = '';
@@ -122,7 +125,7 @@ function renderRevisionTurns(
       if (latestAssistant?.id === turn.id) activeRow = row;
       if (showQuestionTools && latestAssistant?.id === turn.id) {
         bubble.classList.add('question-message-wrap');
-        bubble.appendChild(revisionQuestionTools(canUndo));
+        bubble.appendChild(revisionQuestionTools(canUndo, {showHelp: showQuestionHelp}));
       }
     } else {
       bubble.textContent = turn.content;
@@ -348,6 +351,7 @@ applyState = function revisedApplyState(state) {
 
   renderRevisionTurns(state.turns || [], {
     showQuestionTools: usableWaiting && interaction.mode !== 'continue',
+    showQuestionHelp: interaction.mode !== 'yes_no',
     canUndo: Boolean(state.can_undo)
   });
   renderRevisionTextualModel(state.model || {});

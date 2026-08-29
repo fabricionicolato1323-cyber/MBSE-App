@@ -9,12 +9,18 @@ def test_choice_help_assets_are_loaded_after_interaction_renderer():
     assert "filename='choice_help.css'" in html
 
 
-def test_every_structured_choice_gets_a_separate_help_control():
+def test_choice_lists_get_separate_help_controls_but_binary_choices_do_not():
     script = Path('static/choice_help.js').read_text(encoding='utf-8')
     assert "normalized.choices.forEach(choice =>" in script
-    assert "revisionCreateChoiceHelpButton(choice)" in script
-    assert "row.append(button, helpButton)" in script
+    assert "if (normalized.mode === 'choice')" in script
+    assert "row.appendChild(revisionCreateChoiceHelpButton(choice))" in script
     assert "event.stopPropagation()" in script
+
+
+def test_yes_no_question_does_not_show_question_level_help_icon():
+    script = Path('static/revision_interaction.js').read_text(encoding='utf-8')
+    assert "showQuestionHelp: interaction.mode !== 'yes_no'" in script
+    assert "{showHelp: showQuestionHelp}" in script
 
 
 def test_environmental_participant_has_specific_short_help():
@@ -31,7 +37,7 @@ def test_dynamic_model_choices_have_contextual_fallback_help():
     assert "/^Interaction:/i" in script
 
 
-def test_help_is_available_by_hover_focus_and_click():
+def test_help_is_available_by_hover_focus_and_click_for_lists():
     script = Path('static/choice_help.js').read_text(encoding='utf-8')
     assert "addEventListener('mouseenter'" in script
     assert "addEventListener('focus'" in script

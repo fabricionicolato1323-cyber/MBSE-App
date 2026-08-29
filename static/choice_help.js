@@ -28,8 +28,6 @@ const revisionChoiceHelpDefinitions = Object.freeze({
   'Exclude the lower bound (>)': 'The value must be strictly above the lower boundary.',
   'Include the upper bound (≤)': 'The upper boundary value itself is allowed.',
   'Exclude the upper bound (<)': 'The value must be strictly below the upper boundary.',
-  'Yes': 'Choose Yes to accept or continue with what the current question proposes.',
-  'No': 'Choose No to decline or skip what the current question proposes.',
   'Continue': 'Continue from the current information screen to the modeling flow.'
 });
 
@@ -224,8 +222,10 @@ renderRevisionInteraction = function choiceHelpRenderRevisionInteraction(
       sendValue(String(choice.value ?? ''), choice.label)
     );
 
-    const helpButton = revisionCreateChoiceHelpButton(choice);
-    row.append(button, helpButton);
+    row.appendChild(button);
+    if (normalized.mode === 'choice') {
+      row.appendChild(revisionCreateChoiceHelpButton(choice));
+    }
     quickRoot.appendChild(row);
   });
 };

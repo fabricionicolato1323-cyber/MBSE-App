@@ -92,7 +92,9 @@ function revisionAppendAssistantRow(chatRoot, turn, content, options = {}) {
 
   if (options.tools) {
     bubble.classList.add('question-message-wrap');
-    bubble.appendChild(revisionQuestionTools(options.canUndo));
+    bubble.appendChild(
+      revisionQuestionTools(options.canUndo, {showHelp: options.showHelp !== false})
+    );
   }
 
   row.appendChild(bubble);
@@ -102,10 +104,10 @@ function revisionAppendAssistantRow(chatRoot, turn, content, options = {}) {
 
 renderRevisionTurns = function separatedRevisionTurns(
   turns,
-  {showQuestionTools = false, canUndo = true} = {}
+  {showQuestionTools = false, showQuestionHelp = true, canUndo = true} = {}
 ) {
   const chatRoot = document.getElementById('chat');
-  const signature = `${revisionTurnsSignature(turns)}:${showQuestionTools ? 'tools' : 'plain'}:${canUndo}:separated-notices`;
+  const signature = `${revisionTurnsSignature(turns)}:${showQuestionTools ? 'tools' : 'plain'}:${showQuestionHelp ? 'help' : 'no-help'}:${canUndo}:separated-notices`;
   if (signature === revisionLastTurnsSignature) return;
   revisionLastTurnsSignature = signature;
   chatRoot.innerHTML = '';
@@ -138,6 +140,7 @@ renderRevisionTurns = function separatedRevisionTurns(
       split.question,
       {
         tools: showQuestionTools && isLatest,
+        showHelp: showQuestionHelp,
         canUndo,
       }
     );
