@@ -104,6 +104,14 @@ renderRevisionDetails = function relationshipAwareDetailsRenderer(model) {
     document.head.appendChild(style);
   }
 
+  if (!document.querySelector('link[data-oa-port-drag-style]')) {
+    const style = document.createElement('link');
+    style.rel = 'stylesheet';
+    style.href = `${base}oa_diagram_port_drag.css`;
+    style.dataset.oaPortDragStyle = 'true';
+    document.head.appendChild(style);
+  }
+
   const load = () => {
     if (!document.querySelector('script[data-oa-communication-presentation-script]')) {
       const presentation = document.createElement('script');
@@ -119,6 +127,13 @@ renderRevisionDetails = function relationshipAwareDetailsRenderer(model) {
     script.src = `${base}oa_diagram_v4_interaction.js`;
     script.dataset.oaDiagramScript = 'true';
     script.addEventListener('load', () => {
+      if (!document.querySelector('script[data-oa-port-drag-script]')) {
+        const portDrag = document.createElement('script');
+        portDrag.type = 'module';
+        portDrag.src = `${base}oa_diagram_port_drag.js`;
+        portDrag.dataset.oaPortDragScript = 'true';
+        document.body.appendChild(portDrag);
+      }
       if (typeof pollState === 'function') pollState({force: true});
     });
     document.body.appendChild(script);
