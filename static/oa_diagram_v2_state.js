@@ -3,11 +3,12 @@ export const MIN = {
   OperationalEntity: [300, 190], OperationalActor: [260, 175],
   OperationalActivity: [190, 72], OperationalCapability: [210, 76], Pending: [180, 68],
 };
-export const PAD = 22, HEADER = 54, GAP = 18, LAYOUT_VERSION = 2;
+export const PAD = 22, HEADER = 54, GAP = 18, PARTICIPANT_GAP = 24, LAYOUT_VERSION = 3;
+const MAX_NESTED_ROW_WIDTH = 960;
 
 export const state = {
-  session: 'default', model: {nodes: [], drafts: [], edges: []},
-  byId: new Map(), parent: new Map(), children: new Map(), performersByActivity: new Map(),
+  session: 'default', model: {nodes: [], drafts: [], edges: []}, modelSignature: '',
+  byId: new Map(), parent: new Map(), parentRelation: new Map(), children: new Map(), performersByActivity: new Map(),
   communicationMeans: [], layout: new Map(), invalidContainments: [], selected: new Set(),
   mode: 'normal', showCapabilities: true, view: {x: 28, y: 28, zoom: 1},
   drag: null, suppressClickUntil: 0, ready: false,
@@ -21,8 +22,21 @@ export const typeName = type => ({
   Pending: 'Temporary input',
 })[type] || clean(type) || 'Model element';
 export const selectionKey = (kind, id) => `${kind}:${id}`;
-export const edgeId = (edge, i) => clean(edge.id) || `${edge.type}:${edge.source}:${edge.target}:${clean(edge.name)}:${i}`;
+export const edgeId = (edge, i) => clean(edge.id) || clean(edge.key) || `${edge.type}:${edge.source}:${edge.target}:${clean(edge.name)}:${i}`;
 export const storageKey = () => `oa-diagram-layout:v${LAYOUT_VERSION}:${state.session}`;
+
+export function signatureForModel(model) {
+  const nodes = [...(model?.nodes || []), ...(model?.drafts || [])]
+    .map(node => [node.id, node.type, node.name, node.status])
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+  const edges = (model?.edges || [])
+    .map(edge => [
+      edge.id || edge.key || '', edge.source, edge.target, edge.type, edge.name || '',
+      Array.isArray(edge.exchange_refs) ? edge.exchange_refs : [],
+    ])
+    .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  return JSON.stringify({nodes, edges});
+}
 
 export function validContainment(parent, child) {
   if (!parent || !child) return false;
@@ -31,33 +45,65 @@ export function validContainment(parent, child) {
   return false;
 }
 
+export function validVisualLocation(parent, child) {
+  return parent?.type === 'OperationalEntity' && PARTICIPANTS.has(child?.type);
+}
+
 export const isVisibleNode = node => !!node && (state.showCapabilities || node.type !== 'OperationalCapability');
 export const visibleLayoutEntries = () => [...state.layout.entries()].filter(([id]) => isVisibleNode(state.byId.get(id)));
+
+function wouldCreateVisualCycle(childId, parentId) {
+  let current = parentId;
+  const seen = new Set();
+  while (current && !seen.has(current)) {
+    if (current === childId) return true;
+    seen.add(current);
+    current = state.parent.get(current);
+  }
+  return false;
+}
 
 export function buildModel(model) {
   const nodes = [...(model.nodes || []), ...(model.drafts || [])], edges = model.edges || [];
   state.byId = new Map(nodes.map(node => [node.id, node]));
-  state.parent = new Map(); state.children = new Map(); state.performersByActivity = new Map();
+  state.parent = new Map(); state.parentRelation = new Map(); state.children = new Map(); state.performersByActivity = new Map();
   state.communicationMeans = []; state.invalidContainments = [];
-  const addParent = (child, parent) => {
-    if (!child || !parent || child === parent || state.parent.has(child)) return;
-    state.parent.set(child, parent);
+
+  const addParent = (child, parent, relation) => {
+    if (!child || !parent || child === parent || state.parent.has(child) || wouldCreateVisualCycle(child, parent)) return false;
+    state.parent.set(child, parent); state.parentRelation.set(child, relation);
     if (!state.children.has(parent)) state.children.set(parent, []);
     state.children.get(parent).push(child);
+    return true;
   };
+
+  // Structural composition has precedence over location when both exist.
   edges.filter(edge => edge.type === 'CONTAINS').forEach(edge => {
     const parent = state.byId.get(edge.source), child = state.byId.get(edge.target);
     if (!PARTICIPANTS.has(parent?.type) || !PARTICIPANTS.has(child?.type)) return;
     if (!validContainment(parent, child)) { state.invalidContainments.push(edge); return; }
-    addParent(child.id, parent.id);
+    addParent(child.id, parent.id, 'CONTAINS');
   });
+
+  // Match the textual view: LOCATED_IN may create visual enclosure while the
+  // semantic edge remains LOCATED_IN. This is what lets an environment/context
+  // entity embrace the participants operating in it without rewriting facts.
+  edges.filter(edge => edge.type === 'LOCATED_IN').forEach(edge => {
+    const child = state.byId.get(edge.source), parent = state.byId.get(edge.target);
+    if (state.parent.has(child?.id) || !validVisualLocation(parent, child)) return;
+    addParent(child.id, parent.id, 'LOCATED_IN');
+  });
+
   edges.filter(edge => edge.type === 'PERFORMS').forEach(edge => {
     const performer = state.byId.get(edge.source), activity = state.byId.get(edge.target);
     if (!PARTICIPANTS.has(performer?.type) || activity?.type !== 'OperationalActivity') return;
     if (!state.performersByActivity.has(activity.id)) state.performersByActivity.set(activity.id, []);
     state.performersByActivity.get(activity.id).push(performer.id);
-    addParent(activity.id, performer.id);
+    // The first confirmed performer owns the visual enclosure. Additional
+    // performers remain semantic relationships but do not duplicate the block.
+    addParent(activity.id, performer.id, 'PERFORMS');
   });
+
   state.communicationMeans = edges.map((edge, i) => ({...edge, _diagramId: edgeId(edge, i)}))
     .filter(edge => edge.type === 'COMMUNICATION_MEAN');
 }
@@ -72,19 +118,37 @@ export function depth(id) {
   return d;
 }
 
+function packParticipantRows(items) {
+  const rows = [];
+  let row = {items: [], width: 0, height: 0};
+  for (const item of items) {
+    const gap = row.items.length ? PARTICIPANT_GAP : 0;
+    if (row.items.length && row.width + gap + item.size.w > MAX_NESTED_ROW_WIDTH) {
+      rows.push(row); row = {items: [], width: 0, height: 0};
+    }
+    const nextGap = row.items.length ? PARTICIPANT_GAP : 0;
+    row.items.push(item); row.width += nextGap + item.size.w; row.height = Math.max(row.height, item.size.h);
+  }
+  if (row.items.length) rows.push(row);
+  return rows;
+}
+
 export function measureParticipant(id, seen = new Set()) {
   const node = state.byId.get(id), [minW, minH] = minFor(node?.type);
   if (!node || seen.has(id)) return {w: minW, h: minH};
   const next = new Set(seen); next.add(id);
   const activities = childNodes(id, child => child.type === 'OperationalActivity');
   const participants = childNodes(id, child => PARTICIPANTS.has(child.type));
+
   let activityW = 0, activityH = 0;
   for (const activity of activities) {
     const [cw, ch] = minFor(activity.type); activityW = Math.max(activityW, cw); activityH += ch + (activityH ? GAP : 0);
   }
-  const sizes = participants.map(child => measureParticipant(child.id, next));
-  const participantW = sizes.reduce((sum, size) => sum + size.w, 0) + Math.max(0, sizes.length - 1) * GAP;
-  const participantH = sizes.reduce((max, size) => Math.max(max, size.h), 0);
+
+  const participantItems = participants.map(child => ({id: child.id, size: measureParticipant(child.id, next)}));
+  const rows = packParticipantRows(participantItems);
+  const participantW = rows.length ? Math.max(...rows.map(row => row.width)) : 0;
+  const participantH = rows.reduce((sum, row, index) => sum + row.height + (index ? PARTICIPANT_GAP : 0), 0);
   const contentW = Math.max(activityW, participantW);
   const sections = [activityH, participantH].filter(Boolean);
   const contentH = sections.reduce((sum, value) => sum + value, 0) + Math.max(0, sections.length - 1) * GAP;
@@ -98,18 +162,34 @@ function put(id, x, y, w, h) {
 
 function placeParticipant(id, x, y, seen = new Set()) {
   if (seen.has(id)) return;
-  const next = new Set(seen); next.add(id); const size = measureParticipant(id, next); put(id, x, y, size.w, size.h);
+
+  // IMPORTANT: measure with the incoming guard, not a guard that already
+  // contains this id. Measuring with `next` collapsed every container to its
+  // minimum size and was the root cause of children appearing outside parents.
+  const size = measureParticipant(id, seen);
+  const next = new Set(seen); next.add(id); put(id, x, y, size.w, size.h);
   const activities = childNodes(id, child => child.type === 'OperationalActivity');
   const participants = childNodes(id, child => PARTICIPANTS.has(child.type));
+
   let cursorY = y + HEADER + PAD;
   for (const activity of activities) {
-    const [w, h] = minFor(activity.type); put(activity.id, x + PAD, cursorY, Math.min(w, size.w - PAD * 2), h); cursorY += h + GAP;
+    const [, h] = minFor(activity.type);
+    put(activity.id, x + PAD, cursorY, Math.max(minFor(activity.type)[0], size.w - PAD * 2), h);
+    cursorY += h + GAP;
   }
-  if (activities.length && participants.length) cursorY += GAP;
-  let cursorX = x + PAD;
-  for (const participant of participants) {
-    const childSize = measureParticipant(participant.id, next); placeParticipant(participant.id, cursorX, cursorY, next); cursorX += childSize.w + GAP;
-  }
+  if (activities.length) cursorY -= GAP;
+
+  const participantItems = participants.map(child => ({id: child.id, size: measureParticipant(child.id, next)}));
+  const rows = packParticipantRows(participantItems);
+  if (activities.length && rows.length) cursorY += GAP;
+  rows.forEach((row, rowIndex) => {
+    let cursorX = x + PAD;
+    row.items.forEach(item => {
+      placeParticipant(item.id, cursorX, cursorY, next);
+      cursorX += item.size.w + PARTICIPANT_GAP;
+    });
+    cursorY += row.height + (rowIndex < rows.length - 1 ? PARTICIPANT_GAP : 0);
+  });
 }
 
 export function loadSaved() {
@@ -125,8 +205,10 @@ function applySaved(defaults) {
     if (!current || !original) continue;
     if (value) {
       const [minW, minH] = minFor(node.type);
-      state.layout.set(node.id, {x: Number.isFinite(value.x) ? value.x : current.x, y: Number.isFinite(value.y) ? value.y : current.y,
-        w: Math.max(minW, Number(value.w) || current.w), h: Math.max(minH, Number(value.h) || current.h)});
+      state.layout.set(node.id, {
+        x: Number.isFinite(value.x) ? value.x : current.x, y: Number.isFinite(value.y) ? value.y : current.y,
+        w: Math.max(minW, Number(value.w) || current.w), h: Math.max(minH, Number(value.h) || current.h),
+      });
       continue;
     }
     const parentId = state.parent.get(node.id), pc = state.layout.get(parentId), pd = defaults.get(parentId);
@@ -137,16 +219,21 @@ function applySaved(defaults) {
 }
 
 export function autoLayout() {
-  state.layout = new Map(); const roots = [...state.byId.values()].filter(node => !state.parent.has(node.id));
+  state.layout = new Map();
+  const roots = [...state.byId.values()].filter(node => !state.parent.has(node.id));
   let x = 60, y = 60, rowH = 0;
   for (const node of roots) {
     let w, h;
-    if (PARTICIPANTS.has(node.type)) { const size = measureParticipant(node.id); w = size.w; h = size.h; placeParticipant(node.id, x, y); }
-    else { [w, h] = minFor(node.type); put(node.id, x, y, w, h); }
-    if (x + w > 1500) { x = 60; y += rowH + 80; rowH = 0; }
-    else { x += w + 80; rowH = Math.max(rowH, h); }
+    if (PARTICIPANTS.has(node.type)) { const size = measureParticipant(node.id); w = size.w; h = size.h; }
+    else [w, h] = minFor(node.type);
+
+    if (x > 60 && x + w > 1500) { x = 60; y += rowH + 80; rowH = 0; }
+    if (PARTICIPANTS.has(node.type)) placeParticipant(node.id, x, y);
+    else put(node.id, x, y, w, h);
+    x += w + 80; rowH = Math.max(rowH, h);
   }
-  const defaults = new Map([...state.layout].map(([id, value]) => [id, {...value}])); applySaved(defaults); expandAllContainers();
+  const defaults = new Map([...state.layout].map(([id, value]) => [id, {...value}]));
+  applySaved(defaults); normalizeContainmentGeometry();
 }
 
 export function persist() {
@@ -160,21 +247,41 @@ export function descendants(id, result = []) {
   return result;
 }
 
+function moveSubtreeLayout(id, dx, dy) {
+  for (const nodeId of [id, ...descendants(id)]) {
+    const box = state.layout.get(nodeId); if (!box) continue; box.x += dx; box.y += dy;
+  }
+}
+
+export function constrainChildToParent(id) {
+  const parentId = state.parent.get(id), child = state.layout.get(id), parent = state.layout.get(parentId);
+  if (!parentId || !child || !parent) return;
+  const minX = parent.x + PAD, minY = parent.y + HEADER + PAD;
+  const dx = child.x < minX ? minX - child.x : 0, dy = child.y < minY ? minY - child.y : 0;
+  if (dx || dy) moveSubtreeLayout(id, dx, dy);
+
+  const corrected = state.layout.get(id);
+  parent.w = Math.max(parent.w, corrected.x + corrected.w + PAD - parent.x);
+  parent.h = Math.max(parent.h, corrected.y + corrected.h + PAD - parent.y);
+  constrainChildToParent(parentId);
+}
+
 export function expandContainerToChildren(id) {
   const box = state.layout.get(id); if (!box || !PARTICIPANTS.has(state.byId.get(id)?.type)) return;
   const children = (state.children.get(id) || []).map(child => state.layout.get(child)).filter(Boolean); if (!children.length) return;
-  const minX = Math.min(...children.map(c => c.x)), minY = Math.min(...children.map(c => c.y));
   const maxX = Math.max(...children.map(c => c.x + c.w)), maxY = Math.max(...children.map(c => c.y + c.h));
-  const x = Math.min(box.x, minX - PAD), y = Math.min(box.y, minY - HEADER - PAD);
-  const right = Math.max(box.x + box.w, maxX + PAD), bottom = Math.max(box.y + box.h, maxY + PAD);
   const [minW, minH] = minFor(state.byId.get(id)?.type);
-  Object.assign(box, {x, y, w: Math.max(minW, right - x), h: Math.max(minH, bottom - y)});
+  box.w = Math.max(box.w, minW, maxX - box.x + PAD);
+  box.h = Math.max(box.h, minH, maxY - box.y + PAD);
 }
 
-export function expandAllContainers() {
+export function normalizeContainmentGeometry() {
+  [...state.parent.keys()].sort((a, b) => depth(a) - depth(b)).forEach(id => constrainChildToParent(id));
   [...state.byId.values()].filter(node => PARTICIPANTS.has(node.type)).sort((a, b) => depth(b.id) - depth(a.id))
     .forEach(node => expandContainerToChildren(node.id));
 }
+
+export function expandAllContainers() { normalizeContainmentGeometry(); }
 
 export function minimumContainerDimensions(id) {
   const [baseW, baseH] = minFor(state.byId.get(id)?.type), box = state.layout.get(id);
