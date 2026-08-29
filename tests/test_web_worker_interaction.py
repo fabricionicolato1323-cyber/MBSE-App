@@ -67,6 +67,26 @@ def test_choice_helper_emits_clickable_number_values():
     }
 
 
+def test_number_helper_emits_clickable_labels_not_typed_numbers():
+    app = DummyWebApp()
+    labels = {"a": "First action", "b": "Second action"}
+    interaction = capture_interaction(
+        lambda: app.ask_number(
+            "Which action receives it?",
+            ["a", "b"],
+            lambda node_id: labels[node_id],
+            "test",
+        )
+    )
+    assert interaction == {
+        "mode": "choice",
+        "choices": [
+            {"label": "First action", "value": "1"},
+            {"label": "Second action", "value": "2"},
+        ],
+    }
+
+
 def test_open_question_emits_free_text_interaction():
     app = DummyWebApp()
     interaction = capture_interaction(

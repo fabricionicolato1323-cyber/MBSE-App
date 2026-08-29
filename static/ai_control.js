@@ -11,7 +11,7 @@
   const cancelButton = document.getElementById('cancelAIButton');
   const backdrop = modal?.querySelector('[data-close-ai]');
 
-  if (!control || !statusText || !modelText || !actionButton || !modal || !select) {
+  if (!control || !statusText || !actionButton || !modal || !select) {
     return;
   }
 
@@ -19,6 +19,7 @@
   let statusRequestInFlight = false;
 
   function setMessage(text, kind = '') {
+    if (!message) return;
     message.textContent = text || '';
     message.className = `ai-modal-message${kind ? ` ${kind}` : ''}`;
   }
@@ -28,30 +29,31 @@
     const status = currentAI.status || 'off';
     control.dataset.status = status;
 
+    // The selected model remains session state, not top-bar UI content.
+    if (modelText) {
+      modelText.hidden = true;
+      modelText.textContent = '';
+    }
+
     if (status === 'active') {
       statusText.textContent = 'AI On';
-      modelText.textContent = currentAI.model || '';
-      modelText.hidden = !currentAI.model;
-      actionButton.textContent = 'AI settings';
+      actionButton.textContent = 'Deactivate AI';
       actionButton.disabled = false;
       return;
     }
 
-    modelText.hidden = true;
-    modelText.textContent = '';
     if (status === 'activating') {
       statusText.textContent = 'AI activating';
       actionButton.textContent = 'Please wait';
       actionButton.disabled = true;
-    } else if (status === 'error') {
-      statusText.textContent = 'AI unavailable';
-      actionButton.textContent = 'Try again';
-      actionButton.disabled = false;
-    } else {
-      statusText.textContent = 'AI Off';
-      actionButton.textContent = 'Activate AI';
-      actionButton.disabled = false;
+      return;
     }
+
+    // Errors are presented as an off state in the compact control. Details
+    // appear only in the activation dialog if the user tries again.
+    statusText.textContent = 'AI Off';
+    actionButton.textContent = 'Activate AI';
+    actionButton.disabled = false;
   }
 
   async function refreshStatus() {
@@ -63,8 +65,8 @@
       const state = await response.json();
       renderStatus(state.ai || {status: 'off'});
     } catch (_) {
-      // The main application already reports connection failures. Keep the last
-      // known AI status here instead of adding duplicate noise.
+      // The main application reports connection failures. Preserve the last
+      // known state here instead of adding duplicate UI noise.
     } finally {
       statusRequestInFlight = false;
     }
@@ -76,7 +78,7 @@
     select.innerHTML = '';
     select.disabled = true;
     activateButton.disabled = true;
-    disableButton.hidden = currentAI.status !== 'active';
+    if (disableButton) disableButton.hidden = true;
     loadModels();
   }
 
@@ -108,16 +110,9 @@
         return;
       }
 
-      if (currentAI.model && models.includes(currentAI.model)) {
-        select.value = currentAI.model;
-      }
       select.disabled = false;
       activateButton.disabled = false;
-      setMessage(
-        currentAI.status === 'active'
-          ? 'Choose a model to keep or change the active AI support.'
-          : 'Choose the local model to use for AI assistance.'
-      );
+      setMessage('Choose the local model to use for AI assistance.');
       select.focus();
     } catch (_) {
       setMessage('The local AI service is unavailable.', 'error');
@@ -155,29 +150,34 @@
   }
 
   async function disableAI() {
-    disableButton.disabled = true;
-    setMessage('Disabling AI assistance…');
+    actionButton.disabled = true;
+    control.dataset.status = 'activating';
+    statusText.textContent = 'AI deactivating';
+    actionButton.textContent = 'Please wait';
     try {
       const response = await fetch('/api/ai/disable', {method: 'POST'});
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.ok) {
-        setMessage(data.error || 'AI assistance could not be disabled.', 'error');
-        disableButton.disabled = false;
+        renderStatus(currentAI);
         return;
       }
       renderStatus({status: 'off', model: null, message: 'AI assistance is off.'});
-      closeModal();
+      if (!modal.hidden) closeModal();
       window.setTimeout(refreshStatus, 250);
     } catch (_) {
-      setMessage('AI assistance could not be disabled.', 'error');
-      disableButton.disabled = false;
+      renderStatus(currentAI);
     }
   }
 
-  actionButton.addEventListener('click', openModal);
+  actionButton.addEventListener('click', () => {
+    if (currentAI.status === 'active') {
+      disableAI();
+    } else {
+      openModal();
+    }
+  });
   activateButton.addEventListener('click', activateAI);
-  disableButton.addEventListener('click', disableAI);
-  cancelButton.addEventListener('click', closeModal);
+  cancelButton?.addEventListener('click', closeModal);
   backdrop?.addEventListener('click', closeModal);
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape' && !modal.hidden) closeModal();

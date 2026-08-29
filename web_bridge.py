@@ -50,6 +50,7 @@ class TerminalProcessSession:
         self._lock = threading.RLock()
         self._stdout = ""
         self._published_stdout = ""
+        self._active_prompt_raw = ""
         self._waiting = False
         self._closed = False
         self._model_mtime_ns = 0
@@ -203,10 +204,29 @@ class TerminalProcessSession:
         return TerminalProcessSession._fallback_interaction_from_text(raw)["choices"]
 
     def interaction_snapshot(self) -> dict[str, Any]:
-        explicit = decode_latest_interaction(self._stdout)
-        if explicit is not None:
-            return explicit
-        return self._fallback_interaction_from_text(self._stdout)
+        """Return controls for the active prompt only.
+
+        Structured interaction is a permanent web-UI contract: yes/no, numbered
+        choices and continue steps must never inherit an older free-text marker.
+        """
+        raw = self._active_prompt_raw
+        if not raw and self._waiting:
+            unpublished = self._stdout[len(self._published_stdout):]
+            raw = unpublished or self._current_prompt_text(self._stdout)
+
+        explicit = decode_latest_interaction(raw)
+        fallback = self._fallback_interaction_from_text(raw)
+        if explicit is None:
+            return fallback
+
+        # Belt-and-suspenders guard: a visible structured prompt is always
+        # clickable even if a malformed/empty explicit payload is emitted.
+        if fallback["mode"] in {"yes_no", "choice", "continue"}:
+            if explicit["mode"] == "free_text":
+                return fallback
+            if explicit["mode"] == "choice" and not explicit["choices"]:
+                return fallback
+        return explicit
 
     def _publish_if_ready(self) -> None:
         with self._lock:
@@ -216,6 +236,7 @@ class TerminalProcessSession:
                 return
             delta = self._stdout[len(self._published_stdout):]
             self._published_stdout = self._stdout
+            self._active_prompt_raw = delta
             self._append_diagnostic(delta)
             clean = self._clean_assistant_text(delta)
             if clean:
@@ -249,6 +270,7 @@ class TerminalProcessSession:
             if not self._waiting:
                 raise RuntimeError("The model is still processing the previous input.")
             self._waiting = False
+            self._active_prompt_raw = ""
 
             shown = display_value if display_value is not None else value
             if shown:

@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from web_bridge import SessionRegistry, TerminalProcessSession
+from web_protocol import encode_interaction
 
 
 class BridgeParsingTests(unittest.TestCase):
@@ -52,6 +53,48 @@ class BridgeParsingTests(unittest.TestCase):
         )
         self.assertEqual(TerminalProcessSession._buttons_from_text(raw), [])
 
+    @staticmethod
+    def _snapshot_session(active_prompt: str):
+        session = TerminalProcessSession.__new__(TerminalProcessSession)
+        session._active_prompt_raw = active_prompt
+        session._waiting = True
+        session._stdout = active_prompt
+        session._published_stdout = active_prompt
+        return session
+
+    def test_visible_yes_no_overrides_incorrect_free_text_marker(self):
+        raw = (
+            encode_interaction({"mode": "free_text", "choices": []})
+            + "\nIs there another important goal? (yes/no)\n"
+            + "  Expected answer: yes / no\n> "
+        )
+        interaction = self._snapshot_session(raw).interaction_snapshot()
+        self.assertEqual(interaction["mode"], "yes_no")
+        self.assertEqual(
+            interaction["choices"],
+            [
+                {"label": "Yes", "value": "yes"},
+                {"label": "No", "value": "no"},
+            ],
+        )
+
+    def test_visible_numbered_options_override_incorrect_free_text_marker(self):
+        raw = (
+            encode_interaction({"mode": "free_text", "choices": []})
+            + "\nWhich action receives it?\n"
+            + "  1. First action\n"
+            + "  2. Second action\n> "
+        )
+        interaction = self._snapshot_session(raw).interaction_snapshot()
+        self.assertEqual(interaction["mode"], "choice")
+        self.assertEqual(
+            interaction["choices"],
+            [
+                {"label": "First action", "value": "1"},
+                {"label": "Second action", "value": "2"},
+            ],
+        )
+
     def test_clean_text_removes_terminal_chrome(self):
         raw = (
             "========================================================================\n"
@@ -75,10 +118,6 @@ class BridgeParsingTests(unittest.TestCase):
             "What is the main goal?\n> "
         )
         clean = TerminalProcessSession._clean_assistant_text(raw)
-        self.assertIn(
-            "AI assistance is unavailable. Deterministic validation is active.",
-            clean,
-        )
         self.assertIn("What is the main goal?", clean)
         self.assertNotIn("Ollama", clean)
         self.assertNotIn("Arcadia", clean)

@@ -10,9 +10,25 @@ confirmation, undo, save, checks, composition/decomposition and characteristics.
 - Right ~1/3: live model panel, with Textual as the default view.
 - Confirmed model elements use the confirmed color.
 - User input waiting for confirmation is shown as temporary with a different color.
-- Yes/no questions and numbered choices are surfaced as clickable buttons.
 - Common commands are available as buttons above the chat.
 - Questions are visually emphasized while explanations and expected-answer guidance are secondary.
+
+## Permanent structured-input contract
+
+The web UI follows a permanent cognitive-load rule: if the answer can be selected, the user
+clicks it; typing is reserved for genuinely new free-text content.
+
+- Every yes/no question is rendered as clickable **Yes** and **No** controls.
+- Every numbered/fixed choice is rendered as clickable labels; the user never needs to type
+  `1`, `2`, `3`, and so on.
+- Continue steps are rendered as a clickable **Continue** control.
+- The free-text composer is hidden for all structured interactions.
+- Structured control values (`yes`, `no`, numeric indexes, Continue) are never persistent or
+  temporary model facts.
+
+The worker emits an explicit interaction contract and the browser contains a defensive fallback
+that detects visible yes/no or numbered prompts. This two-layer enforcement prevents an old or
+malformed free-text state from making a structured question require typing.
 
 ## Run on Windows
 
@@ -37,11 +53,16 @@ python app.py
 The web application starts each new modeling session in deterministic mode. AI support is
 an explicit user choice and does not require editing `config.json` or restarting the model.
 
-The status control in the header shows whether AI assistance is off, activating, active, or
-unavailable. Selecting **Activate AI** queries the local Ollama service for the models that are
-actually installed on the computer and displays those names in a dropdown. Selecting a model
-activates that `OllamaLLM` client for the current web session only. AI can be disabled or the
-model can be changed while preserving the model already constructed in the session.
+The compact header control intentionally exposes only the state and one action:
+
+- red indicator + **AI Off** + **Activate AI** when disabled;
+- green indicator + **AI On** + **Deactivate AI** when active.
+
+Selecting **Activate AI** queries the local Ollama service for the models actually installed on
+the computer and displays those names in a dropdown. Selecting a model activates that
+`OllamaLLM` client for the current web session only. **Deactivate AI** immediately returns the
+same session to deterministic mode. The selected model name remains internal session state and
+is not shown in the compact header.
 
 No model name is hardcoded in the web control. AI remains advisory: deterministic write rules
 and user confirmation remain authoritative for persistent model facts.

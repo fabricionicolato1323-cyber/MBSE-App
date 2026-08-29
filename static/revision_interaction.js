@@ -15,6 +15,7 @@ function revisionLineKind(line) {
 
 function renderRevisionAssistantContent(bubble, content) {
   String(content || '').split('\n').forEach(line => {
+    // Numbered terminal choices are represented by clickable controls instead.
     if (/^\s*\d+\.\s+/.test(line)) return;
     const kind = revisionLineKind(line);
     const element = document.createElement('div');
@@ -63,10 +64,55 @@ function normalizeRevisionInteraction(interaction) {
   return {mode, choices};
 }
 
-function renderRevisionInteraction(interaction, waiting) {
+function inferRevisionStructuredInteraction(turns) {
+  const latestAssistant = [...(turns || [])].reverse().find(turn => turn.role === 'assistant');
+  const content = String(latestAssistant?.content || '');
+  if (!content) return null;
+
+  if (/\(\s*yes\s*\/\s*no\s*\)/i.test(content)) {
+    return {
+      mode: 'yes_no',
+      choices: [{label: 'Yes', value: 'yes'}, {label: 'No', value: 'no'}]
+    };
+  }
+
+  const choices = [];
+  content.split('\n').forEach(line => {
+    const match = line.match(/^\s*(\d+)\.\s+(.+?)\s*$/);
+    if (match) choices.push({label: match[2].trim(), value: match[1]});
+  });
+  if (choices.length) return {mode: 'choice', choices};
+
+  if (/Press Enter to return to the current question/i.test(content)) {
+    return {mode: 'continue', choices: [{label: 'Continue', value: ''}]};
+  }
+  return null;
+}
+
+function interactionForRevisionUI(interaction, turns) {
+  const normalized = normalizeRevisionInteraction(interaction);
+  const visibleStructured = inferRevisionStructuredInteraction(turns);
+
+  // Permanent UI contract: if the current prompt visibly offers a finite
+  // choice, typing must never be required. Visible structure wins over an
+  // inconsistent free-text protocol payload.
+  if (visibleStructured && normalized.mode === 'free_text') {
+    return visibleStructured;
+  }
+  if (
+    visibleStructured?.mode === 'choice' &&
+    normalized.mode === 'choice' &&
+    normalized.choices.length === 0
+  ) {
+    return visibleStructured;
+  }
+  return normalized;
+}
+
+function renderRevisionInteraction(interaction, waiting, turns) {
   const quickRoot = document.getElementById('quickActions');
   const composerRoot = document.getElementById('composer');
-  const normalized = normalizeRevisionInteraction(interaction);
+  const normalized = interactionForRevisionUI(interaction, turns);
   activeInteractionMode = normalized.mode;
   quickRoot.innerHTML = '';
   quickRoot.className = 'quick-actions';
@@ -96,7 +142,8 @@ applyState = function revisedApplyState(state) {
   if (activeSessionId && state.session_id !== activeSessionId) return;
   if (!activeSessionId) activeSessionId = state.session_id;
 
-  renderRevisionTurns(state.turns || []);
+  const turns = state.turns || [];
+  renderRevisionTurns(turns);
   renderRevisionTextualModel(state.model || {});
   renderDetails(state.model || {});
 
@@ -105,7 +152,7 @@ applyState = function revisedApplyState(state) {
   const drafts = state.model?.drafts?.length || 0;
   countRoot.textContent = `${counts.nodes} items · ${counts.edges} links${drafts ? ` · ${drafts} temporary` : ''}`;
 
-  if (startingNewModel && state.waiting && (state.turns || []).length) {
+  if (startingNewModel && state.waiting && turns.length) {
     startingNewModel = false;
   }
 
@@ -118,7 +165,7 @@ applyState = function revisedApplyState(state) {
   }
 
   const waiting = Boolean(state.waiting) && !state.closed && !startingNewModel;
-  renderRevisionInteraction(state.interaction || {mode: 'free_text', choices: []}, waiting);
+  renderRevisionInteraction(state.interaction || {mode: 'free_text', choices: []}, waiting, turns);
 };
 
 document.querySelectorAll('.tab-button').forEach(button => {
