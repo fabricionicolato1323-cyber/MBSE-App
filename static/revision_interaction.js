@@ -1,4 +1,5 @@
 let revisionLastTurnsSignature = '';
+let revisionLastInteractionSignature = '';
 let revisionRequestInFlight = false;
 let revisionRequestSourceAssistantId = null;
 let revisionCurrentAssistantId = null;
@@ -184,18 +185,45 @@ function effectiveRevisionInteraction(state) {
   return explicit;
 }
 
+function revisionInteractionSignature(interaction, waiting, locked) {
+  return JSON.stringify({
+    session: activeSessionId || '',
+    mode: interaction.mode,
+    choices: interaction.choices.map(choice => [
+      String(choice.label ?? ''),
+      String(choice.value ?? '')
+    ]),
+    waiting: Boolean(waiting),
+    locked: Boolean(locked),
+    busy: Boolean(busy)
+  });
+}
+
 function renderRevisionInteraction(interaction, waiting, {locked = false} = {}) {
   const quickRoot = document.getElementById('quickActions');
   const composerRoot = document.getElementById('composer');
   const normalized = normalizeRevisionInteraction(interaction);
   activeInteractionMode = normalized.mode;
-  quickRoot.innerHTML = '';
-  quickRoot.className = 'quick-actions';
 
   const structured = waiting && normalized.mode !== 'free_text';
   const freeText = waiting && normalized.mode === 'free_text';
+  const signature = revisionInteractionSignature(normalized, waiting, locked);
+  const expectedButtonCount = structured ? normalized.choices.length : 0;
+  const stableStructuredDom = !structured || quickRoot.childElementCount === expectedButtonCount;
+
   quickRoot.hidden = !structured;
   composerRoot.hidden = !freeText;
+
+  if (
+    signature === revisionLastInteractionSignature &&
+    stableStructuredDom
+  ) {
+    return;
+  }
+  revisionLastInteractionSignature = signature;
+
+  quickRoot.innerHTML = '';
+  quickRoot.className = 'quick-actions';
   if (!structured) return;
 
   quickRoot.classList.add('structured-options');
