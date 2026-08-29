@@ -105,3 +105,51 @@ def test_ai_off_goal_to_participant_flow(web_server):
             expect(live_model).to_contain_text(goal, timeout=10_000)
         finally:
             browser.close()
+
+
+@pytest.mark.skipif(
+    os.getenv("RUN_E2E") != "1",
+    reason="Playwright E2E tests run in the dedicated CI job.",
+)
+def test_searchable_model_picker_opens_and_filters(web_server):
+    from playwright.sync_api import expect, sync_playwright
+
+    choices = [
+        {"label": "Action: Detect threats", "value": "1"},
+        {"label": "Action: Engage threats", "value": "2"},
+        {"label": "Action: Report threat engagement", "value": "3"},
+        {"label": "Participant: Soldier", "value": "4"},
+        {"label": "Participant / context: Threat detection system", "value": "5"},
+        {"label": "Goal: Protect target area", "value": "6"},
+        {"label": "Interaction: Threat report", "value": "7"},
+        {"label": "Communication mean: Radio link", "value": "8"},
+        {"label": "Action: Track threats", "value": "9"},
+        {"label": "Participant / context: Target area", "value": "10"},
+    ]
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 1440, "height": 1000})
+        try:
+            page.goto(BASE_URL, wait_until="domcontentloaded")
+            expect(page.locator("#statusLine")).to_have_text("Ready", timeout=20_000)
+
+            page.evaluate(
+                "choices => renderRevisionInteraction({mode: 'choice', choices}, true, {locked: false})",
+                choices,
+            )
+
+            toggle = page.get_by_role("button", name="Select from 10 model items")
+            expect(toggle).to_be_visible()
+            toggle.click()
+
+            search = page.get_by_role("searchbox", name="Search model items")
+            expect(search).to_be_visible()
+            expect(page.get_by_text("Actions (4)", exact=True)).to_be_visible()
+            expect(page.get_by_text("Participants / Context (3)", exact=True)).to_be_visible()
+
+            search.fill("engage")
+            expect(page.get_by_role("button", name="Engage threats", exact=True)).to_be_visible()
+            expect(page.get_by_role("button", name="Detect threats", exact=True)).to_be_hidden()
+        finally:
+            browser.close()

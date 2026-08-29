@@ -1,6 +1,9 @@
 .quick-actions.searchable-choice-options {
   position: relative;
   display: block;
+  max-height: none;
+  overflow: visible;
+  z-index: 40;
 }
 
 .hierarchical-choice-picker {
