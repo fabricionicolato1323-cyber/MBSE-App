@@ -34,7 +34,12 @@ def test_post_pass_refinement_starts_from_existing_model_selection():
     worker = Path('web_worker.py').read_text(encoding='utf-8')
     assert 'FocusedRefinementMixin' in worker
     assert 'Which participant or action would you like to work on?' in flow
+    assert 'Which interaction would you like to work on?' in flow
     assert 'Which action should the interaction start from?' in flow
+    assert 'Which action should receive the interaction?' in flow
+    assert '+ Add new interaction' in flow
+    assert 'Communication method' in flow
+    assert 'Characteristics / limits' in flow
     assert 'Action:' in flow
     assert 'Participant / context' in flow
     assert '_capture_interactions_for_source' in flow
