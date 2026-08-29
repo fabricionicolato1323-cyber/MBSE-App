@@ -72,7 +72,7 @@ renderRevisionDetails = function relationshipAwareDetailsRenderer(model) {
 };
 
 // Legacy asset names kept here for migration/test traceability: oa_diagram.css, oa_diagram.js.
-// Diagram v2 is split into ES modules so layout, rendering and interaction stay independently testable.
+// Diagram v2 keeps semantic state/rendering modular; v4 replaces only the interaction layer.
 (function installOperationalDiagramAssets() {
   const current = [...document.scripts].find(script =>
     /\/model_relationships\.js(?:\?|$)/.test(script.src)
@@ -88,11 +88,19 @@ renderRevisionDetails = function relationshipAwareDetailsRenderer(model) {
     document.head.appendChild(style);
   }
 
+  if (!document.querySelector('link[data-oa-diagram-v4-style]')) {
+    const style = document.createElement('link');
+    style.rel = 'stylesheet';
+    style.href = `${base}oa_diagram_v4.css`;
+    style.dataset.oaDiagramV4Style = 'true';
+    document.head.appendChild(style);
+  }
+
   const load = () => {
     if (document.querySelector('script[data-oa-diagram-script]')) return;
     const script = document.createElement('script');
     script.type = 'module';
-    script.src = `${base}oa_diagram_v2_interaction.js`;
+    script.src = `${base}oa_diagram_v4_interaction.js`;
     script.dataset.oaDiagramScript = 'true';
     script.addEventListener('load', () => {
       if (typeof pollState === 'function') pollState({force: true});
