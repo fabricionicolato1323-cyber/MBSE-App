@@ -167,7 +167,7 @@ def test_loaded_interaction_refinement_requires_target_and_explicit_communicatio
             page.locator("#loadModelInput").set_input_files(str(model_file))
 
             expect(
-                page.get_by_text("What would you like to change in the loaded model?", exact=True)
+                page.get_by_role("button", name="Refine existing interactions", exact=True)
             ).to_be_visible(timeout=20_000)
 
             # Existing interaction: the user can explicitly associate the saved
@@ -214,12 +214,9 @@ def test_loaded_interaction_refinement_requires_target_and_explicit_communicatio
             assert associated is True
 
             # Return from the existing exchange refinement to the loaded-model menu.
-            expect(
-                page.get_by_text("What would you like to refine for 'Kill info'?", exact=True)
-            ).to_be_visible(timeout=20_000)
             page.get_by_role("button", name="Back to the interaction list", exact=True).click()
             expect(
-                page.get_by_text("What would you like to change in the loaded model?", exact=True)
+                page.get_by_role("button", name="Refine existing interactions", exact=True)
             ).to_be_visible(timeout=20_000)
 
             # New interaction: source selection must be followed directly by the
