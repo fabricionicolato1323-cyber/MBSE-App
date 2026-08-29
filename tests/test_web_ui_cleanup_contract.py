@@ -17,6 +17,16 @@ def test_structured_prompt_redundancy_is_filtered():
     assert "revisionQuestionTools" in script
 
 
+def test_structured_buttons_are_not_rebuilt_on_every_poll():
+    script = Path('static/revision_interaction.js').read_text(encoding='utf-8')
+    css = Path('static/revision.css').read_text(encoding='utf-8')
+    assert "revisionLastInteractionSignature" in script
+    assert "revisionInteractionSignature" in script
+    assert "signature === revisionLastInteractionSignature" in script
+    assert "quickRoot.childElementCount === expectedButtonCount" in script
+    assert "transform: none" in css
+
+
 def test_unexpected_worker_exit_is_not_reported_as_normal_finish():
     script = Path('static/revision_interaction.js').read_text(encoding='utf-8')
     assert "stopped unexpectedly" in script
