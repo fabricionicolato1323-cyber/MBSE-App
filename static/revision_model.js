@@ -27,45 +27,42 @@ function revisionTreeLine(text, className = '') {
   return line;
 }
 
-function revisionTreeItem(title, meta = '', temporary = false) {
+function revisionTreeItem(title, temporary = false) {
   const item = document.createElement('div');
   item.className = `tree-item${temporary ? ' temporary' : ''}`;
-  const header = document.createElement('div');
-  header.className = 'tree-item-header';
-  const name = document.createElement('span');
+  const name = document.createElement('div');
   name.className = 'tree-item-name';
   name.textContent = title;
-  header.appendChild(name);
-  if (meta) {
-    const badge = document.createElement('span');
-    badge.className = 'tree-item-meta';
-    badge.textContent = meta;
-    header.appendChild(badge);
-  }
-  item.appendChild(header);
+  item.appendChild(name);
   const children = document.createElement('div');
   children.className = 'tree-children';
   item.appendChild(children);
   return {item, children};
 }
 
+function revisionCharacteristicText(characteristic) {
+  const name = characteristic.name || 'Characteristic';
+  let value = characteristic.value ?? '';
+  if (characteristic.lower_bound !== undefined || characteristic.upper_bound !== undefined) {
+    value = `${characteristic.lower_bound ?? ''}–${characteristic.upper_bound ?? ''}`;
+  }
+  const unit = characteristic.unit ? ` ${characteristic.unit}` : '';
+  return value !== '' ? `${name}: ${value}${unit}` : name;
+}
+
 function revisionAppendCharacteristics(container, node) {
   if (!Array.isArray(node.characteristics)) return;
   node.characteristics.forEach(characteristic => {
-    const name = characteristic.name || 'Characteristic';
-    let value = characteristic.value ?? '';
-    if (characteristic.lower_bound !== undefined || characteristic.upper_bound !== undefined) {
-      value = `${characteristic.lower_bound ?? ''}–${characteristic.upper_bound ?? ''}`;
-    }
-    const unit = characteristic.unit ? ` ${characteristic.unit}` : '';
-    const suffix = value !== '' ? ` = ${value}${unit}` : '';
-    container.appendChild(revisionTreeLine(`Characteristic: ${name}${suffix}`, 'secondary'));
+    container.appendChild(
+      revisionTreeLine(revisionCharacteristicText(characteristic), 'secondary')
+    );
   });
 }
 
 function renderRevisionTextualModel(model) {
   const textualRoot = document.getElementById('modelTextual');
   if (!textualRoot) return;
+
   const nodes = model.nodes || [];
   const drafts = model.drafts || [];
   const edges = model.edges || [];
@@ -75,7 +72,7 @@ function renderRevisionTextualModel(model) {
   if (!nodes.length && !drafts.length) {
     const empty = document.createElement('div');
     empty.className = 'textual-empty';
-    empty.textContent = 'Confirmed and temporary model elements will appear here as you work.';
+    empty.textContent = 'The model will appear here as you build it.';
     textualRoot.appendChild(empty);
     return;
   }
@@ -92,48 +89,41 @@ function renderRevisionTextualModel(model) {
 
   const goals = nodes.filter(node => node.type === 'OperationalCapability');
   if (goals.length) {
-    const section = addSection('Goals');
+    const section = addSection(goals.length === 1 ? 'Goal' : 'Goals');
     goals.forEach(goal => {
-      const {item, children} = revisionTreeItem(goal.name || goal.id, 'Confirmed');
+      const {item, children} = revisionTreeItem(goal.name || goal.id);
       revisionAppendCharacteristics(children, goal);
       section.appendChild(item);
     });
   }
 
-  const participants = nodes.filter(node => ['OperationalActor', 'OperationalEntity'].includes(node.type));
+  const participants = nodes.filter(node =>
+    ['OperationalActor', 'OperationalEntity'].includes(node.type)
+  );
   if (participants.length) {
-    const section = addSection('Participants and actions');
+    const section = addSection('Participants');
     participants.forEach(participant => {
-      const {item, children} = revisionTreeItem(
-        participant.name || participant.id,
-        revisionFriendlyType(participant.type)
-      );
+      const {item, children} = revisionTreeItem(participant.name || participant.id);
       revisionAppendCharacteristics(children, participant);
 
       const actionIds = edges
         .filter(edge => edge.type === 'PERFORMS' && edge.source === participant.id)
         .map(edge => edge.target);
+
       actionIds.forEach(actionId => {
         const action = byId.get(actionId);
         if (!action) return;
-        const actionItem = revisionTreeItem(action.name || action.id, 'Action');
-        revisionAppendCharacteristics(actionItem.children, action);
 
-        edges
-          .filter(edge => edge.type === 'SUPPORTS_CAPABILITY' && edge.source === actionId)
-          .forEach(edge => {
-            const goal = byId.get(edge.target);
-            if (goal) actionItem.children.appendChild(
-              revisionTreeLine(`Supports goal: ${goal.name || goal.id}`, 'secondary')
-            );
-          });
+        const actionItem = revisionTreeItem(action.name || action.id);
+        revisionAppendCharacteristics(actionItem.children, action);
 
         edges
           .filter(edge => edge.type === 'OPERATIONAL_EXCHANGE' && edge.source === actionId)
           .forEach(edge => {
             const target = byId.get(edge.target);
+            const exchange = edge.name || 'Exchange';
             actionItem.children.appendChild(
-              revisionTreeLine(`Exchange: ${edge.name || 'Exchange'} → ${target?.name || edge.target}`)
+              revisionTreeLine(`${exchange} → ${target?.name || edge.target}`)
             );
           });
 
@@ -144,63 +134,149 @@ function renderRevisionTextualModel(model) {
         .filter(edge => edge.type === 'CONTAINS' && edge.target === participant.id)
         .forEach(edge => {
           const parent = byId.get(edge.source);
-          children.appendChild(revisionTreeLine(`Part of: ${parent?.name || edge.source}`, 'secondary'));
+          children.appendChild(
+            revisionTreeLine(`Part of ${parent?.name || edge.source}`, 'secondary')
+          );
         });
+
       edges
         .filter(edge => edge.type === 'LOCATED_IN' && edge.source === participant.id)
         .forEach(edge => {
           const location = byId.get(edge.target);
-          children.appendChild(revisionTreeLine(`Located in: ${location?.name || edge.target}`, 'secondary'));
+          children.appendChild(
+            revisionTreeLine(`In ${location?.name || edge.target}`, 'secondary')
+          );
         });
 
       section.appendChild(item);
     });
   }
 
-  const assignedActions = new Set(
-    edges.filter(edge => edge.type === 'PERFORMS').map(edge => edge.target)
-  );
-  const unassignedActions = nodes.filter(
-    node => node.type === 'OperationalActivity' && !assignedActions.has(node.id)
-  );
-  if (unassignedActions.length) {
-    const section = addSection('Other actions');
-    unassignedActions.forEach(action => {
-      const {item, children} = revisionTreeItem(action.name || action.id, 'Action');
-      revisionAppendCharacteristics(children, action);
-      section.appendChild(item);
-    });
-  }
-
-  const communicationEdges = edges.filter(edge => edge.type === 'COMMUNICATION_MEAN');
-  if (communicationEdges.length) {
+  const communication = edges.filter(edge => edge.type === 'COMMUNICATION_MEAN');
+  if (communication.length) {
     const section = addSection('Communication');
-    communicationEdges.forEach(edge => {
+    communication.forEach(edge => {
       const source = byId.get(edge.source);
       const target = byId.get(edge.target);
-      section.appendChild(revisionTreeLine(
-        `${source?.name || edge.source} ↔ ${target?.name || edge.target}: ${edge.name || 'communication method'}`
-      ));
+      section.appendChild(
+        revisionTreeLine(
+          `${source?.name || edge.source} ↔ ${target?.name || edge.target}: ` +
+          `${edge.name || 'communication method'}`
+        )
+      );
     });
   }
 
-  const decompositionEdges = edges.filter(edge => edge.type === 'DECOMPOSES');
-  if (decompositionEdges.length) {
-    const section = addSection('Decomposition');
-    decompositionEdges.forEach(edge => {
+  const decomposition = edges.filter(edge => edge.type === 'DECOMPOSES');
+  if (decomposition.length) {
+    const section = addSection('Breakdown');
+    decomposition.forEach(edge => {
       const source = byId.get(edge.source);
       const target = byId.get(edge.target);
-      section.appendChild(revisionTreeLine(
-        `${source?.name || edge.source} ${revisionFriendlyRelation(edge.type)} ${target?.name || edge.target}`
-      ));
+      section.appendChild(
+        revisionTreeLine(
+          `${source?.name || edge.source} → ${target?.name || edge.target}`
+        )
+      );
     });
   }
 
   if (drafts.length) {
     const section = addSection('Temporary');
     drafts.forEach(draft => {
-      const {item} = revisionTreeItem(draft.name || draft.id, 'Not yet confirmed', true);
+      const {item} = revisionTreeItem(draft.name || draft.id, true);
       section.appendChild(item);
+    });
+  }
+}
+
+function revisionDetailRow(label, value) {
+  const row = document.createElement('div');
+  row.className = 'detail-row';
+  const key = document.createElement('span');
+  key.className = 'detail-key';
+  key.textContent = label;
+  const val = document.createElement('span');
+  val.className = 'detail-value';
+  val.textContent = String(value);
+  row.append(key, val);
+  return row;
+}
+
+function renderRevisionDetails(model) {
+  const details = document.getElementById('modelDetails');
+  if (!details) return;
+
+  const nodes = [...(model.nodes || []), ...(model.drafts || [])];
+  const edges = model.edges || [];
+  details.innerHTML = '';
+
+  if (!nodes.length) {
+    details.textContent = 'No model details yet.';
+    return;
+  }
+
+  nodes.forEach(node => {
+    const card = document.createElement('section');
+    card.className = `detail-item ${node.status === 'temporary' ? 'temporary' : ''}`;
+
+    const name = document.createElement('div');
+    name.className = 'detail-name';
+    name.textContent = node.name || node.id;
+    card.appendChild(name);
+
+    card.appendChild(revisionDetailRow('Type', revisionFriendlyType(node.type)));
+    card.appendChild(
+      revisionDetailRow('Status', node.status === 'temporary' ? 'Temporary' : 'Confirmed')
+    );
+
+    const metadata = [
+      ['Nature', node.nature],
+      ['Classification source', node.classification_source],
+      ['Evidence', node.classification_evidence],
+      ['Reason', node.classification_reason],
+    ];
+    metadata.forEach(([label, value]) => {
+      if (value) card.appendChild(revisionDetailRow(label, value));
+    });
+
+    if (Array.isArray(node.characteristics)) {
+      node.characteristics.forEach(characteristic => {
+        card.appendChild(
+          revisionDetailRow('Characteristic', revisionCharacteristicText(characteristic))
+        );
+      });
+    }
+
+    details.appendChild(card);
+  });
+
+  if (edges.length) {
+    const heading = document.createElement('h3');
+    heading.className = 'detail-section-title';
+    heading.textContent = 'Connections';
+    details.appendChild(heading);
+
+    const byId = new Map((model.nodes || []).map(node => [node.id, node]));
+    edges.forEach(edge => {
+      const source = byId.get(edge.source);
+      const target = byId.get(edge.target);
+      const card = document.createElement('section');
+      card.className = 'detail-item';
+      const title = document.createElement('div');
+      title.className = 'detail-name';
+      title.textContent = edge.name || revisionFriendlyRelation(edge.type);
+      card.appendChild(title);
+      card.appendChild(
+        revisionDetailRow(
+          'Connection',
+          `${source?.name || edge.source} → ${target?.name || edge.target}`
+        )
+      );
+      card.appendChild(
+        revisionDetailRow('Type', revisionFriendlyRelation(edge.type))
+      );
+      details.appendChild(card);
     });
   }
 }

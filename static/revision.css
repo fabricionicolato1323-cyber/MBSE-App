@@ -1,4 +1,4 @@
-/* Revision: textual-first model view and clearer guided questions. */
+/* Textual-first, low-cognitive-load web presentation. */
 
 .message-bubble {
   white-space: normal;
@@ -44,7 +44,7 @@
   display: grid;
   grid-template-columns: 1fr;
   gap: 9px;
-  max-height: 240px;
+  max-height: 260px;
   overflow-y: auto;
   padding-top: 12px;
   padding-bottom: 5px;
@@ -96,7 +96,7 @@
 }
 
 .model-textual {
-  padding: 18px 18px 30px;
+  padding: 16px 18px 30px;
 }
 
 .textual-empty,
@@ -135,49 +135,33 @@
 }
 
 .tree-item {
-  position: relative;
-  padding: 10px 11px;
-  margin-bottom: 8px;
-  background: #fff;
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--confirmed);
-  border-radius: 10px;
+  padding: 6px 0 6px 10px;
+  margin: 0 0 9px;
+  background: transparent;
+  border: 0;
+  border-left: 2px solid #d4c2df;
+  border-radius: 0;
 }
 
 .tree-item.temporary {
+  padding: 8px 10px;
   background: var(--synopsys-orange-soft);
-  border-color: #efc36b;
   border-left-color: var(--temporary);
-}
-
-.tree-item-header {
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
-  justify-content: space-between;
+  border-radius: 8px;
 }
 
 .tree-item-name {
-  min-width: 0;
   color: var(--text);
   font-size: 13px;
-  font-weight: 750;
+  font-weight: 760;
   overflow-wrap: anywhere;
 }
 
-.tree-item-meta {
-  flex: 0 0 auto;
-  color: var(--muted);
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
 .tree-children {
-  margin-top: 7px;
-  margin-left: 9px;
+  margin-top: 6px;
+  margin-left: 8px;
   padding-left: 11px;
-  border-left: 1px solid #dfd3e5;
+  border-left: 1px solid #e4d9ea;
 }
 
 .tree-children:empty {
@@ -185,15 +169,14 @@
 }
 
 .tree-children .tree-item {
-  margin-top: 7px;
-  margin-bottom: 0;
-  border-left-width: 2px;
-  box-shadow: none;
+  margin: 4px 0;
+  padding: 3px 0 3px 9px;
+  border-left: 0;
 }
 
 .tree-line {
   position: relative;
-  padding: 4px 0 4px 10px;
+  padding: 3px 0 3px 10px;
   color: #44384b;
   font-size: 11.5px;
   line-height: 1.4;
@@ -212,14 +195,33 @@
   font-size: 11px;
 }
 
+.detail-section-title {
+  margin: 18px 0 8px;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.detail-row {
+  display: grid;
+  grid-template-columns: minmax(92px, 0.8fr) minmax(0, 1.4fr);
+  gap: 10px;
+  margin-top: 6px;
+  font-size: 11px;
+}
+
+.detail-key {
+  color: var(--muted);
+}
+
+.detail-value {
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 520px) {
   .quick-actions.binary-options {
     grid-template-columns: 1fr 1fr;
-  }
-
-  .tree-item-header {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 3px;
   }
 }

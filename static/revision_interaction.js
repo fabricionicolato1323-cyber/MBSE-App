@@ -15,7 +15,6 @@ function revisionLineKind(line) {
 
 function renderRevisionAssistantContent(bubble, content) {
   String(content || '').split('\n').forEach(line => {
-    // Numbered terminal choices are represented by clickable controls instead.
     if (/^\s*\d+\.\s+/.test(line)) return;
     const kind = revisionLineKind(line);
     const element = document.createElement('div');
@@ -64,55 +63,48 @@ function normalizeRevisionInteraction(interaction) {
   return {mode, choices};
 }
 
-function inferRevisionStructuredInteraction(turns) {
-  const latestAssistant = [...(turns || [])].reverse().find(turn => turn.role === 'assistant');
-  const content = String(latestAssistant?.content || '');
-  if (!content) return null;
+function latestAssistantText(turns) {
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    if (turns[index]?.role === 'assistant') return String(turns[index].content || '');
+  }
+  return '';
+}
 
-  if (/\(\s*yes\s*\/\s*no\s*\)/i.test(content)) {
+function structuredFallbackFromAssistant(turns) {
+  const text = latestAssistantText(turns);
+  if (!text) return null;
+
+  if (/\(yes\/no\)/i.test(text)) {
     return {
       mode: 'yes_no',
       choices: [{label: 'Yes', value: 'yes'}, {label: 'No', value: 'no'}]
     };
   }
 
-  const choices = [];
-  content.split('\n').forEach(line => {
-    const match = line.match(/^\s*(\d+)\.\s+(.+?)\s*$/);
-    if (match) choices.push({label: match[2].trim(), value: match[1]});
-  });
-  if (choices.length) return {mode: 'choice', choices};
-
-  if (/Press Enter to return to the current question/i.test(content)) {
-    return {mode: 'continue', choices: [{label: 'Continue', value: ''}]};
+  const matches = [...text.matchAll(/^\s*(\d+)\.\s+(.+?)\s*$/gm)];
+  if (matches.length) {
+    return {
+      mode: 'choice',
+      choices: matches.map(match => ({label: match[2].trim(), value: match[1]}))
+    };
   }
   return null;
 }
 
-function interactionForRevisionUI(interaction, turns) {
-  const normalized = normalizeRevisionInteraction(interaction);
-  const visibleStructured = inferRevisionStructuredInteraction(turns);
-
-  // Permanent UI contract: if the current prompt visibly offers a finite
-  // choice, typing must never be required. Visible structure wins over an
-  // inconsistent free-text protocol payload.
-  if (visibleStructured && normalized.mode === 'free_text') {
-    return visibleStructured;
+function effectiveRevisionInteraction(state) {
+  const explicit = normalizeRevisionInteraction(state.interaction);
+  const fallback = structuredFallbackFromAssistant(state.turns || []);
+  if (fallback && explicit.mode === 'free_text') return fallback;
+  if (fallback?.mode === 'choice' && explicit.mode === 'choice' && !explicit.choices.length) {
+    return fallback;
   }
-  if (
-    visibleStructured?.mode === 'choice' &&
-    normalized.mode === 'choice' &&
-    normalized.choices.length === 0
-  ) {
-    return visibleStructured;
-  }
-  return normalized;
+  return explicit;
 }
 
-function renderRevisionInteraction(interaction, waiting, turns) {
+function renderRevisionInteraction(interaction, waiting) {
   const quickRoot = document.getElementById('quickActions');
   const composerRoot = document.getElementById('composer');
-  const normalized = interactionForRevisionUI(interaction, turns);
+  const normalized = normalizeRevisionInteraction(interaction);
   activeInteractionMode = normalized.mode;
   quickRoot.innerHTML = '';
   quickRoot.className = 'quick-actions';
@@ -132,7 +124,9 @@ function renderRevisionInteraction(interaction, waiting, turns) {
     button.type = 'button';
     button.textContent = choice.label;
     button.disabled = !waiting || busy;
-    button.addEventListener('click', () => sendValue(String(choice.value ?? ''), choice.label));
+    button.addEventListener('click', () =>
+      sendValue(String(choice.value ?? ''), choice.label)
+    );
     quickRoot.appendChild(button);
   });
 }
@@ -142,17 +136,16 @@ applyState = function revisedApplyState(state) {
   if (activeSessionId && state.session_id !== activeSessionId) return;
   if (!activeSessionId) activeSessionId = state.session_id;
 
-  const turns = state.turns || [];
-  renderRevisionTurns(turns);
+  renderRevisionTurns(state.turns || []);
   renderRevisionTextualModel(state.model || {});
-  renderDetails(state.model || {});
+  renderRevisionDetails(state.model || {});
 
   const countRoot = document.getElementById('modelCount');
   const counts = state.model?.counts || {nodes: 0, edges: 0};
   const drafts = state.model?.drafts?.length || 0;
-  countRoot.textContent = `${counts.nodes} items · ${counts.edges} links${drafts ? ` · ${drafts} temporary` : ''}`;
+  countRoot.textContent = `${counts.nodes} items${drafts ? ` · ${drafts} temporary` : ''}`;
 
-  if (startingNewModel && state.waiting && turns.length) {
+  if (startingNewModel && state.waiting && (state.turns || []).length) {
     startingNewModel = false;
   }
 
@@ -165,7 +158,7 @@ applyState = function revisedApplyState(state) {
   }
 
   const waiting = Boolean(state.waiting) && !state.closed && !startingNewModel;
-  renderRevisionInteraction(state.interaction || {mode: 'free_text', choices: []}, waiting, turns);
+  renderRevisionInteraction(effectiveRevisionInteraction(state), waiting);
 };
 
 document.querySelectorAll('.tab-button').forEach(button => {
@@ -176,7 +169,9 @@ document.querySelectorAll('.tab-button').forEach(button => {
       item.classList.toggle('active', selected);
       item.setAttribute('aria-selected', selected ? 'true' : 'false');
     });
-    document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(content =>
+      content.classList.remove('active')
+    );
     const target = document.getElementById(`${tab}Tab`);
     if (target) target.classList.add('active');
   });
