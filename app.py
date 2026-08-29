@@ -6,18 +6,24 @@ from characteristic_operators import install_characteristic_operator_support
 from characteristics_flow import CharacteristicsFlowMixin
 from composition_flow import CompositionFlowMixin
 from guidance_flow import GuidanceFlowMixin
+from participant_composition import (
+    OperationalActorCompositionFlowMixin,
+    install_operational_actor_composition_support,
+)
 from participant_flow import ParticipantFlowMixin
 
 
-# Extend the central graph characteristic schema before any OAApp instance is
-# created. This also affects the web autosave subclass because it inherits from
-# the same graph model class.
+# Extend the central graph before any OAApp instance is created. The installers
+# patch the shared graph class in place, which also keeps the web autosave
+# subclass aligned with the terminal model without replacing its graph factory.
+install_operational_actor_composition_support()
 install_characteristic_operator_support()
 
 
 class OAApp(
     GuidanceFlowMixin,
     ParticipantFlowMixin,
+    OperationalActorCompositionFlowMixin,
     CompositionFlowMixin,
     CharacteristicsFlowMixin,
     _base.OAApp,
