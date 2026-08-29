@@ -257,6 +257,49 @@
   overflow-wrap: anywhere;
 }
 
+/* Permanent visible-response contract: only conversation history may scroll. */
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
+.workspace {
+  height: calc(100vh - 32px);
+  height: calc(100dvh - 32px);
+  min-height: 0;
+}
+
+.chat-panel {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+}
+
+.chat {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.quick-actions,
+.composer,
+.status-line {
+  position: relative;
+  z-index: 5;
+  background: #fff;
+}
+
+.quick-actions.structured-options {
+  max-height: min(32vh, 260px);
+}
+
+.composer {
+  flex: 0 0 auto;
+}
+
 @media (max-width: 520px) {
   .quick-actions.binary-options {
     grid-template-columns: 1fr 1fr;
@@ -264,5 +307,16 @@
 
   .question-message-wrap {
     padding-right: 70px;
+  }
+}
+
+@media (max-width: 900px) {
+  .workspace {
+    height: 100vh;
+    height: 100dvh;
+  }
+
+  .chat-panel {
+    min-height: 0;
   }
 }
