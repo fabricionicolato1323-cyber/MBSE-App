@@ -41,16 +41,17 @@ function revisionShouldHideLine(line) {
   return false;
 }
 
-function revisionQuestionTools() {
+function revisionQuestionTools(canUndo = true) {
   const controls = document.createElement('div');
   controls.className = 'question-context-controls';
 
   const undo = document.createElement('button');
   undo.type = 'button';
   undo.className = 'question-icon-button';
-  undo.title = 'Undo last change';
-  undo.setAttribute('aria-label', 'Undo last change');
+  undo.title = 'Undo previous answer';
+  undo.setAttribute('aria-label', 'Undo previous answer');
   undo.textContent = '↶';
+  undo.disabled = !canUndo;
   undo.addEventListener('click', () => sendCommand('/undo'));
 
   const help = document.createElement('button');
@@ -78,24 +79,49 @@ function renderRevisionAssistantContent(bubble, content) {
   });
 }
 
-function renderRevisionTurns(turns, {showQuestionTools = false} = {}) {
+function revisionRevealActiveQuestion(chatRoot, activeRow) {
+  if (!chatRoot || !activeRow) return;
+  requestAnimationFrame(() => {
+    const chatRect = chatRoot.getBoundingClientRect();
+    const rowRect = activeRow.getBoundingClientRect();
+    const padding = 12;
+
+    if (rowRect.height > chatRect.height - padding * 2) {
+      chatRoot.scrollTop += rowRect.top - chatRect.top - padding;
+      return;
+    }
+    if (rowRect.top < chatRect.top + padding) {
+      chatRoot.scrollTop += rowRect.top - chatRect.top - padding;
+    } else if (rowRect.bottom > chatRect.bottom - padding) {
+      chatRoot.scrollTop += rowRect.bottom - chatRect.bottom + padding;
+    }
+  });
+}
+
+function renderRevisionTurns(
+  turns,
+  {showQuestionTools = false, canUndo = true} = {}
+) {
   const chatRoot = document.getElementById('chat');
-  const signature = `${revisionTurnsSignature(turns)}:${showQuestionTools ? 'tools' : 'plain'}`;
+  const signature = `${revisionTurnsSignature(turns)}:${showQuestionTools ? 'tools' : 'plain'}:${canUndo}`;
   if (signature === revisionLastTurnsSignature) return;
   revisionLastTurnsSignature = signature;
   chatRoot.innerHTML = '';
 
   const latestAssistant = revisionLatestAssistantTurn(turns);
+  let activeRow = null;
   turns.forEach(turn => {
     const row = document.createElement('div');
     row.className = `message-row ${turn.role}`;
+    row.dataset.turnId = turn.id;
     const bubble = document.createElement('div');
     bubble.className = 'message-bubble';
     if (turn.role === 'assistant') {
       renderRevisionAssistantContent(bubble, turn.content);
+      if (latestAssistant?.id === turn.id) activeRow = row;
       if (showQuestionTools && latestAssistant?.id === turn.id) {
         bubble.classList.add('question-message-wrap');
-        bubble.appendChild(revisionQuestionTools());
+        bubble.appendChild(revisionQuestionTools(canUndo));
       }
     } else {
       bubble.textContent = turn.content;
@@ -103,7 +129,8 @@ function renderRevisionTurns(turns, {showQuestionTools = false} = {}) {
     row.appendChild(bubble);
     chatRoot.appendChild(row);
   });
-  chatRoot.scrollTop = chatRoot.scrollHeight;
+
+  revisionRevealActiveQuestion(chatRoot, activeRow);
 }
 
 function normalizeRevisionInteraction(interaction) {
@@ -179,6 +206,7 @@ function renderRevisionInteraction(interaction, waiting, {locked = false} = {}) 
     const button = document.createElement('button');
     button.type = 'button';
     button.textContent = choice.label;
+    if (/^\+\s*Add new/i.test(choice.label)) button.classList.add('add-new-option');
     button.disabled = !waiting || busy || locked;
     button.addEventListener('click', () =>
       sendValue(String(choice.value ?? ''), choice.label)
@@ -188,7 +216,7 @@ function renderRevisionInteraction(interaction, waiting, {locked = false} = {}) 
 }
 
 function revisionLockControls() {
-  document.querySelectorAll('#quickActions button, #composer button, #composer textarea')
+  document.querySelectorAll('#quickActions button, #composer button, #composer textarea, .question-icon-button')
     .forEach(element => { element.disabled = true; });
 }
 
@@ -281,9 +309,11 @@ applyState = function revisedApplyState(state) {
 
   const waiting = Boolean(state.waiting) && !state.closed && !startingNewModel;
   const usableWaiting = waiting && !revisionRequestInFlight;
+  const interaction = effectiveRevisionInteraction(state);
 
   renderRevisionTurns(state.turns || [], {
-    showQuestionTools: usableWaiting
+    showQuestionTools: usableWaiting && interaction.mode !== 'continue',
+    canUndo: Boolean(state.can_undo)
   });
   renderRevisionTextualModel(state.model || {});
   renderRevisionDetails(state.model || {});
@@ -308,10 +338,14 @@ applyState = function revisedApplyState(state) {
   }
 
   renderRevisionInteraction(
-    effectiveRevisionInteraction(state),
+    interaction,
     waiting,
     {locked: revisionRequestInFlight}
   );
+
+  const chatRoot = document.getElementById('chat');
+  const activeRow = chatRoot?.querySelector(`.message-row[data-turn-id="${latestAssistantId}"]`);
+  revisionRevealActiveQuestion(chatRoot, activeRow);
 };
 
 document.querySelectorAll('.tab-button').forEach(button => {

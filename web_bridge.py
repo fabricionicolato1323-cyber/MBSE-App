@@ -6,6 +6,7 @@ import re
 import subprocess
 import sys
 import threading
+import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -37,7 +38,7 @@ def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
 
 
 class TerminalProcessSession:
-    """Bridge the existing terminal workflow to a browser-friendly session."""
+    """Bridge the terminal workflow to a browser-friendly, rewindable session."""
 
     def __init__(self, project_dir: Path, runtime_dir: Path) -> None:
         self.project_dir = Path(project_dir).resolve()
@@ -56,7 +57,13 @@ class TerminalProcessSession:
         self._model_mtime_ns = 0
         self.pending_draft: dict[str, Any] | None = None
         self.turns: list[ChatTurn] = []
+        self.input_history: list[tuple[str, str | None]] = []
+        self._restoring = False
+        self.process: subprocess.Popen[str] | None = None
+        self._reader: threading.Thread | None = None
+        self._launch_worker()
 
+    def _launch_worker(self) -> None:
         command = [
             sys.executable,
             "-u",
@@ -66,7 +73,7 @@ class TerminalProcessSession:
         ]
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
-        self.process = subprocess.Popen(
+        process = subprocess.Popen(
             command,
             cwd=str(self.project_dir),
             stdin=subprocess.PIPE,
@@ -76,22 +83,32 @@ class TerminalProcessSession:
             bufsize=0,
             env=env,
         )
-        self._reader = threading.Thread(target=self._read_stdout, daemon=True)
+        with self._lock:
+            self.process = process
+            self._closed = False
+        self._reader = threading.Thread(
+            target=self._read_stdout,
+            args=(process,),
+            daemon=True,
+        )
         self._reader.start()
 
-    def _read_stdout(self) -> None:
-        assert self.process.stdout is not None
+    def _read_stdout(self, process: subprocess.Popen[str]) -> None:
+        assert process.stdout is not None
         while True:
-            chunk = self.process.stdout.read(1)
+            chunk = process.stdout.read(1)
             if chunk == "":
                 break
             with self._lock:
+                if process is not self.process:
+                    continue
                 self._stdout += chunk
                 if self._looks_ready_for_input(self._stdout):
                     self._waiting = True
         with self._lock:
-            self._closed = True
-            self._waiting = True
+            if process is self.process:
+                self._closed = True
+                self._waiting = True
 
     @staticmethod
     def _looks_ready_for_input(text: str) -> bool:
@@ -192,7 +209,7 @@ class TerminalProcessSession:
                     "mode": "choice",
                     "choices": [
                         {"label": label.strip(), "value": number}
-                        for number, label in choices[-12:]
+                        for number, label in choices[-20:]
                     ],
                 }
             )
@@ -204,11 +221,6 @@ class TerminalProcessSession:
         return TerminalProcessSession._fallback_interaction_from_text(raw)["choices"]
 
     def interaction_snapshot(self) -> dict[str, Any]:
-        """Return controls for the active prompt only.
-
-        Structured interaction is a permanent web-UI contract: yes/no, numbered
-        choices and continue steps must never inherit an older free-text marker.
-        """
         raw = self._active_prompt_raw
         if not raw and self._waiting:
             unpublished = self._stdout[len(self._published_stdout):]
@@ -219,8 +231,6 @@ class TerminalProcessSession:
         if explicit is None:
             return fallback
 
-        # Belt-and-suspenders guard: a visible structured prompt is always
-        # clickable even if a malformed/empty explicit payload is emitted.
         if fallback["mode"] in {"yes_no", "choice", "continue"}:
             if explicit["mode"] == "free_text":
                 return fallback
@@ -262,11 +272,18 @@ class TerminalProcessSession:
         if changed or rejection:
             self.pending_draft = None
 
-    def send(self, value: str, *, display_value: str | None = None) -> None:
+    def send(
+        self,
+        value: str,
+        *,
+        display_value: str | None = None,
+        record_history: bool = True,
+    ) -> None:
         self._publish_if_ready()
         with self._lock:
-            if self._closed:
-                return
+            process = self.process
+            if process is None or self._closed:
+                raise RuntimeError("The modeling session is no longer active.")
             if not self._waiting:
                 raise RuntimeError("The model is still processing the previous input.")
             self._waiting = False
@@ -275,6 +292,8 @@ class TerminalProcessSession:
             shown = display_value if display_value is not None else value
             if shown:
                 self.turns.append(ChatTurn(role="user", content=shown))
+            if record_history and value and not value.lstrip().startswith("/"):
+                self.input_history.append((value, display_value))
             if value and not value.lstrip().startswith("/"):
                 self.pending_draft = {
                     "id": "pending-input",
@@ -283,18 +302,126 @@ class TerminalProcessSession:
                     "status": "temporary",
                 }
 
-            assert self.process.stdin is not None
-            self.process.stdin.write(value + "\n")
-            self.process.stdin.flush()
+            assert process.stdin is not None
+            process.stdin.write(value + "\n")
+            process.stdin.flush()
+
+    def _terminate_worker(self) -> None:
+        with self._lock:
+            process = self.process
+        if process is None:
+            return
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=2.0)
+
+    def _wait_until_waiting(self, timeout: float = 20.0) -> None:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            with self._lock:
+                closed = self._closed
+                waiting = self._waiting
+            if closed:
+                self._publish_if_ready()
+                raise RuntimeError("The modeling worker stopped while restoring the previous step.")
+            if waiting:
+                self._publish_if_ready()
+                return
+            time.sleep(0.02)
+        raise RuntimeError("Timed out while restoring the previous modeling step.")
+
+    def _wait_for_ai_model(self, model: str, timeout: float = 15.0) -> None:
+        self.request_ai("activate", model=model)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            status = self.ai_snapshot()
+            if status.get("status") == "active" and status.get("model") == model:
+                return
+            if status.get("status") == "error":
+                raise RuntimeError("AI assistance could not be restored after Undo.")
+            time.sleep(0.05)
+        raise RuntimeError("Timed out while restoring AI assistance after Undo.")
+
+    def _reset_runtime_for_replay(self) -> None:
+        for path in (self.model_path, self.ai_command_path, self.ai_status_path):
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+        with self._lock:
+            self._stdout = ""
+            self._published_stdout = ""
+            self._active_prompt_raw = ""
+            self._waiting = False
+            self._closed = False
+            self._model_mtime_ns = 0
+            self.pending_draft = None
+            self.turns = []
+            self.process = None
+
+    def undo_last_decision(self) -> None:
+        """Undo one user decision by rebuilding the deterministic guided session.
+
+        Replaying prior answers rewinds both NetworkX mutations and the Python
+        call stack, so one Undo corresponds to one user answer rather than one
+        low-level graph checkpoint.
+        """
+        self._publish_if_ready()
+        with self._lock:
+            if not self.input_history:
+                raise RuntimeError("There is no previous user decision to undo.")
+            prior_history = list(self.input_history[:-1])
+        ai_state = self.ai_snapshot()
+        active_ai_model = (
+            ai_state.get("model")
+            if ai_state.get("status") == "active"
+            else None
+        )
+
+        self._append_diagnostic("\n\n--- WEB UNDO: rebuilding previous user step ---\n")
+        with self._lock:
+            self._restoring = True
+        try:
+            self._terminate_worker()
+            self._reset_runtime_for_replay()
+            with self._lock:
+                self.input_history = prior_history
+                self._restoring = True
+            self._launch_worker()
+            self._wait_until_waiting()
+
+            if active_ai_model:
+                self._wait_for_ai_model(str(active_ai_model))
+
+            for value, display_value in prior_history:
+                self._wait_until_waiting()
+                self.send(
+                    value,
+                    display_value=display_value,
+                    record_history=False,
+                )
+                self._wait_until_waiting()
+
+            self._publish_if_ready()
+        finally:
+            with self._lock:
+                self._restoring = False
 
     def command(self, command: str) -> None:
+        if command == "/undo":
+            self.undo_last_decision()
+            return
+
         labels = {
             "/help": "Help",
             "/show": "Show model",
             "/check": "Check model",
             "/why": "Why this question?",
             "/save": "Save",
-            "/undo": "Undo",
             "/compare": "Compare with rules",
             "/done": "Finish",
         }
@@ -366,21 +493,23 @@ class TerminalProcessSession:
         self._publish_if_ready()
         with self._lock:
             interaction = self.interaction_snapshot()
-            buttons = interaction["choices"] if self._waiting else []
+            effective_waiting = self._waiting and not self._restoring
+            buttons = interaction["choices"] if effective_waiting else []
             return {
                 "turns": [turn.__dict__ for turn in self.turns],
-                "waiting": self._waiting,
+                "waiting": effective_waiting,
+                "restoring": self._restoring,
                 "closed": self._closed,
                 "buttons": buttons,
                 "interaction": interaction,
                 "model": self.model_snapshot(),
                 "ai": self.ai_snapshot(),
+                "can_undo": bool(self.input_history),
             }
 
     def close(self) -> None:
+        self._terminate_worker()
         with self._lock:
-            if self.process.poll() is None:
-                self.process.terminate()
             self._closed = True
 
 
