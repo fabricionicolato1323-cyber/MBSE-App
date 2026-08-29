@@ -74,6 +74,39 @@ class CharacteristicsFlowMixin:
             max_length=40,
         )
 
+    def _ask_numeric_operator(self) -> str:
+        return self.ask_choice(
+            "How should this numeric value be interpreted?",
+            [
+                ("=", "Exactly (=)"),
+                (">=", "At least (≥)"),
+                (">", "More than (>)"),
+                ("<=", "At most (≤)"),
+                ("<", "Less than (<)"),
+            ],
+            "Choose whether the number is exact, a minimum, or a maximum.",
+        )
+
+    def _ask_lower_bound_operator(self) -> str:
+        return self.ask_choice(
+            "How should the lower bound be applied?",
+            [
+                (">=", "Include the lower bound (≥)"),
+                (">", "Exclude the lower bound (>)"),
+            ],
+            "A minimum can include the boundary value (≥) or require a value above it (>).",
+        )
+
+    def _ask_upper_bound_operator(self) -> str:
+        return self.ask_choice(
+            "How should the upper bound be applied?",
+            [
+                ("<=", "Include the upper bound (≤)"),
+                ("<", "Exclude the upper bound (<)"),
+            ],
+            "A maximum can include the boundary value (≤) or require a value below it (<).",
+        )
+
     def _characteristic_targets(self) -> list[dict[str, Any]]:
         targets: list[dict[str, Any]] = []
         for node_id, data in self.model.graph.nodes(data=True):
@@ -118,25 +151,48 @@ class CharacteristicsFlowMixin:
         )
 
         if value_type == "number":
+            value = self._ask_numeric("What is the numeric value?")
+            operator = self._ask_numeric_operator()
             return {
                 "name": name,
                 "value_type": "number",
-                "value": self._ask_numeric("What is the numeric value?"),
+                "value": value,
+                "operator": operator,
                 "unit": self._ask_unit(),
             }
 
         if value_type == "range":
             lower = self._ask_numeric("What is the lower bound?")
+            lower_operator = self._ask_lower_bound_operator()
             while True:
                 upper = self._ask_numeric("What is the upper bound?")
-                if upper >= lower:
-                    break
-                self.add_notice("Upper bound must be greater than or equal to the lower bound.")
+                if upper < lower:
+                    self.add_notice(
+                        "Upper bound must be greater than or equal to the lower bound."
+                    )
+                    continue
+                if upper == lower and lower_operator == ">":
+                    self.add_notice(
+                        "The upper bound must be greater than the lower bound "
+                        "when the lower boundary is excluded."
+                    )
+                    continue
+
+                upper_operator = self._ask_upper_bound_operator()
+                if upper == lower and upper_operator == "<":
+                    self.add_notice(
+                        "Equal bounds are only valid when both boundaries are included."
+                    )
+                    continue
+                break
+
             return {
                 "name": name,
                 "value_type": "range",
                 "lower_bound": lower,
+                "lower_operator": lower_operator,
                 "upper_bound": upper,
+                "upper_operator": upper_operator,
                 "unit": self._ask_unit(),
             }
 

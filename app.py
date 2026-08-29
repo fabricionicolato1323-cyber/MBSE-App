@@ -2,10 +2,17 @@ from __future__ import annotations
 
 import app_base as _base
 from app_base import *  # noqa: F401,F403 - preserve the public surface of app.py
+from characteristic_operators import install_characteristic_operator_support
 from characteristics_flow import CharacteristicsFlowMixin
 from composition_flow import CompositionFlowMixin
 from guidance_flow import GuidanceFlowMixin
 from participant_flow import ParticipantFlowMixin
+
+
+# Extend the central graph characteristic schema before any OAApp instance is
+# created. This also affects the web autosave subclass because it inherits from
+# the same graph model class.
+install_characteristic_operator_support()
 
 
 class OAApp(
