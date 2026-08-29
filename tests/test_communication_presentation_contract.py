@@ -8,7 +8,7 @@ def test_communication_presentation_assets_are_loaded():
     loader = (ROOT / "static" / "model_relationships.js").read_text(encoding="utf-8")
     assert "communication_presentation.js" in loader
     assert "communication_presentation.css" in loader
-    assert "data-oa-communication-presentation-script" in loader
+    assert "oaCommunicationPresentationScript" in loader
 
 
 def test_textual_communication_is_a_hierarchy_with_explicit_carried_exchanges():
