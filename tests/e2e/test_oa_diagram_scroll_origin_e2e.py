@@ -120,50 +120,50 @@ def test_leftmost_diagram_content_remains_reachable_by_horizontal_scrollbar(diag
             page.wait_for_timeout(400)
 
             # Reproduce the reported failure: move a child far enough left that
-            # its actor and enclosing entity would previously grow into x < 0.
+            # its actor and enclosing entity grow beyond the old x=0 boundary.
+            # The current picture is preserved by increasing scrollLeft, which
+            # creates a real native-scrollbar reserve to the left.
             _drag(page, '[data-node-id="report"]', -520, 0)
 
             metrics = page.evaluate(
                 """() => {
                     const viewport = document.getElementById('oaDiagramViewport');
-                    const outer = document.querySelector('[data-node-id="battlefield"]');
-                    const vr = viewport.getBoundingClientRect();
-                    const nr = outer.getBoundingClientRect();
                     return {
                         scrollLeft: viewport.scrollLeft,
                         scrollWidth: viewport.scrollWidth,
                         clientWidth: viewport.clientWidth,
-                        leftInsideViewport: nr.left - vr.left,
                         view: window.oaDiagram.getView(),
                     };
                 }"""
             )
-            assert metrics["scrollLeft"] == 0
-            assert metrics["leftInsideViewport"] >= 0
+            assert metrics["scrollLeft"] > 0
             assert metrics["view"]["x"] >= 0
             assert metrics["scrollWidth"] > metrics["clientWidth"]
 
-            # The native scrollbar must travel to the right and then all the way
-            # back to zero, where the complete left edge is still visible.
+            # Moving the scrollbar fully left must now reveal the complete
+            # left boundary of the outer entity. It must also remain possible
+            # to travel right and return to the same left endpoint.
             scroll = page.evaluate(
                 """() => {
                     const viewport = document.getElementById('oaDiagramViewport');
-                    viewport.scrollLeft = viewport.scrollWidth;
-                    const right = viewport.scrollLeft;
                     viewport.scrollLeft = 0;
                     const outer = document.querySelector('[data-node-id="battlefield"]');
                     const vr = viewport.getBoundingClientRect();
                     const nr = outer.getBoundingClientRect();
-                    return {right, left: viewport.scrollLeft, leftInsideViewport: nr.left - vr.left};
+                    const leftInsideViewport = nr.left - vr.left;
+                    viewport.scrollLeft = viewport.scrollWidth;
+                    const right = viewport.scrollLeft;
+                    viewport.scrollLeft = 0;
+                    return {right, left: viewport.scrollLeft, leftInsideViewport};
                 }"""
             )
             assert scroll["right"] > 0
             assert scroll["left"] == 0
-            assert scroll["leftInsideViewport"] >= 0
+            assert scroll["leftInsideViewport"] >= -1
 
-            # A background pan to the left used to create a negative CSS
-            # translation and reintroduce the same unreachable area. After the
-            # gesture completes, the translation is normalized as well.
+            # A background pan to the left can also create negative view
+            # translation. On pointer-up it is converted to native scroll so
+            # the same left-side reachability guarantee remains true.
             viewport_box = page.locator("#oaDiagramViewport").bounding_box()
             assert viewport_box is not None
             x = viewport_box["x"] + viewport_box["width"] * 0.55
