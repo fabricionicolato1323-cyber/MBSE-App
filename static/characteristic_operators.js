@@ -12,9 +12,12 @@ function revisionCharacteristicOperatorSymbol(operator) {
 
 function revisionOperatorAwareCharacteristicText(characteristic) {
   const name = characteristic.name || 'Characteristic';
-  const unit = characteristic.unit ? ` ${characteristic.unit}` : '';
+  const kind = characteristic.value_type || '';
+  const isPercentage = kind === 'percentage' || kind === 'percentage_range';
+  const rawUnit = isPercentage ? '%' : (characteristic.unit || '');
+  const unit = rawUnit === '%' ? '%' : (rawUnit ? ` ${rawUnit}` : '');
 
-  if (characteristic.value_type === 'range' ||
+  if (kind === 'range' || kind === 'percentage_range' ||
       characteristic.lower_bound !== undefined ||
       characteristic.upper_bound !== undefined) {
     const lower = characteristic.lower_bound ?? '';
@@ -23,10 +26,14 @@ function revisionOperatorAwareCharacteristicText(characteristic) {
     const upperOperator = characteristic.upper_operator || '<=';
     const lowerRelation = lowerOperator === '>' ? '<' : '≤';
     const upperRelation = upperOperator === '<' ? '<' : '≤';
+
+    if (rawUnit === '%') {
+      return `${name}: ${lower}% ${lowerRelation} value ${upperRelation} ${upper}%`;
+    }
     return `${name}: ${lower} ${lowerRelation} value ${upperRelation} ${upper}${unit}`;
   }
 
-  if (characteristic.value_type === 'number' ||
+  if (kind === 'number' || kind === 'percentage' ||
       typeof characteristic.value === 'number') {
     const symbol = revisionCharacteristicOperatorSymbol(characteristic.operator || '=');
     return `${name}: ${symbol} ${characteristic.value ?? ''}${unit}`;
