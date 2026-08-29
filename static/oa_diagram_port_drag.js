@@ -1,19 +1,18 @@
 import {state, persist} from './oa_diagram_v2_state.js';
 import {
   el,
-  render,
-  renderEdges,
-  updateBounds,
   applyView,
+  getCanvasOrigin,
+  renderEdges,
   setPortVerticalRatio,
   persistPortOffsets,
   resetPortOffsets,
 } from './oa_diagram_v2_render.js';
 
-const SCROLL_SAFE_MARGIN = 60;
 let drag = null;
 let renderFrame = 0;
-let originFrame = 0;
+let viewFrame = 0;
+let forceOriginScroll = false;
 let edgeObserver = null;
 
 function ensureRoutedSourceArrows() {
@@ -22,59 +21,56 @@ function ensureRoutedSourceArrows() {
   });
 }
 
-function normalizeScrollableOrigin() {
-  originFrame = 0;
-  if (!el.viewport || !state.layout?.size) return;
+function normalizeScrollableView() {
+  viewFrame = 0;
+  if (!el.viewport) return;
 
-  let minX = Infinity;
-  let minY = Infinity;
-  state.layout.forEach(box => {
-    if (!box) return;
-    minX = Math.min(minX, Number(box.x));
-    minY = Math.min(minY, Number(box.y));
-  });
-  if (!Number.isFinite(minX) || !Number.isFinite(minY)) return;
+  const origin = getCanvasOrigin();
+  const zoom = Math.max(0.0001, Number(state.view.zoom) || 1);
 
-  const dx = minX < SCROLL_SAFE_MARGIN ? SCROLL_SAFE_MARGIN - minX : 0;
-  const dy = minY < SCROLL_SAFE_MARGIN ? SCROLL_SAFE_MARGIN - minY : 0;
-  let layoutChanged = false;
-  if (dx || dy) {
-    state.layout.forEach(box => {
-      if (!box) return;
-      box.x += dx;
-      box.y += dy;
-    });
-    layoutChanged = true;
+  // Fit is calculated in semantic/model coordinates. The renderer adds a
+  // presentation-only origin so negative model coordinates live in real DOM
+  // space. Scrolling by that origin cancels the presentation offset, preserving
+  // the established Fit behaviour while leaving a genuine reserve to its left.
+  if (forceOriginScroll) {
+    el.viewport.scrollLeft = Math.max(0, origin.x * zoom);
+    el.viewport.scrollTop = Math.max(0, origin.y * zoom);
+    forceOriginScroll = false;
   }
 
-  // Native scrollbars cannot reach visual content translated before the
-  // viewport's zero coordinate. Negative view translations therefore create
-  // the exact situation where the scrollbar is already fully left while the
-  // diagram is still cut off. Keep translation non-negative and let the
-  // native scrollbar own left/right navigation.
-  const oldViewX = Number(state.view.x) || 0;
-  const oldViewY = Number(state.view.y) || 0;
-  state.view.x = Math.max(0, oldViewX);
-  state.view.y = Math.max(0, oldViewY);
-  const viewChanged = state.view.x !== oldViewX || state.view.y !== oldViewY;
+  let changed = false;
+  const viewX = Number(state.view.x) || 0;
+  const viewY = Number(state.view.y) || 0;
 
-  if (layoutChanged) {
-    render();
-  } else if (viewChanged) {
-    updateBounds();
+  // CSS translation can move content before the native scrollbar's zero point.
+  // Convert any negative translation into an equivalent positive scroll offset.
+  // The picture stays in the same place, but the user can now drag the scrollbar
+  // back toward zero to reveal the complete left/top side of the diagram.
+  if (viewX < 0) {
+    el.viewport.scrollLeft = Math.max(0, el.viewport.scrollLeft - viewX);
+    state.view.x = 0;
+    changed = true;
+  }
+  if (viewY < 0) {
+    el.viewport.scrollTop = Math.max(0, el.viewport.scrollTop - viewY);
+    state.view.y = 0;
+    changed = true;
+  }
+
+  if (changed) {
     applyView();
-    renderEdges();
-  }
-
-  if (layoutChanged || viewChanged) {
     persist();
-    ensureRoutedSourceArrows();
   }
 }
 
-function scheduleOriginNormalization() {
-  if (originFrame) return;
-  originFrame = requestAnimationFrame(normalizeScrollableOrigin);
+function scheduleViewNormalization(forceOrigin = false) {
+  forceOriginScroll ||= forceOrigin;
+  if (viewFrame) return;
+  // Some toolbar actions themselves defer layout work with requestAnimationFrame.
+  // Two frames guarantee that the conversion runs after their final view update.
+  viewFrame = requestAnimationFrame(() => {
+    viewFrame = requestAnimationFrame(normalizeScrollableView);
+  });
 }
 
 function scheduleRender() {
@@ -89,7 +85,8 @@ function scheduleRender() {
 function modelYForPointer(event) {
   const rect = el.viewport.getBoundingClientRect();
   const contentY = event.clientY - rect.top + el.viewport.scrollTop;
-  return (contentY - state.view.y) / Math.max(0.0001, state.view.zoom);
+  const origin = getCanvasOrigin();
+  return (contentY - state.view.y) / Math.max(0.0001, state.view.zoom) - origin.y;
 }
 
 function ratioForPointer(event, participantId) {
@@ -159,19 +156,21 @@ function install() {
   el.viewport.addEventListener('pointermove', movePort, {capture: true});
   el.viewport.addEventListener('pointerup', endPortDrag, {capture: true});
   el.viewport.addEventListener('pointercancel', endPortDrag, {capture: true});
-  el.viewport.addEventListener('wheel', scheduleOriginNormalization, {capture: true, passive: true});
+  el.viewport.addEventListener('wheel', () => scheduleViewNormalization(false), {capture: true, passive: true});
 
   document.getElementById('oaDiagramReset')?.addEventListener('click', () => {
     resetPortOffsets();
+    scheduleViewNormalization(false);
   }, {capture: true});
+  document.getElementById('oaDiagramFit')?.addEventListener('click', () => scheduleViewNormalization(true), {capture: true});
+  document.getElementById('oaDiagramZoomIn')?.addEventListener('click', () => scheduleViewNormalization(false), {capture: true});
+  document.getElementById('oaDiagramZoomOut')?.addEventListener('click', () => scheduleViewNormalization(false), {capture: true});
 
-  // Window capture runs before the diagram's own pointer-up handlers. Queueing
-  // one animation frame means normalization happens after node/container drag,
-  // resize, pan and area-zoom logic has finished updating the layout/view.
-  window.addEventListener('pointerup', scheduleOriginNormalization, {capture: true});
-  window.addEventListener('pointercancel', scheduleOriginNormalization, {capture: true});
-  el.tab?.addEventListener('click', scheduleOriginNormalization, {capture: true});
-  window.addEventListener('oa:diagram-model-rendered', scheduleOriginNormalization);
+  // Window capture runs before the diagram's own pointer-up handlers. The
+  // deferred normalization therefore sees the final drag/pan/area-zoom state.
+  window.addEventListener('pointerup', () => scheduleViewNormalization(false), {capture: true});
+  window.addEventListener('pointercancel', () => scheduleViewNormalization(false), {capture: true});
+  window.addEventListener('oa:diagram-model-rendered', () => scheduleViewNormalization(false));
 
   // Node moves, resizing and model polling rebuild the SVG connection layer.
   // Re-assert the source-segment marker after every such redraw so Activity -> P
@@ -183,7 +182,7 @@ function install() {
   }
 
   scheduleRender();
-  scheduleOriginNormalization();
+  scheduleViewNormalization(false);
 }
 
 if (el.viewport) install();
