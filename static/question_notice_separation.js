@@ -42,6 +42,45 @@ function revisionSplitAssistantQuestion(content) {
   return {notice, question};
 }
 
+const revisionBaseRenderAssistantContent = renderRevisionAssistantContent;
+renderRevisionAssistantContent = function resilientAssistantContent(bubble, content) {
+  if (/Traceback \(most recent call last\):/i.test(String(content || ''))) {
+    const line = document.createElement('div');
+    line.className = 'message-line main';
+    line.textContent = (
+      'The local modeling worker stopped unexpectedly. ' +
+      'Technical details were saved to worker.log.'
+    );
+    bubble.appendChild(line);
+    return;
+  }
+  revisionBaseRenderAssistantContent(bubble, content);
+};
+
+let revisionLastAutoRevealTurnId = null;
+revisionRevealActiveQuestion = function stableRevisionReveal(chatRoot, activeRow) {
+  if (!chatRoot || !activeRow) return;
+  const turnId = String(activeRow.dataset.turnId || '');
+  if (turnId && turnId === revisionLastAutoRevealTurnId) return;
+  if (turnId) revisionLastAutoRevealTurnId = turnId;
+
+  requestAnimationFrame(() => {
+    const chatRect = chatRoot.getBoundingClientRect();
+    const rowRect = activeRow.getBoundingClientRect();
+    const padding = 12;
+
+    if (rowRect.height > chatRect.height - padding * 2) {
+      chatRoot.scrollTop += rowRect.top - chatRect.top - padding;
+      return;
+    }
+    if (rowRect.top < chatRect.top + padding) {
+      chatRoot.scrollTop += rowRect.top - chatRect.top - padding;
+    } else if (rowRect.bottom > chatRect.bottom - padding) {
+      chatRoot.scrollTop += rowRect.bottom - chatRect.bottom + padding;
+    }
+  });
+};
+
 function revisionAppendAssistantRow(chatRoot, turn, content, options = {}) {
   const row = document.createElement('div');
   row.className = `message-row assistant${options.notice ? ' notice-row' : ''}`;
