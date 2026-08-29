@@ -74,7 +74,11 @@ def _diagram_model() -> dict:
             {"source": "detector", "target": "rate", "type": "PERFORMS"},
             {"source": "soldier", "target": "battlefield", "type": "LOCATED_IN"},
             {"source": "detector", "target": "battlefield", "type": "LOCATED_IN"},
-            {"source": "detect", "target": "report", "type": "OPERATIONAL_EXCHANGE", "name": "Threat report"},
+            # Legacy loaded interaction: it predates exchange_refs but there is
+            # exactly one Communication Mean between the two performers.
+            {"source": "detect", "target": "engage", "type": "OPERATIONAL_EXCHANGE", "name": "Threat location"},
+            # New interaction explicitly associated with the existing Radio link.
+            {"source": "report", "target": "rate", "type": "OPERATIONAL_EXCHANGE", "name": "Kill count", "communication_assignment": "assigned"},
             {
                 "source": "detector",
                 "target": "soldier",
@@ -82,9 +86,9 @@ def _diagram_model() -> dict:
                 "name": "Radio link",
                 "exchange_refs": [
                     {
-                        "source_activity_id": "detect",
-                        "target_activity_id": "report",
-                        "exchange_name": "Threat report",
+                        "source_activity_id": "report",
+                        "target_activity_id": "rate",
+                        "exchange_name": "Kill count",
                     }
                 ],
             },
@@ -102,14 +106,14 @@ def _drag(page, selector: str, dx: float, dy: float, button: str = "left") -> No
     page.mouse.down(button=button)
     page.mouse.move(x + dx, y + dy, steps=10)
     page.mouse.up(button=button)
-    page.wait_for_timeout(120)
+    page.wait_for_timeout(160)
 
 
 @pytest.mark.skipif(
     os.getenv("RUN_E2E") != "1",
     reason="Playwright E2E tests run in the dedicated CI job.",
 )
-def test_scroll_area_zoom_fullscreen_and_four_direction_parent_growth(diagram_web_server_v4):
+def test_scroll_area_zoom_fullscreen_four_direction_growth_and_movable_ports(diagram_web_server_v4):
     from playwright.sync_api import expect, sync_playwright
 
     with sync_playwright() as playwright:
@@ -118,13 +122,63 @@ def test_scroll_area_zoom_fullscreen_and_four_direction_parent_growth(diagram_we
         try:
             page.goto(BASE_URL, wait_until="load")
             page.wait_for_function("() => !!window.oaDiagram", timeout=20_000)
+            page.wait_for_function(
+                "() => document.getElementById('oaDiagramViewport')?.dataset.portDragInstalled === 'true'",
+                timeout=20_000,
+            )
             expect(page.locator("#statusLine")).to_have_text("Ready", timeout=20_000)
             page.route("**/api/state", lambda route: route.abort())
             page.evaluate("() => { window.applyState = function () {}; }")
             page.get_by_role("tab", name="Diagram").click()
             page.evaluate("model => window.oaDiagram.render(model, 'diagram-v4-e2e')", _diagram_model())
             page.evaluate("() => window.oaDiagram.resetLayout()")
-            page.wait_for_timeout(300)
+            page.wait_for_timeout(350)
+
+            # The old Threat location interaction and the newer Kill count
+            # interaction must both route through the sole Radio link. There
+            # must be no direct Activity-to-Activity exchange in this legacy
+            # compatibility case.
+            expect(page.locator("#oaDiagramEdges .direct-exchange")).to_have_count(0)
+            expect(page.locator("#oaDiagramEdges .source-segment")).to_have_count(2)
+            expect(page.locator("#oaDiagramEdges .target-segment")).to_have_count(2)
+            expect(page.locator("#oaDiagramEdges .communication-mean")).to_have_count(1)
+
+            communication_label = page.locator("#oaDiagramEdges .communication-label")
+            expect(communication_label).to_contain_text("Radio link")
+            expect(communication_label).to_contain_text("Threat location")
+            expect(communication_label).to_contain_text("Kill count")
+
+            # Arrow tips are exactly half of their previous marker dimensions.
+            marker_sizes = page.evaluate(
+                """() => ({
+                    interaction: [
+                        document.getElementById('oaInteractionArrow')?.getAttribute('markerWidth'),
+                        document.getElementById('oaInteractionArrow')?.getAttribute('markerHeight')
+                    ],
+                    relation: [
+                        document.getElementById('oaRelationArrow')?.getAttribute('markerWidth'),
+                        document.getElementById('oaRelationArrow')?.getAttribute('markerHeight')
+                    ]
+                })"""
+            )
+            assert marker_sizes["interaction"] == ["4.5", "4.5"]
+            assert marker_sizes["relation"] == ["4", "4"]
+
+            # Communication ports P slide vertically on the participant border.
+            first_port = page.locator(".oa-diagram-port").first
+            port_before = first_port.bounding_box()
+            assert port_before is not None
+            _drag(page, ".oa-diagram-port", 0, 85)
+            port_after = page.locator(".oa-diagram-port").first.bounding_box()
+            assert port_after is not None
+            assert port_after["y"] > port_before["y"] + 25
+            assert abs(port_after["x"] - port_before["x"]) < 8
+            saved_ports = page.evaluate(
+                """() => Object.keys(localStorage)
+                    .filter(key => key.startsWith('oa-diagram-ports:v1:'))
+                    .map(key => JSON.parse(localStorage.getItem(key) || '{}'))"""
+            )
+            assert saved_ports and any(saved_ports[0].values())
 
             # Native scrollbars support both axes. Artificially enlarge the scene
             # here so the browser must expose real horizontal and vertical scroll.
