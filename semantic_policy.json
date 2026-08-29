@@ -1,4 +1,9 @@
 {
+  "goal_outcome_verbs": [
+    "achieve", "allow", "avoid", "enable", "ensure", "improve", "keep",
+    "maintain", "maximize", "minimize", "preserve", "prevent", "protect",
+    "reduce", "safeguard", "secure", "support", "sustain"
+  ],
   "technical_solution_terms": [
     "system",
     "software",
