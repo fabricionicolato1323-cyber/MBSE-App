@@ -96,7 +96,23 @@ renderRevisionDetails = function relationshipAwareDetailsRenderer(model) {
     document.head.appendChild(style);
   }
 
+  if (!document.querySelector('link[data-oa-communication-presentation-style]')) {
+    const style = document.createElement('link');
+    style.rel = 'stylesheet';
+    style.href = `${base}communication_presentation.css`;
+    style.dataset.oaCommunicationPresentationStyle = 'true';
+    document.head.appendChild(style);
+  }
+
   const load = () => {
+    if (!document.querySelector('script[data-oa-communication-presentation-script]')) {
+      const presentation = document.createElement('script');
+      presentation.src = `${base}communication_presentation.js`;
+      presentation.dataset.oaCommunicationPresentationScript = 'true';
+      presentation.async = false;
+      document.body.appendChild(presentation);
+    }
+
     if (document.querySelector('script[data-oa-diagram-script]')) return;
     const script = document.createElement('script');
     script.type = 'module';
