@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Callable, Iterator
 
 import app_base
+from action_first_inline_flow import ActionFirstInlineCreationMixin
 from graph_model import OAGraph
 from web_ai import AIControlManager
 from web_guided_flow import WebGuidedFlowMixin
@@ -234,7 +235,12 @@ def main() -> None:
 
     import app
 
-    class WebOAApp(WebInteractionMixin, WebGuidedFlowMixin, app.OAApp):
+    class WebOAApp(
+        WebInteractionMixin,
+        ActionFirstInlineCreationMixin,
+        WebGuidedFlowMixin,
+        app.OAApp,
+    ):
         pass
 
     web_app = WebOAApp()
