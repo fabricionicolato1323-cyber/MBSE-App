@@ -3,13 +3,24 @@
 :root {
   --oa-communication-stroke: 5px;
   --oa-relation-stroke: 1.8px;
+  --oa-entity-fill: #e9e9da;
+  --oa-entity-border: #88866f;
+  --oa-actor-fill: #f2f1e7;
+  --oa-actor-border: #7d7a68;
+  --oa-activity-fill: #f6d66f;
+  --oa-activity-border: #b49336;
+  --oa-capability-fill: #e8c89d;
+  --oa-capability-border: #997247;
+  --oa-exchange-stroke: #766963;
+  --oa-communication-color: #51464b;
+  --oa-port-border: #3478ae;
 }
 
 #diagramTab.active {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #f8f6fa;
+  background: #f8f7f3;
 }
 
 .oa-diagram-toolbar {
@@ -21,7 +32,7 @@
   gap: 8px;
   padding: 7px 10px;
   border-bottom: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.94);
+  background: rgba(255, 255, 255, 0.96);
 }
 
 .oa-diagram-tools {
@@ -52,6 +63,15 @@
   outline: none;
 }
 
+.oa-diagram-toggle {
+  min-width: 116px;
+}
+
+.oa-diagram-toggle.active {
+  border-color: #9d86ad;
+  background: var(--synopsys-purple-soft);
+}
+
 .oa-diagram-mode-label {
   color: var(--muted);
   font-size: 10px;
@@ -67,10 +87,10 @@
   touch-action: none;
   cursor: grab;
   outline: none;
-  background-color: #fbfafd;
+  background-color: #fbfaf7;
   background-image:
-    linear-gradient(rgba(90, 42, 130, .045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(90, 42, 130, .045) 1px, transparent 1px);
+    linear-gradient(rgba(96, 88, 69, .05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(96, 88, 69, .05) 1px, transparent 1px);
   background-size: 24px 24px;
 }
 
@@ -78,7 +98,8 @@
   box-shadow: inset 0 0 0 3px rgba(90, 42, 130, .16);
 }
 
-.oa-diagram-viewport.is-panning {
+.oa-diagram-viewport.is-panning,
+.oa-diagram-viewport.is-dragging {
   cursor: grabbing;
 }
 
@@ -90,6 +111,7 @@
   will-change: transform;
 }
 
+.oa-diagram-containers,
 .oa-diagram-edges,
 .oa-diagram-nodes,
 .oa-diagram-ports {
@@ -99,6 +121,13 @@
   height: 100%;
 }
 
+/* Layering is deliberate: context containers behind relations, activities and
+   capabilities above relations, ports above everything. */
+.oa-diagram-containers {
+  z-index: 10;
+  pointer-events: none;
+}
+
 .oa-diagram-edges {
   z-index: 20;
   overflow: visible;
@@ -106,12 +135,12 @@
 }
 
 .oa-diagram-nodes {
-  z-index: 10;
+  z-index: 30;
   pointer-events: none;
 }
 
 .oa-diagram-ports {
-  z-index: 30;
+  z-index: 40;
   pointer-events: none;
 }
 
@@ -119,51 +148,68 @@
   position: absolute;
   pointer-events: auto;
   user-select: none;
-  border: 2px solid #8f70a3;
-  border-radius: 11px;
-  background: #fff;
-  color: var(--text);
-  box-shadow: 0 4px 12px rgba(61, 29, 89, .08);
-  cursor: move;
+  border: 2px solid var(--oa-entity-border);
+  border-radius: 9px;
+  color: #332f2a;
+  box-shadow: 0 3px 10px rgba(64, 54, 40, .08);
   overflow: hidden;
 }
 
 .oa-diagram-node.participant-container {
-  background: rgba(255, 255, 255, .72);
   overflow: visible;
+}
+
+.oa-diagram-node.type-operationalentity {
+  border-color: var(--oa-entity-border);
+  background: rgba(233, 233, 218, .82);
 }
 
 .oa-diagram-node.type-operationalactor {
   border-style: dashed;
-  border-color: #746183;
-  background: rgba(250, 247, 252, .82);
+  border-color: var(--oa-actor-border);
+  background: rgba(242, 241, 231, .9);
 }
 
 .oa-diagram-node.type-operationalactivity {
-  border-radius: 8px;
-  border-width: 1.7px;
-  background: #fff;
+  border-radius: 7px;
+  border-width: 1.8px;
+  border-color: var(--oa-activity-border);
+  background: var(--oa-activity-fill);
+  cursor: grab;
 }
 
 .oa-diagram-node.type-operationalcapability {
   border-radius: 999px;
-  border-color: #9e85ad;
-  background: #faf7fc;
+  border-color: var(--oa-capability-border);
+  background: var(--oa-capability-fill);
+  cursor: grab;
 }
 
+.oa-diagram-node.type-pending,
 .oa-diagram-node.temporary {
-  border-color: var(--temporary);
-  border-style: dashed;
-  background: var(--synopsys-orange-soft);
+  outline: 2px dashed var(--temporary);
+  outline-offset: 2px;
+}
+
+.oa-diagram-node.temporary::after {
+  content: '';
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--temporary);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, .82);
+  pointer-events: none;
 }
 
 .oa-diagram-node.selected {
-  border-color: var(--synopsys-purple-deep);
-  box-shadow: 0 0 0 4px rgba(90, 42, 130, .16), 0 6px 18px rgba(61, 29, 89, .11);
+  box-shadow: 0 0 0 4px rgba(90, 42, 130, .18), 0 6px 18px rgba(61, 29, 89, .11);
 }
 
 .scenario-mode .oa-diagram-node.selected {
-  box-shadow: 0 0 0 5px rgba(90, 42, 130, .22), 0 6px 18px rgba(61, 29, 89, .11);
+  box-shadow: 0 0 0 5px rgba(90, 42, 130, .24), 0 6px 18px rgba(61, 29, 89, .11);
 }
 
 .oa-diagram-node:focus-visible {
@@ -172,23 +218,33 @@
 }
 
 .oa-diagram-node-header {
-  min-height: 42px;
+  min-height: 46px;
   display: grid;
   gap: 2px;
   align-content: center;
   padding: 7px 12px 6px;
-  border-bottom: 1px solid rgba(90, 42, 130, .10);
-  background: rgba(255, 255, 255, .78);
+  border-bottom: 1px solid rgba(89, 82, 63, .16);
+  background: rgba(255, 255, 255, .32);
   border-radius: inherit;
+}
+
+.oa-diagram-drag-handle {
+  cursor: grab;
+}
+
+.oa-diagram-viewport.is-dragging .oa-diagram-drag-handle,
+.oa-diagram-viewport.is-dragging .leaf-node {
+  cursor: grabbing;
 }
 
 .leaf-node .oa-diagram-node-header {
   min-height: 100%;
   border-bottom: 0;
+  background: transparent;
 }
 
 .oa-diagram-node-type {
-  color: var(--muted);
+  color: #625d52;
   font-size: 8.5px;
   font-weight: 850;
   text-transform: uppercase;
@@ -201,17 +257,17 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--text);
+  color: #332f2a;
   font-size: 11px;
   line-height: 1.25;
 }
 
 .oa-diagram-containment-hint {
   position: absolute;
-  top: 44px;
-  left: 10px;
-  right: 10px;
-  color: #8a7d91;
+  top: 49px;
+  left: 11px;
+  right: 11px;
+  color: #807a6d;
   font-size: 8px;
   line-height: 1.2;
   pointer-events: none;
@@ -219,18 +275,18 @@
 
 .oa-diagram-resize-handle {
   position: absolute;
-  right: 2px;
-  bottom: 2px;
-  width: 24px;
-  height: 24px;
+  right: 3px;
+  bottom: 3px;
+  width: 23px;
+  height: 23px;
   display: grid;
   place-items: center;
   padding: 0;
   border: 0;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, .84);
-  color: #796886;
-  font-size: 12px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, .72);
+  color: #706b60;
+  font-size: 11px;
   cursor: nwse-resize;
 }
 
@@ -249,10 +305,10 @@
   place-items: center;
   padding: 0;
   pointer-events: auto;
-  border: 2px solid #4d3b58;
+  border: 2px solid var(--oa-port-border);
   border-radius: 2px;
   background: #fff;
-  color: #34283b;
+  color: #2a5877;
   font-size: 9px;
   font-weight: 900;
   line-height: 1;
@@ -270,23 +326,27 @@
 .oa-diagram-edge {
   fill: none;
   pointer-events: stroke;
-  stroke: #7e6c89;
+  stroke: var(--oa-exchange-stroke);
   stroke-width: var(--oa-relation-stroke);
   vector-effect: non-scaling-stroke;
   cursor: pointer;
 }
 
 .oa-diagram-edge.operational-exchange {
-  marker-end: url(#oaArrow);
+  stroke: var(--oa-exchange-stroke);
+}
+
+.oa-diagram-edge.routed-segment {
+  stroke-width: var(--oa-relation-stroke);
 }
 
 .oa-diagram-edge.ordinary-relation {
+  stroke: #8d827b;
   stroke-dasharray: 5 4;
-  marker-end: url(#oaArrow);
 }
 
 .oa-diagram-edge.communication-mean {
-  stroke: #493653;
+  stroke: var(--oa-communication-color);
   stroke-width: var(--oa-communication-stroke);
   stroke-linecap: round;
 }
@@ -299,18 +359,23 @@
   pointer-events: auto;
   cursor: pointer;
   paint-order: stroke;
-  stroke: #fbfafd;
+  stroke: #fbfaf7;
   stroke-width: 4px;
-  fill: #675870;
+  fill: #625952;
   font-size: 10px;
   font-weight: 650;
   text-anchor: middle;
   vector-effect: non-scaling-stroke;
 }
 
+.oa-diagram-edge-label.exchange-label {
+  fill: #655c54;
+  font-weight: 700;
+}
+
 .oa-diagram-edge-label.communication-label {
-  fill: #3e3046;
-  font-weight: 800;
+  fill: #3f383d;
+  font-weight: 850;
 }
 
 .oa-diagram-edge-label.selected {
@@ -318,7 +383,7 @@
 }
 
 .oa-diagram-arrow-head {
-  fill: #7e6c89;
+  fill: var(--oa-exchange-stroke);
 }
 
 .oa-diagram-empty {
