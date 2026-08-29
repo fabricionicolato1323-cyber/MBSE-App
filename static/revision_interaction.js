@@ -185,17 +185,20 @@ function effectiveRevisionInteraction(state) {
   return explicit;
 }
 
-function revisionInteractionSignature(interaction, waiting, locked) {
+function revisionInteractionSignature(interaction) {
   return JSON.stringify({
     session: activeSessionId || '',
     mode: interaction.mode,
     choices: interaction.choices.map(choice => [
       String(choice.label ?? ''),
       String(choice.value ?? '')
-    ]),
-    waiting: Boolean(waiting),
-    locked: Boolean(locked),
-    busy: Boolean(busy)
+    ])
+  });
+}
+
+function revisionSetStructuredButtonsEnabled(quickRoot, enabled) {
+  quickRoot.querySelectorAll('button').forEach(button => {
+    button.disabled = !enabled;
   });
 }
 
@@ -207,21 +210,25 @@ function renderRevisionInteraction(interaction, waiting, {locked = false} = {}) 
 
   const structured = waiting && normalized.mode !== 'free_text';
   const freeText = waiting && normalized.mode === 'free_text';
-  const signature = revisionInteractionSignature(normalized, waiting, locked);
+  const signature = revisionInteractionSignature(normalized);
   const expectedButtonCount = structured ? normalized.choices.length : 0;
-  const stableStructuredDom = !structured || quickRoot.childElementCount === expectedButtonCount;
+  const sameInteraction = signature === revisionLastInteractionSignature;
+  const stableStructuredDom = (
+    structured &&
+    sameInteraction &&
+    quickRoot.childElementCount === expectedButtonCount
+  );
+  const controlsEnabled = waiting && !busy && !locked;
 
   quickRoot.hidden = !structured;
   composerRoot.hidden = !freeText;
 
-  if (
-    signature === revisionLastInteractionSignature &&
-    stableStructuredDom
-  ) {
+  if (stableStructuredDom) {
+    revisionSetStructuredButtonsEnabled(quickRoot, controlsEnabled);
     return;
   }
-  revisionLastInteractionSignature = signature;
 
+  revisionLastInteractionSignature = signature;
   quickRoot.innerHTML = '';
   quickRoot.className = 'quick-actions';
   if (!structured) return;
@@ -235,7 +242,7 @@ function renderRevisionInteraction(interaction, waiting, {locked = false} = {}) 
     button.type = 'button';
     button.textContent = choice.label;
     if (/^\+\s*Add new/i.test(choice.label)) button.classList.add('add-new-option');
-    button.disabled = !waiting || busy || locked;
+    button.disabled = !controlsEnabled;
     button.addEventListener('click', () =>
       sendValue(String(choice.value ?? ''), choice.label)
     );
