@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Guided Model Builder</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <main class="workspace">
+    <section class="chat-panel">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow">Guided modeling workspace</div>
+          <h1>Model Builder</h1>
+        </div>
+        <button id="resetButton" class="ghost-button">New model</button>
+      </header>
+
+      <div id="commandBar" class="command-bar" aria-label="Model commands">
+        <button data-command="/why">Why?</button>
+        <button data-command="/show">Show</button>
+        <button data-command="/check">Check</button>
+        <button data-command="/undo">Undo</button>
+        <button data-command="/save">Save</button>
+        <button data-command="/help">Help</button>
+      </div>
+
+      <div id="chat" class="chat" aria-live="polite"></div>
+      <div id="quickActions" class="quick-actions"></div>
+
+      <form id="composer" class="composer">
+        <textarea id="messageInput" rows="1" placeholder="Describe the next part of the model…" autocomplete="off"></textarea>
+        <button id="sendButton" type="submit" aria-label="Send">Send</button>
+      </form>
+      <div id="statusLine" class="status-line">Starting the guided model…</div>
+    </section>
+
+    <aside class="model-panel">
+      <header class="model-header">
+        <div>
+          <div class="eyebrow">Live model</div>
+          <h2>Model in progress</h2>
+        </div>
+        <div id="modelCount" class="model-count">0 · 0</div>
+      </header>
+
+      <div class="legend">
+        <span><i class="legend-dot confirmed"></i>Confirmed</span>
+        <span><i class="legend-dot temporary"></i>Temporary</span>
+      </div>
+
+      <div class="model-tabs">
+        <button class="tab-button active" data-tab="diagram">Diagram</button>
+        <button class="tab-button" data-tab="details">Details</button>
+      </div>
+
+      <div id="diagramTab" class="tab-content active">
+        <svg id="modelDiagram" class="model-diagram" viewBox="0 0 420 720" role="img" aria-label="Model diagram"></svg>
+        <div id="emptyModel" class="empty-model">Confirmed and temporary model elements will appear here as you work.</div>
+      </div>
+      <div id="detailsTab" class="tab-content">
+        <div id="modelDetails" class="model-details"></div>
+      </div>
+    </aside>
+  </main>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
