@@ -1,7 +1,17 @@
 let revisionLastTurnsSignature = '';
+let revisionRequestInFlight = false;
+let revisionRequestSourceAssistantId = null;
+let revisionCurrentAssistantId = null;
 
 function revisionTurnsSignature(turns) {
   return turns.map(turn => `${turn.id}:${turn.role}`).join('|');
+}
+
+function revisionLatestAssistantTurn(turns) {
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    if (turns[index]?.role === 'assistant') return turns[index];
+  }
+  return null;
 }
 
 function revisionLineKind(line) {
@@ -9,28 +19,73 @@ function revisionLineKind(line) {
   if (!trimmed) return 'spacer';
   if (trimmed.includes('?')) return 'question';
   if (/^\s+/.test(line)) return 'support';
-  if (/^(Expected answer:|Example:|Answer only|Choose one|Describe |Name )/i.test(trimmed)) return 'support';
   return 'main';
+}
+
+function revisionConciseLine(line) {
+  return String(line || '')
+    .replace(/\s*\(yes\/no\)\s*/ig, '')
+    .trim();
+}
+
+function revisionShouldHideLine(line) {
+  const text = String(line || '').trim();
+  if (!text) return false;
+  if (/^Expected answer:/i.test(text)) return true;
+  if (/^Example:/i.test(text)) return true;
+  if (/^Answer only ['\"]?yes['\"]? or ['\"]?no/i.test(text)) return true;
+  if (/^Choose one of the numbers below/i.test(text)) return true;
+  if (/^Select one of the options below/i.test(text)) return true;
+  if (/^The app provides advisory classifications and validation checks\.?$/i.test(text)) return true;
+  if (/^You remain responsible for confirming persistent model content\.?$/i.test(text)) return true;
+  return false;
+}
+
+function revisionQuestionTools() {
+  const controls = document.createElement('div');
+  controls.className = 'question-context-controls';
+
+  const undo = document.createElement('button');
+  undo.type = 'button';
+  undo.className = 'question-icon-button';
+  undo.title = 'Undo last change';
+  undo.setAttribute('aria-label', 'Undo last change');
+  undo.textContent = '↶';
+  undo.addEventListener('click', () => sendCommand('/undo'));
+
+  const help = document.createElement('button');
+  help.type = 'button';
+  help.className = 'question-icon-button';
+  help.title = 'Why this question?';
+  help.setAttribute('aria-label', 'Why this question?');
+  help.textContent = '?';
+  help.addEventListener('click', () => sendCommand('/why'));
+
+  controls.append(undo, help);
+  return controls;
 }
 
 function renderRevisionAssistantContent(bubble, content) {
   String(content || '').split('\n').forEach(line => {
     if (/^\s*\d+\.\s+/.test(line)) return;
-    const kind = revisionLineKind(line);
+    if (revisionShouldHideLine(line)) return;
+    const concise = revisionConciseLine(line);
+    const kind = revisionLineKind(concise);
     const element = document.createElement('div');
     element.className = `message-line ${kind}`;
-    element.textContent = kind === 'spacer' ? '\u00a0' : line.trim();
+    element.textContent = kind === 'spacer' ? '\u00a0' : concise;
     bubble.appendChild(element);
   });
 }
 
-function renderRevisionTurns(turns) {
+function renderRevisionTurns(turns, {showQuestionTools = false} = {}) {
   const chatRoot = document.getElementById('chat');
-  const signature = revisionTurnsSignature(turns);
+  const signature = `${revisionTurnsSignature(turns)}:${showQuestionTools ? 'tools' : 'plain'}`;
   if (signature === revisionLastTurnsSignature) return;
   revisionLastTurnsSignature = signature;
   chatRoot.innerHTML = '';
 
+  const latestAssistant = revisionLatestAssistantTurn(turns);
   turns.forEach(turn => {
     const row = document.createElement('div');
     row.className = `message-row ${turn.role}`;
@@ -38,6 +93,10 @@ function renderRevisionTurns(turns) {
     bubble.className = 'message-bubble';
     if (turn.role === 'assistant') {
       renderRevisionAssistantContent(bubble, turn.content);
+      if (showQuestionTools && latestAssistant?.id === turn.id) {
+        bubble.classList.add('question-message-wrap');
+        bubble.appendChild(revisionQuestionTools());
+      }
     } else {
       bubble.textContent = turn.content;
     }
@@ -64,10 +123,7 @@ function normalizeRevisionInteraction(interaction) {
 }
 
 function latestAssistantText(turns) {
-  for (let index = turns.length - 1; index >= 0; index -= 1) {
-    if (turns[index]?.role === 'assistant') return String(turns[index].content || '');
-  }
-  return '';
+  return String(revisionLatestAssistantTurn(turns)?.content || '');
 }
 
 function structuredFallbackFromAssistant(turns) {
@@ -101,7 +157,7 @@ function effectiveRevisionInteraction(state) {
   return explicit;
 }
 
-function renderRevisionInteraction(interaction, waiting) {
+function renderRevisionInteraction(interaction, waiting, {locked = false} = {}) {
   const quickRoot = document.getElementById('quickActions');
   const composerRoot = document.getElementById('composer');
   const normalized = normalizeRevisionInteraction(interaction);
@@ -123,7 +179,7 @@ function renderRevisionInteraction(interaction, waiting) {
     const button = document.createElement('button');
     button.type = 'button';
     button.textContent = choice.label;
-    button.disabled = !waiting || busy;
+    button.disabled = !waiting || busy || locked;
     button.addEventListener('click', () =>
       sendValue(String(choice.value ?? ''), choice.label)
     );
@@ -131,12 +187,104 @@ function renderRevisionInteraction(interaction, waiting) {
   });
 }
 
+function revisionLockControls() {
+  document.querySelectorAll('#quickActions button, #composer button, #composer textarea')
+    .forEach(element => { element.disabled = true; });
+}
+
+function revisionBeginRequest() {
+  if (revisionRequestInFlight) return false;
+  revisionRequestInFlight = true;
+  revisionRequestSourceAssistantId = revisionCurrentAssistantId;
+  revisionLockControls();
+  setBusy(true, 'Processing…');
+  return true;
+}
+
+function revisionEndRequestForError(message) {
+  revisionRequestInFlight = false;
+  revisionRequestSourceAssistantId = null;
+  setBusy(false, message);
+}
+
+sendValue = async function revisedSendValue(value, displayValue = null) {
+  if (busy || !revisionBeginRequest()) return;
+
+  try {
+    const response = await fetch('/api/input', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({value, display_value: displayValue})
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      revisionEndRequestForError(data.error || 'The input could not be sent.');
+      return;
+    }
+
+    input.value = '';
+    await pollState({force: true});
+  } catch (error) {
+    revisionEndRequestForError('Connection to the local app was interrupted.');
+  }
+};
+
+sendCommand = async function revisedSendCommand(command) {
+  if (busy || !revisionBeginRequest()) return;
+
+  try {
+    const response = await fetch('/api/command', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({command})
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      revisionEndRequestForError(data.error || 'The command could not be sent.');
+      return;
+    }
+
+    await pollState({force: true});
+  } catch (error) {
+    revisionEndRequestForError('Connection to the local app was interrupted.');
+  }
+};
+
+function revisionClosedStateMessage(state) {
+  const fullText = (state.turns || []).map(turn => turn.content || '').join('\n');
+  if (/Modeling session finished\./i.test(fullText)) {
+    return 'Modeling session finished.';
+  }
+  return 'The local modeling worker stopped unexpectedly. Start a new model or check worker.log.';
+}
+
 applyState = function revisedApplyState(state) {
   if (!state.session_id) return;
   if (activeSessionId && state.session_id !== activeSessionId) return;
   if (!activeSessionId) activeSessionId = state.session_id;
 
-  renderRevisionTurns(state.turns || []);
+  const latestAssistant = revisionLatestAssistantTurn(state.turns || []);
+  const latestAssistantId = latestAssistant?.id || null;
+  revisionCurrentAssistantId = latestAssistantId;
+
+  if (
+    revisionRequestInFlight &&
+    latestAssistantId &&
+    revisionRequestSourceAssistantId &&
+    latestAssistantId !== revisionRequestSourceAssistantId
+  ) {
+    revisionRequestInFlight = false;
+    revisionRequestSourceAssistantId = null;
+  }
+
+  const waiting = Boolean(state.waiting) && !state.closed && !startingNewModel;
+  const usableWaiting = waiting && !revisionRequestInFlight;
+
+  renderRevisionTurns(state.turns || [], {
+    showQuestionTools: usableWaiting
+  });
   renderRevisionTextualModel(state.model || {});
   renderRevisionDetails(state.model || {});
 
@@ -150,15 +298,20 @@ applyState = function revisedApplyState(state) {
   }
 
   if (state.closed) {
-    setBusy(true, 'Modeling session finished.');
+    setBusy(true, revisionClosedStateMessage(state));
   } else if (startingNewModel) {
     setBusy(true, 'Starting new model…');
+  } else if (revisionRequestInFlight) {
+    setBusy(true, 'Processing…');
   } else {
     setBusy(!state.waiting);
   }
 
-  const waiting = Boolean(state.waiting) && !state.closed && !startingNewModel;
-  renderRevisionInteraction(effectiveRevisionInteraction(state), waiting);
+  renderRevisionInteraction(
+    effectiveRevisionInteraction(state),
+    waiting,
+    {locked: revisionRequestInFlight}
+  );
 };
 
 document.querySelectorAll('.tab-button').forEach(button => {

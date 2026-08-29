@@ -30,14 +30,8 @@
         </div>
       </header>
 
-      <div id="commandBar" class="command-bar" aria-label="Model commands">
-        <button data-command="/why">Why?</button>
-        <button data-command="/show">Show</button>
-        <button data-command="/check">Check</button>
-        <button data-command="/undo">Undo</button>
-        <button data-command="/save">Save</button>
-        <button data-command="/help">Help</button>
-      </div>
+      <!-- Compatibility hook for the legacy script. Commands are contextual to the active question. -->
+      <div id="commandBar" hidden></div>
 
       <div id="chat" class="chat" aria-live="polite"></div>
       <div id="quickActions" class="quick-actions" aria-label="Answer options"></div>
