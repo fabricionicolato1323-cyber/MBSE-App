@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Callable, Iterator
 
 import app_base
 from graph_model import OAGraph
+from web_protocol import encode_interaction, normalize_interaction
 
 
 class AutosaveOAGraph(OAGraph):
@@ -55,6 +58,104 @@ class AutosaveOAGraph(OAGraph):
         return changed
 
 
+class WebInteractionMixin:
+    """Publish explicit browser input controls without changing model logic."""
+
+    _web_interaction_override: dict | None = None
+
+    def _emit_web_interaction(self, payload: dict) -> None:
+        print(encode_interaction(payload), flush=True)
+
+    @contextmanager
+    def _web_interaction_scope(self, payload: dict) -> Iterator[None]:
+        previous = self._web_interaction_override
+        self._web_interaction_override = normalize_interaction(payload)
+        try:
+            yield
+        finally:
+            self._web_interaction_override = previous
+
+    def draw_question(
+        self,
+        question: str,
+        explanation: str = "",
+        example: str = "",
+        expected_structure: str = "",
+        extra_lines: list[str] | None = None,
+    ) -> None:
+        interaction = self._web_interaction_override or {
+            "mode": "free_text",
+            "choices": [],
+        }
+        self._emit_web_interaction(interaction)
+        return super().draw_question(
+            question,
+            explanation=explanation,
+            example=example,
+            expected_structure=expected_structure,
+            extra_lines=extra_lines,
+        )
+
+    def ask_yes_no(self, question: str, why: str) -> bool:
+        interaction = {
+            "mode": "yes_no",
+            "choices": [
+                {"label": "Yes", "value": "yes"},
+                {"label": "No", "value": "no"},
+            ],
+        }
+        with self._web_interaction_scope(interaction):
+            return super().ask_yes_no(question, why)
+
+    def ask_number(
+        self,
+        question: str,
+        node_ids: list[str],
+        label: Callable[[str], str],
+        why: str,
+    ) -> str:
+        interaction = {
+            "mode": "choice",
+            "choices": [
+                {"label": label(node_id), "value": str(index)}
+                for index, node_id in enumerate(node_ids, start=1)
+            ],
+        }
+        with self._web_interaction_scope(interaction):
+            return super().ask_number(question, node_ids, label, why)
+
+    def ask_choice(
+        self,
+        question: str,
+        choices: list[tuple[str, str]],
+        why: str,
+        extra_lines: list[str] | None = None,
+    ) -> str:
+        interaction = {
+            "mode": "choice",
+            "choices": [
+                {"label": label, "value": str(index)}
+                for index, (_, label) in enumerate(choices, start=1)
+            ],
+        }
+        with self._web_interaction_scope(interaction):
+            return super().ask_choice(
+                question,
+                choices,
+                why,
+                extra_lines=extra_lines,
+            )
+
+    def pause(self) -> None:
+        self._emit_web_interaction(
+            {
+                "mode": "continue",
+                "choices": [{"label": "Continue", "value": ""}],
+            }
+        )
+        input("\nPress Enter to return to the current question...")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-path", required=True)
@@ -67,7 +168,10 @@ def main() -> None:
 
     import app
 
-    app.OAApp().run()
+    class WebOAApp(WebInteractionMixin, app.OAApp):
+        pass
+
+    WebOAApp().run()
 
 
 if __name__ == "__main__":

@@ -11,6 +11,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from web_protocol import (
+    decode_latest_interaction,
+    is_interaction_protocol_line,
+    normalize_interaction,
+)
+
 WAIT_INPUT = "> "
 WAIT_CONTINUE = "Press Enter to return to the current question..."
 CHOICE_RE = re.compile(r"^\s*(\d+)\.\s+(.+?)\s*$", re.MULTILINE)
@@ -107,6 +113,9 @@ class TerminalProcessSession:
         if not stripped:
             return ""
 
+        if is_interaction_protocol_line(line):
+            return None
+
         hidden_prefixes = (
             "Loading Arcadia knowledge graph",
             "Elapsed processing time:",
@@ -166,24 +175,39 @@ class TerminalProcessSession:
         return raw[index:] if index >= 0 else raw
 
     @staticmethod
-    def _buttons_from_text(raw: str) -> list[dict[str, str]]:
+    def _fallback_interaction_from_text(raw: str) -> dict[str, Any]:
+        """Compatibility fallback for workers that do not emit the protocol."""
         if raw.rstrip().endswith(WAIT_CONTINUE):
-            return [{"label": "Continue", "value": ""}]
+            return normalize_interaction({"mode": "continue"})
 
         prompt = TerminalProcessSession._current_prompt_text(raw)
         if "(yes/no)" in prompt.casefold():
-            return [
-                {"label": "Yes", "value": "yes"},
-                {"label": "No", "value": "no"},
-            ]
+            return normalize_interaction({"mode": "yes_no"})
 
         choices = CHOICE_RE.findall(prompt)
         if choices:
-            result: list[dict[str, str]] = []
-            for number, label in choices[-12:]:
-                result.append({"label": label.strip(), "value": number})
-            return result
-        return []
+            return normalize_interaction(
+                {
+                    "mode": "choice",
+                    "choices": [
+                        {"label": label.strip(), "value": number}
+                        for number, label in choices[-12:]
+                    ],
+                }
+            )
+
+        return normalize_interaction({"mode": "free_text"})
+
+    @staticmethod
+    def _buttons_from_text(raw: str) -> list[dict[str, str]]:
+        """Legacy parser retained for compatibility and regression tests."""
+        return TerminalProcessSession._fallback_interaction_from_text(raw)["choices"]
+
+    def interaction_snapshot(self) -> dict[str, Any]:
+        explicit = decode_latest_interaction(self._stdout)
+        if explicit is not None:
+            return explicit
+        return self._fallback_interaction_from_text(self._stdout)
 
     def _publish_if_ready(self) -> None:
         with self._lock:
@@ -290,15 +314,14 @@ class TerminalProcessSession:
     def state(self) -> dict[str, Any]:
         self._publish_if_ready()
         with self._lock:
-            raw_delta = self._stdout[len(self._published_stdout):]
-            buttons = self._buttons_from_text(raw_delta if raw_delta else self._stdout)
-            if self._waiting and not buttons:
-                buttons = self._buttons_from_text(self._stdout)
+            interaction = self.interaction_snapshot()
+            buttons = interaction["choices"] if self._waiting else []
             return {
                 "turns": [turn.__dict__ for turn in self.turns],
                 "waiting": self._waiting,
                 "closed": self._closed,
                 "buttons": buttons,
+                "interaction": interaction,
                 "model": self.model_snapshot(),
             }
 
