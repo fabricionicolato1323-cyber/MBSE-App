@@ -9,17 +9,20 @@ import {
 
 let drag = null;
 let renderFrame = 0;
+let edgeObserver = null;
+
+function ensureRoutedSourceArrows() {
+  document.querySelectorAll('#oaDiagramEdges .source-segment').forEach(path => {
+    path.setAttribute('marker-end', 'url(#oaInteractionArrow)');
+  });
+}
 
 function scheduleRender() {
   if (renderFrame) return;
   renderFrame = requestAnimationFrame(() => {
     renderFrame = 0;
     renderEdges();
-    // The routed exchange enters the communication mean at the source port.
-    // Keep the directional marker on that access segment as well as the target.
-    document.querySelectorAll('#oaDiagramEdges .source-segment').forEach(path => {
-      path.setAttribute('marker-end', 'url(#oaInteractionArrow)');
-    });
+    ensureRoutedSourceArrows();
   });
 }
 
@@ -84,27 +87,30 @@ function endPortDrag(event) {
   }
   persistPortOffsets();
   renderEdges();
-  document.querySelectorAll('#oaDiagramEdges .source-segment').forEach(path => {
-    path.setAttribute('marker-end', 'url(#oaInteractionArrow)');
-  });
+  ensureRoutedSourceArrows();
 }
 
 function install() {
   if (!el.viewport || el.viewport.dataset.portDragInstalled === 'true') return;
   el.viewport.dataset.portDragInstalled = 'true';
 
-  // Capture after the main v4 interaction layer. The base layer deliberately
-  // ignores pointer gestures that start on a port, so this handler owns them.
   el.viewport.addEventListener('pointerdown', beginPortDrag, {capture: true});
   el.viewport.addEventListener('pointermove', movePort, {capture: true});
   el.viewport.addEventListener('pointerup', endPortDrag, {capture: true});
   el.viewport.addEventListener('pointercancel', endPortDrag, {capture: true});
 
-  // Reset layout must also return ports to their centered positions. Capture
-  // runs before the existing Reset layout click handler performs its render.
   document.getElementById('oaDiagramReset')?.addEventListener('click', () => {
     resetPortOffsets();
   }, {capture: true});
+
+  // Node moves, resizing and model polling rebuild the SVG connection layer.
+  // Re-assert the source-segment marker after every such redraw so Activity -> P
+  // direction never disappears after an unrelated diagram gesture.
+  edgeObserver?.disconnect();
+  if (el.edges) {
+    edgeObserver = new MutationObserver(() => requestAnimationFrame(ensureRoutedSourceArrows));
+    edgeObserver.observe(el.edges, {childList: true, subtree: true});
+  }
 
   scheduleRender();
 }
