@@ -93,8 +93,8 @@ function beginResize(event, id) {
 
 function beginPan(event, allowInsideContainer = false) {
   if (event.button !== 0) return;
-  if (!allowInsideContainer && event.target.closest('.oa-diagram-node, .oa-diagram-port, .oa-diagram-edge-label')) return;
-  if (event.target.closest('.oa-diagram-port, .oa-diagram-edge-label, .oa-diagram-resize-handle')) return;
+  if (!allowInsideContainer && event.target.closest('.oa-diagram-node, .oa-diagram-port, .oa-diagram-edge, .oa-diagram-edge-label')) return;
+  if (event.target.closest('.oa-diagram-port, .oa-diagram-edge, .oa-diagram-edge-label, .oa-diagram-resize-handle')) return;
   event.stopImmediatePropagation(); event.preventDefault();
   state.drag = {kind: 'pan', pointerId: event.pointerId, x: event.clientX, y: event.clientY, vx: state.view.x, vy: state.view.y, moved: false};
   el.viewport.setPointerCapture?.(event.pointerId); el.viewport.classList.add('is-panning');
@@ -162,8 +162,26 @@ function zoomToSelection(selection) {
   applyView(); persist();
 }
 
+function participantHeaderUnderPointer(event) {
+  for (const item of document.elementsFromPoint(event.clientX, event.clientY)) {
+    const header = item.closest?.('.oa-diagram-node-header');
+    const node = header?.closest('.oa-diagram-node');
+    if (node?.dataset.nodeId && PARTICIPANTS.has(node.dataset.nodeType)) return node;
+  }
+  return null;
+}
+
 function onPointerDownCapture(event) {
   if (beginZoomSelection(event)) return;
+
+  // Edges must remain visually above participant fills so communication paths
+  // are readable. If a line crosses a participant header, however, the header
+  // keeps gesture priority for left-button drag. The edge is still clickable
+  // everywhere else along its visible path.
+  if (event.button === 0 && event.target.closest('.oa-diagram-edge, .oa-diagram-edge-label')) {
+    const underlyingParticipant = participantHeaderUnderPointer(event);
+    if (underlyingParticipant) { beginMove(event, underlyingParticipant.dataset.nodeId); return; }
+  }
 
   const resize = event.target.closest('.oa-diagram-resize-handle');
   if (resize) { const node = resize.closest('.oa-diagram-node'); if (node?.dataset.nodeId) beginResize(event, node.dataset.nodeId); return; }
