@@ -198,7 +198,7 @@ class FocusedRefinementMixin:
         )
 
         if choice == "interactions":
-            self._capture_interactions_for_source(action_id)
+            self._refine_interactions_from_source(action_id)
         elif choice == "characteristics":
             self._capture_characteristics_for_action(action_id)
         elif choice == "related_action":
@@ -254,6 +254,147 @@ class FocusedRefinementMixin:
             ):
                 return
 
+    def _capture_characteristics_for_exchange(
+        self,
+        source_id: str,
+        target_id: str,
+        edge_key,
+        exchange_name: str,
+    ) -> None:
+        target = {
+            "kind": "exchange",
+            "source": source_id,
+            "target": target_id,
+            "key": edge_key,
+            "label": (
+                f"Interaction: {exchange_name} "
+                f"({self.model.action_label(source_id)} -> {self.model.action_label(target_id)})"
+            ),
+        }
+
+        while True:
+            characteristic = self._build_characteristic()
+            ok, error = self._store_characteristic(target, characteristic)
+            if ok:
+                self.add_notice(
+                    f"Added characteristic '{characteristic['name']}' to {target['label']}."
+                )
+            else:
+                self.add_notice(f"Characteristic was not added: {error}")
+
+            if not self.ask_yes_no(
+                f"Add another characteristic to {target['label']}?",
+                "Add another only when it describes a distinct property.",
+            ):
+                return
+
+    def _interaction_label(
+        self,
+        source_id: str,
+        target_id: str,
+        exchange_name: str,
+    ) -> str:
+        return (
+            f"Interaction: {exchange_name} "
+            f"({self.model.action_label(source_id)} -> {self.model.action_label(target_id)})"
+        )
+
+    def _capture_communication_for_refined_exchange(
+        self,
+        source_id: str,
+        target_id: str,
+        exchange_name: str,
+    ) -> None:
+        capture = getattr(self, "capture_communication_for_exchange", None)
+        if callable(capture):
+            capture(source_id, target_id, exchange_name)
+
+    def _refine_existing_interaction(
+        self,
+        source_id: str,
+        target_id: str,
+        edge_key,
+        exchange_name: str,
+    ) -> None:
+        while True:
+            choice = self.ask_choice(
+                f"What would you like to refine for '{exchange_name}'?",
+                [
+                    ("communication", "Communication method"),
+                    ("characteristics", "Characteristics / limits"),
+                    ("add_from_source", "Add another interaction from the same source action"),
+                    ("back", "Back to the interaction list"),
+                ],
+                (
+                    "An existing interaction already has a source, receiver, and exchanged item. "
+                    "You can refine how it is carried, add limits, or create another interaction "
+                    "from the same source action."
+                ),
+            )
+
+            if choice == "back":
+                return
+            if choice == "communication":
+                self._capture_communication_for_refined_exchange(
+                    source_id,
+                    target_id,
+                    exchange_name,
+                )
+                continue
+            if choice == "characteristics":
+                self._capture_characteristics_for_exchange(
+                    source_id,
+                    target_id,
+                    edge_key,
+                    exchange_name,
+                )
+                continue
+            if choice == "add_from_source":
+                self._capture_interactions_for_source(source_id)
+                return
+
+    def _refine_interactions_from_source(self, source_id: str) -> None:
+        source_label = self.model.action_label(source_id)
+        records = [
+            record
+            for record in self.model.exchange_records()
+            if record[0] == source_id
+        ]
+        choices = [
+            (
+                f"exchange:{index}",
+                self._interaction_label(source, target, name),
+            )
+            for index, (source, target, _key, name) in enumerate(records)
+        ]
+        choices.extend(
+            [
+                ("__new_interaction__", "+ Add new interaction from this action"),
+                ("__back__", "Back to the next-step menu"),
+            ]
+        )
+        selected = self.ask_choice(
+            f"Which interaction from '{source_label}' would you like to work on?",
+            choices,
+            (
+                "Choose an existing interaction to refine, or explicitly add another "
+                "interaction from the selected source action."
+            ),
+        )
+
+        if selected == "__back__":
+            return
+        if selected == "__new_interaction__":
+            self._capture_interactions_for_source(source_id)
+            return
+        if selected.startswith("exchange:"):
+            try:
+                record = records[int(selected.split(":", 1)[1])]
+            except (IndexError, ValueError):
+                self.add_notice("That interaction is no longer available.")
+                return
+            self._refine_existing_interaction(*record)
+
     def _refine_interactions(self) -> None:
         actions = self.model.nodes_of_type("OperationalActivity")
         if not actions:
@@ -261,6 +402,44 @@ class FocusedRefinementMixin:
             self._create_new_action_reference()
             return
 
+        records = self.model.exchange_records()
+        choices = [
+            (
+                f"exchange:{index}",
+                self._interaction_label(source, target, name),
+            )
+            for index, (source, target, _key, name) in enumerate(records)
+        ]
+        choices.extend(
+            [
+                ("__new_interaction__", "+ Add new interaction"),
+                ("__back__", "Back to the loaded-model menu"),
+            ]
+        )
+        selected = self.ask_choice(
+            "Which interaction would you like to work on?",
+            choices,
+            (
+                "Choose an existing interaction to refine its communication or limits. "
+                "Choose Add new interaction when you want to define a new source-to-target exchange."
+            ),
+        )
+
+        if selected == "__back__":
+            return
+        if selected == "__new_interaction__":
+            self._capture_new_interaction()
+            return
+        if selected.startswith("exchange:"):
+            try:
+                record = records[int(selected.split(":", 1)[1])]
+            except (IndexError, ValueError):
+                self.add_notice("That interaction is no longer available.")
+                return
+            self._refine_existing_interaction(*record)
+
+    def _capture_new_interaction(self) -> None:
+        actions = self.model.nodes_of_type("OperationalActivity")
         choices = [
             (action_id, f"Action: {self.model.action_label(action_id)}")
             for action_id in actions
@@ -269,7 +448,10 @@ class FocusedRefinementMixin:
         selected = self.ask_choice(
             "Which action should the interaction start from?",
             choices,
-            "Select the existing source action you want to refine instead of reviewing every action in sequence.",
+            (
+                "Choose the source action first. The receiver action is selected immediately "
+                "afterward before the exchanged item is entered."
+            ),
         )
 
         if selected == "__new_action__":
@@ -278,24 +460,27 @@ class FocusedRefinementMixin:
             self._capture_interactions_for_source(selected)
 
     def _capture_interactions_for_source(self, source_id: str) -> None:
+        """Create one or more interactions with source -> target -> item ordering."""
         source_label = self.model.action_label(source_id)
-        existing = [
-            data
-            for _, _, data in self.model.graph.out_edges(source_id, data=True)
-            if data.get("type") == "OPERATIONAL_EXCHANGE"
-        ]
-        question = (
-            f"Would you like to add another interaction from '{source_label}'?"
-            if existing
-            else f"Does '{source_label}' exchange anything with another action?"
-        )
-        if not self.ask_yes_no(
-            question,
-            "Interactions may carry information, material, requests, or other operational items.",
-        ):
-            return
 
         while True:
+            targets = [
+                node_id
+                for node_id in self.model.nodes_of_type("OperationalActivity")
+                if node_id != source_id
+            ]
+            target_id = self._select_existing_or_new_action(
+                "Which action should receive the interaction?",
+                targets,
+                (
+                    "Select the receiver action now. After source and receiver are explicit, "
+                    "the app will ask what is exchanged between them."
+                ),
+            )
+            if not target_id:
+                return
+
+            target_label = self.model.action_label(target_id)
             item = self.ask_validated(
                 question="What is exchanged?",
                 explanation="Name the information, material, request, or item in a few words.",
@@ -303,34 +488,29 @@ class FocusedRefinementMixin:
                 why="Naming what is exchanged makes the operational interaction explicit.",
                 context=(
                     f"Source action: {source_label}. "
+                    f"Receiver action: {target_label}. "
                     f"{self.model.short_context()}"
                 ),
             )
 
-            targets = [
-                node_id
-                for node_id in self.model.nodes_of_type("OperationalActivity")
-                if node_id != source_id
-            ]
-            target_id = self._select_existing_or_new_action(
-                "Which action receives it?",
-                targets,
-                "Select an existing receiver action or add a missing action.",
+            ok, error = self.model.add_relation(
+                source_id,
+                "OPERATIONAL_EXCHANGE",
+                target_id,
+                name=item,
             )
-            if target_id:
-                ok, error = self.model.add_relation(
+            if ok:
+                self.add_notice(f"Added interaction: {item}")
+                self._capture_communication_for_refined_exchange(
                     source_id,
-                    "OPERATIONAL_EXCHANGE",
                     target_id,
-                    name=item,
+                    item,
                 )
-                if ok:
-                    self.add_notice(f"Added interaction: {item}")
-                else:
-                    self.add_notice(f"Could not add the interaction: {error}")
+            else:
+                self.add_notice(f"Could not add the interaction: {error}")
 
             if not self.ask_yes_no(
-                f"Is anything else exchanged from '{source_label}'?",
-                "Add another item only when it is a distinct operational interaction.",
+                f"Would you like to add another interaction from '{source_label}'?",
+                "Add another only when it represents a distinct operational exchange from this source action.",
             ):
                 return
