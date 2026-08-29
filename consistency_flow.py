@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from model_consistency import compare_model_consistently, format_model_comparison, structural_issues
+from current_scope import compare_current_scope, format_current_scope_comparison
+from model_consistency import structural_issues
 from terminal_ui import processing_indicator
 
 
 class ConsistencyFlowMixin:
-    """Feature 5 integration for deterministic model and RDF consistency checks."""
+    """Integrated deterministic model and RDF consistency checks."""
 
     def command(self, value: str) -> bool:
         raw = value.strip()
@@ -13,10 +14,10 @@ class ConsistencyFlowMixin:
 
         if cmd == "/compare":
             with processing_indicator("Comparing model consistency"):
-                comparison = compare_model_consistently(self.knowledge, self.model)
+                comparison = compare_current_scope(self.knowledge, self.model)
             self.show_command_page(
                 "MODEL CONSISTENCY COMPARISON",
-                format_model_comparison(comparison),
+                format_current_scope_comparison(comparison),
             )
             return True
 

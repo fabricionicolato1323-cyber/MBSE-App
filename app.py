@@ -7,9 +7,13 @@ from composition_flow import CompositionFlowMixin
 from consistency_flow import ConsistencyFlowMixin
 from guidance_flow import GuidanceFlowMixin
 from participant_flow import ParticipantFlowMixin
+from review_flow import ReviewWorkflowMixin
+from user_experience import UserExperienceMixin
 
 
 class OAApp(
+    ReviewWorkflowMixin,
+    UserExperienceMixin,
     ConsistencyFlowMixin,
     GuidanceFlowMixin,
     ParticipantFlowMixin,
@@ -17,7 +21,7 @@ class OAApp(
     CharacteristicsFlowMixin,
     _base.OAApp,
 ):
-    """Guided builder with neutral UI guidance and integrated model consistency."""
+    """Guided builder with explicit review, simplified UI, and integrated consistency."""
 
     def capture_structure_and_environment(self) -> None:
         super().capture_structure_and_environment()
