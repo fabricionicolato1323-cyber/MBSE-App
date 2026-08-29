@@ -9,6 +9,7 @@ on:
       - feature/oa-usability-refinement-fixes
       - feature/model-file-save-load
       - feature/loaded-model-relational-resume
+      - feature/oa-diagram-containment-routing
   pull_request:
     branches:
       - main
