@@ -65,6 +65,19 @@
     </aside>
   </main>
 
+  <div id="resetModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="resetTitle" hidden>
+    <div class="modal-backdrop" data-close-reset></div>
+    <div class="modal-card">
+      <div class="modal-accent"></div>
+      <h2 id="resetTitle">Start a new model?</h2>
+      <p>The current modeling session will be cleared and a fresh guided session will start.</p>
+      <div class="modal-actions">
+        <button id="cancelResetButton" class="secondary-button" type="button">Cancel</button>
+        <button id="confirmResetButton" class="primary-button" type="button">Start new model</button>
+      </div>
+    </div>
+  </div>
+
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

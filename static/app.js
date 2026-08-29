@@ -8,9 +8,17 @@ const modelCount = document.getElementById('modelCount');
 const diagram = document.getElementById('modelDiagram');
 const emptyModel = document.getElementById('emptyModel');
 const details = document.getElementById('modelDetails');
+const resetModal = document.getElementById('resetModal');
+const resetButton = document.getElementById('resetButton');
+const cancelResetButton = document.getElementById('cancelResetButton');
+const confirmResetButton = document.getElementById('confirmResetButton');
 
-let lastTurnCount = -1;
+let lastTurnsSignature = '';
 let busy = true;
+let activeSessionId = null;
+let stateRequest = null;
+let stateRequestSerial = 0;
+let startingNewModel = false;
 
 const friendlyType = (type) => ({
   OperationalCapability: 'Goal',
@@ -30,9 +38,14 @@ const friendlyRelation = (type) => ({
   DECOMPOSES: 'breaks down into'
 }[type] || (type || '').toLowerCase().replaceAll('_', ' '));
 
+function turnsSignature(turns) {
+  return turns.map(turn => `${turn.id}:${turn.role}`).join('|');
+}
+
 function renderTurns(turns) {
-  if (turns.length === lastTurnCount) return;
-  lastTurnCount = turns.length;
+  const signature = turnsSignature(turns);
+  if (signature === lastTurnsSignature) return;
+  lastTurnsSignature = signature;
   chat.innerHTML = '';
   turns.forEach(turn => {
     const row = document.createElement('div');
@@ -77,23 +90,23 @@ function diagramLayout(nodes) {
   order.concat([...groups.keys()].filter(k => !order.includes(k))).forEach(type => {
     const group = groups.get(type) || [];
     group.forEach(node => {
-      layout.set(node.id, { x: 30, y, width: 350, height: 56 });
+      layout.set(node.id, {x: 30, y, width: 350, height: 56});
       y += 78;
     });
   });
-  return { layout, height: Math.max(680, y + 30) };
+  return {layout, height: Math.max(680, y + 30)};
 }
 
 function renderDiagram(model) {
   const nodes = [...(model.nodes || []), ...(model.drafts || [])];
   const edges = model.edges || [];
   emptyModel.style.display = nodes.length ? 'none' : 'block';
-  const { layout, height } = diagramLayout(nodes);
+  const {layout, height} = diagramLayout(nodes);
   diagram.setAttribute('viewBox', `0 0 420 ${height}`);
   diagram.innerHTML = `
     <defs>
       <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
-        <path d="M0,0 L0,6 L7,3 z" fill="#90a4ad"></path>
+        <path d="M0,0 L0,6 L7,3 z" class="arrow-head"></path>
       </marker>
     </defs>`;
 
@@ -202,62 +215,161 @@ function renderDetails(model) {
   }
 }
 
+function setBusy(value, message = null) {
+  busy = value;
+  sendButton.disabled = value;
+  input.disabled = value;
+  if (message !== null) {
+    statusLine.textContent = message;
+  } else {
+    statusLine.textContent = value ? 'Processing…' : 'Ready';
+  }
+}
+
+function clearRenderedSession() {
+  lastTurnsSignature = '';
+  chat.innerHTML = '';
+  quickActions.innerHTML = '';
+  details.innerHTML = '';
+  diagram.innerHTML = '';
+  emptyModel.style.display = 'block';
+  modelCount.textContent = '0 items · 0 links';
+}
+
+function applyState(state) {
+  if (!state.session_id) return;
+  if (activeSessionId && state.session_id !== activeSessionId) return;
+
+  if (!activeSessionId) activeSessionId = state.session_id;
+  renderTurns(state.turns || []);
+  renderActions(state.buttons || [], state.waiting);
+  renderDiagram(state.model || {});
+  renderDetails(state.model || {});
+
+  const counts = state.model?.counts || {nodes: 0, edges: 0};
+  const drafts = state.model?.drafts?.length || 0;
+  modelCount.textContent = `${counts.nodes} items · ${counts.edges} links${drafts ? ` · ${drafts} temporary` : ''}`;
+
+  if (startingNewModel && state.waiting && (state.turns || []).length) {
+    startingNewModel = false;
+  }
+
+  if (state.closed) {
+    setBusy(true, 'Modeling session finished.');
+  } else if (startingNewModel) {
+    setBusy(true, 'Starting new model…');
+  } else {
+    setBusy(!state.waiting);
+  }
+}
+
+async function pollState({force = false} = {}) {
+  if (stateRequest && !force) return;
+
+  if (force && stateRequest) {
+    stateRequest.controller.abort();
+  }
+
+  const serial = ++stateRequestSerial;
+  const controller = new AbortController();
+  stateRequest = {serial, controller};
+
+  try {
+    const response = await fetch('/api/state', {
+      cache: 'no-store',
+      signal: controller.signal
+    });
+
+    if (response.status === 409) return;
+    if (!response.ok) throw new Error(`State request failed: ${response.status}`);
+
+    const state = await response.json();
+    if (!stateRequest || stateRequest.serial !== serial) return;
+    applyState(state);
+  } catch (error) {
+    if (error.name !== 'AbortError') {
+      statusLine.textContent = 'Connection to the local app was interrupted.';
+    }
+  } finally {
+    if (stateRequest && stateRequest.serial === serial) {
+      stateRequest = null;
+    }
+  }
+}
+
 async function sendValue(value, displayValue = null) {
   if (busy) return;
-  busy = true;
   setBusy(true);
+
   const response = await fetch('/api/input', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({value, display_value: displayValue})
   });
+
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
     statusLine.textContent = data.error || 'The input could not be sent.';
+    setBusy(false, statusLine.textContent);
+    return;
   }
+
   input.value = '';
-  await pollState();
+  await pollState({force: true});
 }
 
 async function sendCommand(command) {
   if (busy) return;
-  busy = true;
   setBusy(true);
+
   const response = await fetch('/api/command', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({command})
   });
+
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
     statusLine.textContent = data.error || 'The command could not be sent.';
+    setBusy(false, statusLine.textContent);
+    return;
   }
-  await pollState();
+
+  await pollState({force: true});
 }
 
-function setBusy(value) {
-  busy = value;
-  sendButton.disabled = value;
-  input.disabled = value;
-  statusLine.textContent = value ? 'Processing…' : 'Ready';
+function openResetModal() {
+  resetModal.hidden = false;
+  confirmResetButton.focus();
 }
 
-async function pollState() {
-  try {
-    const response = await fetch('/api/state', {cache: 'no-store'});
-    const state = await response.json();
-    renderTurns(state.turns || []);
-    renderActions(state.buttons || [], state.waiting);
-    renderDiagram(state.model || {});
-    renderDetails(state.model || {});
-    const counts = state.model?.counts || {nodes: 0, edges: 0};
-    const drafts = state.model?.drafts?.length || 0;
-    modelCount.textContent = `${counts.nodes} items · ${counts.edges} links${drafts ? ` · ${drafts} temporary` : ''}`;
-    setBusy(!state.waiting || state.closed);
-    if (state.closed) statusLine.textContent = 'Modeling session finished.';
-  } catch (error) {
-    statusLine.textContent = 'Connection to the local app was interrupted.';
+function closeResetModal() {
+  resetModal.hidden = true;
+  resetButton.focus();
+}
+
+async function startNewModel() {
+  closeResetModal();
+  startingNewModel = true;
+  setBusy(true, 'Starting new model…');
+
+  if (stateRequest) {
+    stateRequest.controller.abort();
+    stateRequest = null;
   }
+
+  const response = await fetch('/api/reset', {method: 'POST'});
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok || !data.session_id) {
+    startingNewModel = false;
+    setBusy(false, data.error || 'A new model could not be started.');
+    return;
+  }
+
+  activeSessionId = data.session_id;
+  clearRenderedSession();
+  await pollState({force: true});
 }
 
 composer.addEventListener('submit', event => {
@@ -265,6 +377,7 @@ composer.addEventListener('submit', event => {
   const value = input.value.trim();
   if (value) sendValue(value);
 });
+
 input.addEventListener('keydown', event => {
   if (event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault();
@@ -277,14 +390,13 @@ document.getElementById('commandBar').addEventListener('click', event => {
   if (command) sendCommand(command);
 });
 
-document.getElementById('resetButton').addEventListener('click', async () => {
-  if (!confirm('Start a new model? The current web session will be reset.')) return;
-  busy = true;
-  setBusy(true);
-  await fetch('/api/reset', {method: 'POST'});
-  lastTurnCount = -1;
-  chat.innerHTML = '';
-  await pollState();
+resetButton.addEventListener('click', openResetModal);
+cancelResetButton.addEventListener('click', closeResetModal);
+confirmResetButton.addEventListener('click', startNewModel);
+resetModal.querySelector('[data-close-reset]').addEventListener('click', closeResetModal);
+
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && !resetModal.hidden) closeResetModal();
 });
 
 document.querySelectorAll('.tab-button').forEach(button => {
@@ -295,5 +407,5 @@ document.querySelectorAll('.tab-button').forEach(button => {
   });
 });
 
-setInterval(pollState, 450);
-pollState();
+setInterval(() => pollState(), 600);
+pollState({force: true});

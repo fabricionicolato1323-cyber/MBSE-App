@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import secrets
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, session
@@ -10,14 +12,14 @@ BASE_DIR = Path(__file__).resolve().parent
 RUNTIME_ROOT = BASE_DIR / ".web_runtime"
 
 app = Flask(__name__)
-app.secret_key = "local-development-session-key"
+app.secret_key = os.getenv("MBSE_WEB_SECRET") or secrets.token_hex(32)
 registry = SessionRegistry(BASE_DIR, RUNTIME_ROOT)
 
 
-def current_session():
+def current_session(*, create_if_missing: bool = True):
     session_id = session.get("mbse_session_id")
     current = registry.get(session_id) if session_id else None
-    if current is None:
+    if current is None and create_if_missing:
         session_id, current = registry.create()
         session["mbse_session_id"] = session_id
     return session_id, current
@@ -31,13 +33,20 @@ def index():
 
 @app.get("/api/state")
 def api_state():
-    _, current = current_session()
-    return jsonify(current.state())
+    session_id, current = current_session(create_if_missing=False)
+    if current is None:
+        return jsonify({"ok": False, "stale_session": True, "session_id": session_id}), 409
+    state = current.state()
+    state["session_id"] = session_id
+    return jsonify(state)
 
 
 @app.post("/api/input")
 def api_input():
-    _, current = current_session()
+    _, current = current_session(create_if_missing=False)
+    if current is None:
+        return jsonify({"ok": False, "error": "The modeling session is no longer active."}), 409
+
     payload = request.get_json(silent=True) or {}
     value = str(payload.get("value", ""))
     display_value = payload.get("display_value")
@@ -50,7 +59,10 @@ def api_input():
 
 @app.post("/api/command")
 def api_command():
-    _, current = current_session()
+    _, current = current_session(create_if_missing=False)
+    if current is None:
+        return jsonify({"ok": False, "error": "The modeling session is no longer active."}), 409
+
     payload = request.get_json(silent=True) or {}
     command = str(payload.get("command", "")).strip()
     allowed = {
@@ -74,9 +86,13 @@ def api_command():
 
 @app.post("/api/reset")
 def api_reset():
-    session_id, _ = current_session()
-    registry.reset(session_id)
-    return jsonify({"ok": True})
+    session_id, current = current_session(create_if_missing=False)
+    if session_id and current is not None:
+        new_session_id, _ = registry.reset(session_id)
+    else:
+        new_session_id, _ = registry.create()
+    session["mbse_session_id"] = new_session_id
+    return jsonify({"ok": True, "session_id": new_session_id})
 
 
 if __name__ == "__main__":

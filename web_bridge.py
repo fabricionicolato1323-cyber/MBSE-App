@@ -6,7 +6,6 @@ import re
 import subprocess
 import sys
 import threading
-import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -29,8 +28,9 @@ class TerminalProcessSession:
     """Bridge the existing terminal workflow to a browser-friendly session.
 
     The terminal application remains authoritative for sequencing, validation,
-    confirmations, and model writes. This class only adapts stdin/stdout and
-    exposes the live model snapshot written by web_worker.py.
+    confirmations, and model writes. This class adapts stdin/stdout, removes
+    implementation details from the normal web experience, and exposes the live
+    model snapshot written by web_worker.py.
     """
 
     def __init__(self, project_dir: Path, runtime_dir: Path) -> None:
@@ -38,6 +38,7 @@ class TerminalProcessSession:
         self.runtime_dir = Path(runtime_dir).resolve()
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
         self.model_path = self.runtime_dir / "oa_model_web.json"
+        self.diagnostic_path = self.runtime_dir / "worker.log"
         self._lock = threading.RLock()
         self._stdout = ""
         self._published_stdout = ""
@@ -91,24 +92,67 @@ class TerminalProcessSession:
             return True
         return False
 
+    def _append_diagnostic(self, raw: str) -> None:
+        if not raw:
+            return
+        try:
+            with self.diagnostic_path.open("a", encoding="utf-8") as handle:
+                handle.write(raw)
+        except OSError:
+            pass
+
+    @staticmethod
+    def _neutralize_web_line(line: str) -> str | None:
+        stripped = line.strip()
+        if not stripped:
+            return ""
+
+        hidden_prefixes = (
+            "Loading Arcadia knowledge graph",
+            "Elapsed processing time:",
+            "Connecting to Ollama",
+            "Ollama connected. Selected model:",
+            "Ollama responses:",
+        )
+        if stripped.startswith(hidden_prefixes):
+            return None
+
+        if stripped.startswith("Ollama is unavailable"):
+            return "AI assistance is unavailable. Deterministic validation is active."
+
+        replacements = (
+            ("ARCADIA KNOWLEDGE GRAPH COMPARISON", "MODELING RULE COMPARISON"),
+            ("ARCADIA KNOWLEDGE ANSWER", "MODELING KNOWLEDGE ANSWER"),
+            ("Arcadia knowledge graph", "modeling knowledge"),
+            ("Arcadia rules", "modeling rules"),
+            ("Arcadia method", "modeling method"),
+            ("RDF/SHACL Arcadia rules", "configured modeling rules"),
+            ("Ollama", "AI assistance"),
+        )
+        neutral = line.rstrip()
+        for old, new in replacements:
+            neutral = neutral.replace(old, new)
+        return neutral
+
     @staticmethod
     def _clean_assistant_text(raw: str) -> str:
         text = raw.replace("\r", "")
         text = text.replace(WAIT_INPUT, "")
         text = text.replace(WAIT_CONTINUE, "")
-        lines = []
+        lines: list[str] = []
         for line in text.splitlines():
             stripped = line.strip()
-            if not stripped:
-                lines.append("")
-                continue
             if stripped and set(stripped) <= {"=", "-"}:
                 continue
             if stripped == "GUIDED OPERATIONAL MODEL BUILDER":
                 continue
             if stripped.startswith("Commands: /help"):
                 continue
-            lines.append(line.rstrip())
+
+            neutral = TerminalProcessSession._neutralize_web_line(line)
+            if neutral is None:
+                continue
+            lines.append(neutral)
 
         cleaned = "\n".join(lines)
         cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
@@ -116,11 +160,7 @@ class TerminalProcessSession:
 
     @staticmethod
     def _current_prompt_text(raw: str) -> str:
-        """Return only the newest terminal question block.
-
-        The terminal intentionally keeps its full history. Browser actions must
-        not therefore reuse numbered choices from an earlier question.
-        """
+        """Return only the newest terminal question block."""
         marker = "=" * 72
         index = raw.rfind(marker)
         return raw[index:] if index >= 0 else raw
@@ -153,6 +193,7 @@ class TerminalProcessSession:
                 return
             delta = self._stdout[len(self._published_stdout):]
             self._published_stdout = self._stdout
+            self._append_diagnostic(delta)
             clean = self._clean_assistant_text(delta)
             if clean:
                 self.turns.append(ChatTurn(role="assistant", content=clean))
@@ -216,7 +257,11 @@ class TerminalProcessSession:
 
     def model_snapshot(self) -> dict[str, Any]:
         self._refresh_draft_state()
-        snapshot: dict[str, Any] = {"nodes": [], "edges": [], "counts": {"nodes": 0, "edges": 0}}
+        snapshot: dict[str, Any] = {
+            "nodes": [],
+            "edges": [],
+            "counts": {"nodes": 0, "edges": 0},
+        }
         if self.model_path.exists():
             try:
                 data = json.loads(self.model_path.read_text(encoding="utf-8"))
@@ -271,28 +316,33 @@ class SessionRegistry:
         self._sessions: dict[str, TerminalProcessSession] = {}
         self._lock = threading.Lock()
 
+    def _create_unlocked(self) -> tuple[str, TerminalProcessSession]:
+        session_id = uuid.uuid4().hex
+        session = TerminalProcessSession(
+            self.project_dir,
+            self.runtime_root / session_id,
+        )
+        self._sessions[session_id] = session
+        return session_id, session
+
     def create(self) -> tuple[str, TerminalProcessSession]:
         with self._lock:
-            session_id = uuid.uuid4().hex
-            session = TerminalProcessSession(
-                self.project_dir,
-                self.runtime_root / session_id,
-            )
-            self._sessions[session_id] = session
-            return session_id, session
+            return self._create_unlocked()
 
-    def get(self, session_id: str) -> TerminalProcessSession | None:
+    def get(self, session_id: str | None) -> TerminalProcessSession | None:
+        if not session_id:
+            return None
         with self._lock:
             return self._sessions.get(session_id)
 
-    def reset(self, session_id: str) -> TerminalProcessSession:
+    def reset(self, session_id: str) -> tuple[str, TerminalProcessSession]:
+        """Replace a session with a new identity.
+
+        A new id lets the browser reject late /api/state responses belonging to
+        the previous worker after a New model action.
+        """
         with self._lock:
             old = self._sessions.pop(session_id, None)
             if old is not None:
                 old.close()
-            session = TerminalProcessSession(
-                self.project_dir,
-                self.runtime_root / session_id,
-            )
-            self._sessions[session_id] = session
-            return session
+            return self._create_unlocked()
