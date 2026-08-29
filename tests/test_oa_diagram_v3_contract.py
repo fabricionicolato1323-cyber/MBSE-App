@@ -5,8 +5,10 @@ ROOT = Path(__file__).resolve().parents[1]
 STATE = (ROOT / "static" / "oa_diagram_v2_state.js").read_text(encoding="utf-8")
 RENDER = (ROOT / "static" / "oa_diagram_v2_render.js").read_text(encoding="utf-8")
 INTERACTION = (ROOT / "static" / "oa_diagram_v4_interaction.js").read_text(encoding="utf-8")
+PORT_DRAG = (ROOT / "static" / "oa_diagram_port_drag.js").read_text(encoding="utf-8")
 STYLE = (ROOT / "static" / "oa_diagram_capella.css").read_text(encoding="utf-8")
 V4_STYLE = (ROOT / "static" / "oa_diagram_v4.css").read_text(encoding="utf-8")
+PORT_STYLE = (ROOT / "static" / "oa_diagram_port_drag.css").read_text(encoding="utf-8")
 LOADER = (ROOT / "static" / "model_relationships.js").read_text(encoding="utf-8")
 
 
@@ -14,6 +16,8 @@ def test_contract_targets_the_assets_loaded_by_the_application():
     assert "oa_diagram_v4_interaction.js" in LOADER
     assert "oa_diagram_capella.css" in LOADER
     assert "oa_diagram_v4.css" in LOADER
+    assert "oa_diagram_port_drag.js" in LOADER
+    assert "oa_diagram_port_drag.css" in LOADER
 
 
 def test_containment_measurement_uses_current_seen_set_before_cycle_guard_extension():
@@ -51,6 +55,28 @@ def test_exchange_routes_through_ports_when_communication_mean_is_associated():
     assert "target-segment" in RENDER
     assert "direct-exchange" in RENDER
     assert "port.textContent = 'P'" in RENDER
+    assert "communication_assignment" in RENDER
+    assert "byMedium.size === 1" in RENDER
+
+
+def test_communication_ports_are_vertically_draggable_and_persisted():
+    assert "data-port-id" in RENDER or "port.dataset.portId" in RENDER
+    assert "portVerticalRatio" in RENDER
+    assert "setPortVerticalRatio" in RENDER
+    assert "persistPortOffsets" in RENDER
+    assert "resetPortOffsets" in RENDER
+    assert "ratioForPointer" in PORT_DRAG
+    assert "setPortVerticalRatio" in PORT_DRAG
+    assert "persistPortOffsets" in PORT_DRAG
+    assert "resetPortOffsets" in PORT_DRAG
+    assert "ns-resize" in PORT_STYLE
+
+
+def test_arrowheads_are_half_the_previous_marker_dimensions():
+    assert 'markerWidth="4.5" markerHeight="4.5"' in RENDER
+    assert 'd="M0,0 L4.5,2.25 L0,4.5 z"' in RENDER
+    assert 'markerWidth="4" markerHeight="4"' in RENDER
+    assert 'd="M0,0 L4,2 L0,4 z"' in RENDER
 
 
 def test_participant_containers_are_below_edges_and_leaf_blocks_are_above_edges():
