@@ -4,8 +4,12 @@ import {PARTICIPANTS, state, clean, typeName, selectionKey, edgeId, isVisibleNod
 export const el = {};
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const PORT_LAYOUT_VERSION = 1;
+const CANVAS_SAFE_MARGIN = 60;
 const portOffsets = new Map();
+const canvasOrigin = {x: 0, y: 0};
 let loadedPortSession = null;
+
+export const getCanvasOrigin = () => ({...canvasOrigin});
 
 function portStorageKey() {
   return `oa-diagram-ports:v${PORT_LAYOUT_VERSION}:${state.session}`;
@@ -113,10 +117,42 @@ export function select(kind, id, event) {
 export const selectionPayload = () => [...state.selected].map(key => { const i = key.indexOf(':'); return {kind: key.slice(0, i), id: key.slice(i + 1)}; });
 
 export function updateBounds() {
-  let maxX = 1200, maxY = 800;
-  for (const [, p] of visibleLayoutEntries()) { maxX = Math.max(maxX, p.x + p.w + 140); maxY = Math.max(maxY, p.y + p.h + 140); }
-  el.scene.style.width = `${maxX}px`; el.scene.style.height = `${maxY}px`;
-  el.edges.setAttribute('width', String(maxX)); el.edges.setAttribute('height', String(maxY)); el.edges.setAttribute('viewBox', `0 0 ${maxX} ${maxY}`);
+  const entries = visibleLayoutEntries();
+  let minX = 0, minY = 0, maxRight = 1060, maxBottom = 660;
+  if (entries.length) {
+    minX = Math.min(...entries.map(([, p]) => p.x));
+    minY = Math.min(...entries.map(([, p]) => p.y));
+    maxRight = Math.max(...entries.map(([, p]) => p.x + p.w));
+    maxBottom = Math.max(...entries.map(([, p]) => p.y + p.h));
+  }
+
+  const nextOriginX = Math.max(0, CANVAS_SAFE_MARGIN - minX);
+  const nextOriginY = Math.max(0, CANVAS_SAFE_MARGIN - minY);
+  const deltaOriginX = nextOriginX - canvasOrigin.x;
+  const deltaOriginY = nextOriginY - canvasOrigin.y;
+  canvasOrigin.x = nextOriginX;
+  canvasOrigin.y = nextOriginY;
+
+  const width = Math.max(1200, maxRight + canvasOrigin.x + 140);
+  const height = Math.max(800, maxBottom + canvasOrigin.y + 140);
+  el.scene.style.width = `${width}px`; el.scene.style.height = `${height}px`;
+
+  // Nodes and ports retain their model coordinates. A presentation-only origin
+  // maps negative model coordinates into positive DOM space. The SVG uses an
+  // equivalent negative viewBox origin so connections stay aligned exactly.
+  el.nodes.style.transform = `translate(${canvasOrigin.x}px, ${canvasOrigin.y}px)`;
+  el.ports.style.transform = `translate(${canvasOrigin.x}px, ${canvasOrigin.y}px)`;
+  el.edges.setAttribute('width', String(width)); el.edges.setAttribute('height', String(height));
+  el.edges.setAttribute('viewBox', `${-canvasOrigin.x} ${-canvasOrigin.y} ${width} ${height}`);
+
+  // When a drag extends the model farther left/up, keep the current viewport
+  // visually stable by moving the native scrollbar by the same presentation
+  // offset. This creates real scrollable space to the left without moving the
+  // model itself or cancelling the user's drag.
+  if (state.drag?.kind === 'move' && el.viewport) {
+    if (deltaOriginX) el.viewport.scrollLeft = Math.max(0, el.viewport.scrollLeft + deltaOriginX * state.view.zoom);
+    if (deltaOriginY) el.viewport.scrollTop = Math.max(0, el.viewport.scrollTop + deltaOriginY * state.view.zoom);
+  }
 }
 export const applyView = () => { el.scene.style.transform = `translate(${state.view.x}px, ${state.view.y}px) scale(${state.view.zoom})`; };
 
