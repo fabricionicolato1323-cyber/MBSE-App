@@ -102,7 +102,34 @@ function renderRevisionTextualModel(model) {
   );
   if (participants.length) {
     const section = addSection('Participants');
-    participants.forEach(participant => {
+    const participantIds = new Set(participants.map(participant => participant.id));
+    const locationParentById = new Map();
+    const locationChildrenById = new Map();
+
+    edges
+      .filter(edge =>
+        edge.type === 'LOCATED_IN' &&
+        participantIds.has(edge.source) &&
+        participantIds.has(edge.target) &&
+        edge.source !== edge.target
+      )
+      .forEach(edge => {
+        // A participant is displayed under its first explicit participant/context location.
+        // Additional LOCATED_IN relations remain visible as secondary information.
+        if (!locationParentById.has(edge.source)) {
+          locationParentById.set(edge.source, edge.target);
+          if (!locationChildrenById.has(edge.target)) {
+            locationChildrenById.set(edge.target, []);
+          }
+          locationChildrenById.get(edge.target).push(edge.source);
+        }
+      });
+
+    const renderedParticipants = new Set();
+
+    const renderParticipant = (participant, ancestry = new Set()) => {
+      if (!participant || ancestry.has(participant.id)) return null;
+
       const {item, children} = revisionTreeItem(participant.name || participant.id);
       revisionAppendCharacteristics(children, participant);
 
@@ -130,6 +157,9 @@ function renderRevisionTextualModel(model) {
         children.appendChild(actionItem.item);
       });
 
+      // Composition/organization remains visible even when location is expressed
+      // by the visual hierarchy. For example, "Part of Facility" is still useful
+      // information about a receptionist nested under Facility.
       edges
         .filter(edge => edge.type === 'CONTAINS' && edge.target === participant.id)
         .forEach(edge => {
@@ -139,8 +169,13 @@ function renderRevisionTextualModel(model) {
           );
         });
 
+      const hierarchyParentId = locationParentById.get(participant.id);
       edges
-        .filter(edge => edge.type === 'LOCATED_IN' && edge.source === participant.id)
+        .filter(edge =>
+          edge.type === 'LOCATED_IN' &&
+          edge.source === participant.id &&
+          edge.target !== hierarchyParentId
+        )
         .forEach(edge => {
           const location = byId.get(edge.target);
           children.appendChild(
@@ -148,8 +183,35 @@ function renderRevisionTextualModel(model) {
           );
         });
 
-      section.appendChild(item);
+      const nextAncestry = new Set(ancestry);
+      nextAncestry.add(participant.id);
+      (locationChildrenById.get(participant.id) || []).forEach(childId => {
+        const child = byId.get(childId);
+        const childItem = renderParticipant(child, nextAncestry);
+        if (childItem) children.appendChild(childItem);
+      });
+
+      renderedParticipants.add(participant.id);
+      return item;
+    };
+
+    const roots = participants.filter(participant => {
+      const parentId = locationParentById.get(participant.id);
+      return !parentId || !participantIds.has(parentId);
     });
+
+    roots.forEach(participant => {
+      const item = renderParticipant(participant);
+      if (item) section.appendChild(item);
+    });
+
+    // Defensive fallback for malformed/cyclic location data: never hide a participant.
+    participants
+      .filter(participant => !renderedParticipants.has(participant.id))
+      .forEach(participant => {
+        const item = renderParticipant(participant);
+        if (item) section.appendChild(item);
+      });
   }
 
   const communication = edges.filter(edge => edge.type === 'COMMUNICATION_MEAN');
