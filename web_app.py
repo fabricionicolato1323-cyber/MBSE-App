@@ -15,7 +15,18 @@ RUNTIME_ROOT = BASE_DIR / ".web_runtime"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("MBSE_WEB_SECRET") or secrets.token_hex(32)
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 registry = SessionRegistry(BASE_DIR, RUNTIME_ROOT)
+
+
+@app.after_request
+def disable_development_asset_cache(response):
+    """Always serve the current local UI while the prototype is under development."""
+    if request.path == "/" or request.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
 
 
 def current_session(*, create_if_missing: bool = True):
