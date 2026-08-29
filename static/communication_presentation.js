@@ -26,6 +26,66 @@
     );
   }
 
+  function performersByActivity(model) {
+    const result = new Map();
+    (model?.edges || []).filter(edge => edge.type === 'PERFORMS').forEach(edge => {
+      if (!result.has(edge.target)) result.set(edge.target, []);
+      result.get(edge.target).push(edge.source);
+    });
+    return result;
+  }
+
+  function communicationMatchesParticipants(communication, first, second) {
+    return (
+      (communication.source === first && communication.target === second) ||
+      (communication.source === second && communication.target === first)
+    );
+  }
+
+  function refMatchesEdge(ref, edge) {
+    if (!ref || !edge) return false;
+    if (ref.source_activity_id !== edge.source || ref.target_activity_id !== edge.target) return false;
+    const refName = clean(ref.exchange_name);
+    return !refName || refName === clean(edge.name);
+  }
+
+  function carriedExchangeRefs(communication, model) {
+    const edges = model?.edges || [];
+    const performers = performersByActivity(model);
+    const communicationEdges = edges.filter(edge => edge.type === 'COMMUNICATION_MEAN');
+    const explicit = explicitExchangeRefs(communication).map(ref => ({...ref, inferred_legacy: false}));
+    const result = [...explicit];
+
+    edges.filter(edge => edge.type === 'OPERATIONAL_EXCHANGE').forEach(exchange => {
+      if (result.some(ref => refMatchesEdge(ref, exchange))) return;
+      if (clean(exchange.communication_assignment).toLowerCase() === 'none') return;
+
+      const sourceParticipants = performers.get(exchange.source) || [];
+      const targetParticipants = performers.get(exchange.target) || [];
+      const candidateMeans = new Set();
+      sourceParticipants.forEach(sourceParticipant => {
+        targetParticipants.forEach(targetParticipant => {
+          if (sourceParticipant === targetParticipant) return;
+          communicationEdges.forEach(candidate => {
+            if (communicationMatchesParticipants(candidate, sourceParticipant, targetParticipant)) {
+              candidateMeans.add(edgeId(candidate, edges.indexOf(candidate)));
+            }
+          });
+        });
+      });
+
+      const currentId = edgeId(communication, edges.indexOf(communication));
+      if (candidateMeans.size !== 1 || !candidateMeans.has(currentId)) return;
+      result.push({
+        source_activity_id: exchange.source,
+        target_activity_id: exchange.target,
+        exchange_name: clean(exchange.name) || 'Interaction',
+        inferred_legacy: true,
+      });
+    });
+    return result;
+  }
+
   function matchingCommunicationSection(root) {
     return [...root.querySelectorAll('.tree-section')].find(section =>
       clean(section.querySelector(':scope > h3')?.textContent).toLowerCase() === 'communication'
@@ -64,10 +124,13 @@
         )
       );
 
-      const refs = explicitExchangeRefs(edge);
+      const refs = carriedExchangeRefs(edge, model);
       refs.forEach(ref => {
         tree.children.appendChild(
-          revisionTreeLine(exchangeLine(ref, byId), 'communication-carried-exchange')
+          revisionTreeLine(
+            exchangeLine(ref, byId),
+            `communication-carried-exchange${ref.inferred_legacy ? ' inferred-legacy' : ''}`
+          )
         );
       });
 
@@ -112,10 +175,10 @@
 
       const source = byId.get(edge.source);
       const target = byId.get(edge.target);
-      const refs = explicitExchangeRefs(edge);
+      const refs = carriedExchangeRefs(edge, latestModel);
       const signature = JSON.stringify([
         clean(edge.name), edge.source, edge.target,
-        refs.map(ref => [ref.source_activity_id, ref.target_activity_id, clean(ref.exchange_name)])
+        refs.map(ref => [ref.source_activity_id, ref.target_activity_id, clean(ref.exchange_name), !!ref.inferred_legacy])
       ]);
       if (label.dataset.communicationPresentation === signature) return;
 
@@ -133,7 +196,7 @@
         appendSvgLine(
           label,
           `↳ ${clean(ref.exchange_name) || 'Interaction'}`,
-          'communication-exchange-line',
+          `communication-exchange-line${ref.inferred_legacy ? ' inferred-legacy' : ''}`,
           12
         );
       });
