@@ -68,6 +68,48 @@ def test_internal_classification_labels_are_not_exposed_in_buttons():
     assert "Suggestion:" not in output
 
 
+def test_ai_off_hides_suggested_classification_and_ai_opinion():
+    app = DummyWebApp()
+    app.llm = None
+    output, result = capture(
+        lambda: app.ask_choice(
+            "How should this candidate be classified?",
+            [
+                ("confirm", "Confirm the suggestion"),
+                ("actor", "Classify as Operational Actor"),
+                ("entity", "Classify as Operational Entity"),
+                ("ollama", "Ask Ollama for another opinion"),
+            ],
+            "test",
+        )
+    )
+    interaction = decode_latest_interaction(output)
+    assert result == "actor"
+    assert [item["label"] for item in interaction["choices"]] == [
+        "Person / role",
+        "Organization, group, facility or other participant",
+    ]
+
+
+def test_ai_on_can_show_suggested_classification():
+    app = DummyWebApp()
+    app.llm = object()
+    output, result = capture(
+        lambda: app.ask_choice(
+            "How should this candidate be classified?",
+            [
+                ("confirm", "Confirm the suggestion"),
+                ("actor", "Classify as Operational Actor"),
+                ("entity", "Classify as Operational Entity"),
+            ],
+            "test",
+        )
+    )
+    interaction = decode_latest_interaction(output)
+    assert result == "confirm"
+    assert interaction["choices"][0]["label"] == "Use suggested classification"
+
+
 def test_yes_no_remains_clickable_contract():
     app = DummyWebApp()
     output, _ = capture(lambda: app.ask_yes_no("Continue?", "test"))
