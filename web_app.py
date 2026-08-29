@@ -6,8 +6,16 @@ from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, session
 
+from model_io import (
+    ModelFileError,
+    fallback_model_name_from_filename,
+    model_name_from_payload,
+    normalize_model_name,
+    prepare_model_export,
+    validate_model_payload,
+)
 from web_ai import LocalAIServiceError, list_installed_models, load_web_ai_config
-from web_bridge import SessionRegistry
+from web_model_session import ModelFileSessionRegistry
 from web_ui_policy import should_track_temporary_input
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -16,7 +24,8 @@ RUNTIME_ROOT = BASE_DIR / ".web_runtime"
 app = Flask(__name__)
 app.secret_key = os.getenv("MBSE_WEB_SECRET") or secrets.token_hex(32)
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
-registry = SessionRegistry(BASE_DIR, RUNTIME_ROOT)
+app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
+registry = ModelFileSessionRegistry(BASE_DIR, RUNTIME_ROOT)
 
 
 @app.after_request
@@ -110,6 +119,60 @@ def api_command():
     except RuntimeError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 409
     return jsonify({"ok": True})
+
+
+@app.post("/api/model/export")
+def api_model_export():
+    _, current = current_session(create_if_missing=False)
+    if current is None:
+        return jsonify({"ok": False, "error": "The modeling session is no longer active."}), 409
+
+    payload = request.get_json(silent=True) or {}
+    try:
+        model_name = normalize_model_name(str(payload.get("model_name", "")))
+        model = current.export_model(model_name)
+    except ModelFileError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except RuntimeError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 409
+
+    return jsonify({"ok": True, "model_name": model_name, "model": model})
+
+
+@app.post("/api/model/load")
+def api_model_load():
+    session_id, current = current_session(create_if_missing=False)
+    payload = request.get_json(silent=True) or {}
+    file_name = str(payload.get("file_name", ""))
+
+    try:
+        normalized = validate_model_payload(payload.get("model"))
+        proposed_name = (
+            model_name_from_payload(normalized)
+            or fallback_model_name_from_filename(file_name)
+        )
+        model_name = normalize_model_name(proposed_name)
+        normalized = prepare_model_export(normalized, model_name)
+    except ModelFileError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+    try:
+        new_session_id, _ = registry.load(session_id, normalized, model_name)
+    except RuntimeError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 409
+
+    session["mbse_session_id"] = new_session_id
+    return jsonify(
+        {
+            "ok": True,
+            "session_id": new_session_id,
+            "model_name": model_name,
+            "counts": {
+                "nodes": len(normalized.get("nodes", [])),
+                "edges": len(normalized.get("edges", [])),
+            },
+        }
+    )
 
 
 @app.get("/api/ai/models")

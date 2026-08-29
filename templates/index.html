@@ -13,13 +13,14 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='ai_control.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='workspace_layout.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='oa_header_help.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='model_file_io.css') }}">
 </head>
 <body>
   <div class="workspace-shell">
     <header class="viewpoint-header">
       <div class="viewpoint-title-row">
         <div>
-          <div class="eyebrow">Arcadia viewpoint sequence</div>
+          <div class="eyebrow">Arcadia viewpoint</div>
           <div class="oa-title-line">
             <h1>Operational Analysis</h1>
             <span id="oaInfoWrap" class="oa-info-wrap">
@@ -72,6 +73,11 @@
                 </div>
                 <button id="aiActionButton" class="ai-action-button" type="button">Activate AI</button>
               </div>
+              <div class="model-file-actions" aria-label="Model file actions">
+                <button id="saveModelButton" class="ghost-button model-file-button" type="button">Save model</button>
+                <button id="loadModelButton" class="ghost-button model-file-button" type="button">Load model</button>
+                <input id="loadModelInput" type="file" accept=".json,application/json" hidden>
+              </div>
               <button id="resetButton" class="ghost-button">New model</button>
             </div>
             <div class="panel-controls" aria-label="Conversation panel controls">
@@ -83,9 +89,7 @@
           </div>
         </header>
 
-        <!-- Compatibility hook for the legacy script. Commands are contextual to the active question. -->
         <div id="commandBar" hidden></div>
-
         <div id="chat" class="chat" aria-live="polite"></div>
         <div id="quickActions" class="quick-actions" aria-label="Answer options"></div>
 
@@ -134,6 +138,7 @@
           <div class="panel-heading-copy">
             <div class="eyebrow">Live Operational Analysis model</div>
             <h2>Model in progress</h2>
+            <div id="modelFileName" class="model-file-name" hidden></div>
           </div>
           <div class="model-header-actions">
             <div id="modelCount" class="model-count">0 · 0</div>
@@ -190,6 +195,25 @@
     </div>
   </div>
 
+  <div id="saveModelModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="saveModelTitle" hidden>
+    <div class="modal-backdrop" data-close-save-model></div>
+    <div class="modal-card">
+      <div class="modal-accent"></div>
+      <h2 id="saveModelTitle">Save Operational Analysis model</h2>
+      <p>Give the model a name. After that, the Windows Save As dialog lets you choose the folder and final file name.</p>
+      <div class="model-file-field">
+        <label for="modelNameInput">Model name</label>
+        <input id="modelNameInput" type="text" maxlength="120" autocomplete="off" placeholder="Example: Perimeter protection OA">
+      </div>
+      <p class="model-file-location-note"><strong>Save location:</strong> selected in the Windows Save As dialog.</p>
+      <p id="saveModelMessage" class="model-file-message" aria-live="polite"></p>
+      <div class="modal-actions">
+        <button id="cancelSaveModelButton" class="secondary-button" type="button">Cancel</button>
+        <button id="confirmSaveModelButton" class="primary-button" type="button">Choose location and save</button>
+      </div>
+    </div>
+  </div>
+
   <div id="aiModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="aiModalTitle" hidden>
     <div class="modal-backdrop" data-close-ai></div>
     <div class="modal-card">
@@ -220,5 +244,6 @@
   <script src="{{ url_for('static', filename='ai_control.js') }}"></script>
   <script src="{{ url_for('static', filename='workspace_layout.js') }}"></script>
   <script src="{{ url_for('static', filename='oa_header_help.js') }}"></script>
+  <script src="{{ url_for('static', filename='model_file_io.js') }}"></script>
 </body>
 </html>

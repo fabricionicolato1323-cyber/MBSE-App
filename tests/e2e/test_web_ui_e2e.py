@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -68,9 +69,17 @@ def test_ai_off_goal_to_participant_flow(web_server):
         try:
             page.goto(BASE_URL, wait_until="domcontentloaded")
 
+            expect(page.get_by_text("Arcadia viewpoint", exact=True)).to_be_visible()
+            expect(page.get_by_role("button", name="Save model", exact=True)).to_be_visible()
+            expect(page.get_by_role("button", name="Load model", exact=True)).to_be_visible()
             expect(page.locator("#aiStatusText")).to_have_text("AI Off")
             expect(page.locator("#statusLine")).to_have_text("Ready", timeout=20_000)
             expect(page.get_by_text("What is the main goal?", exact=True)).to_be_visible()
+
+            page.get_by_role("button", name="Save model", exact=True).click()
+            expect(page.get_by_role("dialog", name="Save Operational Analysis model")).to_be_visible()
+            expect(page.get_by_label("Model name")).to_be_visible()
+            page.get_by_role("button", name="Cancel", exact=True).click()
 
             goal = "Allow an authorized visitor to enter a facility safely"
             composer = page.locator("#messageInput")
@@ -81,9 +90,7 @@ def test_ai_off_goal_to_participant_flow(web_server):
             expect(
                 page.get_by_text("Is there another important goal?", exact=True)
             ).to_be_visible(timeout=20_000)
-            no_button = page.get_by_role("button", name="No", exact=True)
-            expect(no_button).to_be_enabled()
-            no_button.click()
+            page.get_by_role("button", name="No", exact=True).click()
 
             expect(
                 page.get_by_text(
@@ -91,18 +98,14 @@ def test_ai_off_goal_to_participant_flow(web_server):
                     exact=True,
                 )
             ).to_be_visible(timeout=20_000)
-            yes_button = page.get_by_role("button", name="Yes", exact=True)
-            expect(yes_button).to_be_enabled()
-            yes_button.click()
+            page.get_by_role("button", name="Yes", exact=True).click()
 
             expect(page.get_by_text("Who or what is involved?", exact=True)).to_be_visible(
                 timeout=20_000
             )
             expect(page.locator("#statusLine")).to_have_text("Ready")
             expect(page.get_by_role("button", name="Use suggested classification")).to_have_count(0)
-
-            live_model = page.locator("#modelTextual")
-            expect(live_model).to_contain_text(goal, timeout=10_000)
+            expect(page.locator("#modelTextual")).to_contain_text(goal, timeout=10_000)
         finally:
             browser.close()
 
@@ -133,23 +136,70 @@ def test_searchable_model_picker_opens_and_filters(web_server):
         try:
             page.goto(BASE_URL, wait_until="domcontentloaded")
             expect(page.locator("#statusLine")).to_have_text("Ready", timeout=20_000)
-
             page.evaluate(
                 "choices => renderRevisionInteraction({mode: 'choice', choices}, true, {locked: false})",
                 choices,
             )
-
             toggle = page.get_by_role("button", name="Select from 10 model items")
             expect(toggle).to_be_visible()
             toggle.click()
-
             search = page.get_by_role("searchbox", name="Search model items")
             expect(search).to_be_visible()
             expect(page.get_by_text("Actions (4)", exact=True)).to_be_visible()
             expect(page.get_by_text("Participants / Context (3)", exact=True)).to_be_visible()
-
             search.fill("engage")
             expect(page.get_by_role("button", name="Engage threats", exact=True)).to_be_visible()
             expect(page.get_by_role("button", name="Detect threats", exact=True)).to_be_hidden()
+        finally:
+            browser.close()
+
+
+@pytest.mark.skipif(
+    os.getenv("RUN_E2E") != "1",
+    reason="Playwright E2E tests run in the dedicated CI job.",
+)
+def test_load_saved_model_populates_preview_and_resumes_at_review(web_server, tmp_path):
+    from playwright.sync_api import expect, sync_playwright
+
+    model = {
+        "directed": True,
+        "multigraph": True,
+        "graph": {"model": "Arcadia Operational Analysis", "model_name": "Loaded perimeter model"},
+        "nodes": [
+            {"id": "goal", "type": "OperationalCapability", "name": "Protect perimeter"},
+            {
+                "id": "operator",
+                "type": "OperationalActor",
+                "name": "Security operator",
+                "nature": "human_individual",
+                "expects_activity": True,
+            },
+            {"id": "action", "type": "OperationalActivity", "name": "Monitor perimeter"},
+        ],
+        "edges": [
+            {"source": "operator", "target": "action", "key": 0, "type": "PERFORMS"},
+            {"source": "action", "target": "goal", "key": 0, "type": "SUPPORTS_CAPABILITY"},
+        ],
+    }
+    model_file = tmp_path / "loaded-model.json"
+    model_file.write_text(json.dumps(model), encoding="utf-8")
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 1440, "height": 1000})
+        try:
+            page.goto(BASE_URL, wait_until="domcontentloaded")
+            expect(page.locator("#statusLine")).to_have_text("Ready", timeout=20_000)
+            page.locator("#loadModelInput").set_input_files(str(model_file))
+
+            expect(page.locator("#modelTextual")).to_contain_text("Protect perimeter", timeout=20_000)
+            expect(page.locator("#modelTextual")).to_contain_text("Monitor perimeter")
+            expect(page.locator("#modelFileName")).to_have_text("Loaded perimeter model")
+            expect(
+                page.get_by_text(
+                    "The loaded model has no obvious mandatory gaps. Would you like to edit or refine something?",
+                    exact=True,
+                )
+            ).to_be_visible(timeout=20_000)
         finally:
             browser.close()
