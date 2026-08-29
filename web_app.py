@@ -7,6 +7,7 @@ from pathlib import Path
 from flask import Flask, jsonify, render_template, request, session
 
 from web_bridge import SessionRegistry
+from web_ui_policy import should_track_temporary_input
 
 BASE_DIR = Path(__file__).resolve().parent
 RUNTIME_ROOT = BASE_DIR / ".web_runtime"
@@ -50,8 +51,16 @@ def api_input():
     payload = request.get_json(silent=True) or {}
     value = str(payload.get("value", ""))
     display_value = payload.get("display_value")
+    interaction = current.interaction_snapshot()
+    track_temporary = should_track_temporary_input(value, interaction)
+
     try:
-        current.send(value, display_value=display_value)
+        # Keep control answers atomic with draft suppression. TerminalProcessSession
+        # uses an RLock, so send() can safely re-enter it while state polling waits.
+        with current._lock:  # noqa: SLF001 - local web adapter boundary
+            current.send(value, display_value=display_value)
+            if not track_temporary:
+                current.pending_draft = None
     except RuntimeError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 409
     return jsonify({"ok": True})

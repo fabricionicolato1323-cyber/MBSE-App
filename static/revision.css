@@ -1,0 +1,225 @@
+/* Revision: textual-first model view and clearer guided questions. */
+
+.message-bubble {
+  white-space: normal;
+}
+
+.message-line {
+  line-height: 1.5;
+}
+
+.message-line + .message-line {
+  margin-top: 4px;
+}
+
+.message-line.spacer {
+  min-height: 8px;
+  margin-top: 0;
+}
+
+.message-line.question {
+  color: var(--synopsys-purple-deep);
+  font-weight: 800;
+  font-size: 1.03em;
+  letter-spacing: -0.005em;
+  margin-top: 7px;
+}
+
+.message-line.support {
+  color: var(--muted);
+  font-size: 0.9em;
+  line-height: 1.42;
+}
+
+.message-line.main {
+  color: var(--text);
+}
+
+.quick-actions[hidden],
+.composer[hidden] {
+  display: none !important;
+}
+
+.quick-actions.structured-options {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 9px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding-top: 12px;
+  padding-bottom: 5px;
+}
+
+.quick-actions.structured-options button {
+  width: 100%;
+  min-height: 46px;
+  padding: 11px 15px;
+  border-radius: 12px;
+  text-align: left;
+  background: #fff;
+  border-color: #cbbbd4;
+  box-shadow: 0 3px 12px rgba(61, 29, 89, 0.06);
+}
+
+.quick-actions.structured-options button:hover {
+  background: var(--synopsys-purple-soft);
+  border-color: var(--synopsys-purple-mid);
+}
+
+.quick-actions.binary-options {
+  grid-template-columns: repeat(2, minmax(120px, 220px));
+}
+
+.quick-actions.binary-options button,
+.quick-actions.continue-options button {
+  text-align: center;
+  font-weight: 800;
+}
+
+.quick-actions.binary-options button:first-child {
+  background: var(--synopsys-purple);
+  border-color: var(--synopsys-purple);
+  color: #fff;
+}
+
+.quick-actions.binary-options button:first-child:hover {
+  background: var(--synopsys-purple-deep);
+}
+
+.quick-actions.binary-options button:last-child {
+  background: var(--synopsys-purple-faint);
+  color: var(--synopsys-purple-deep);
+}
+
+.model-tabs {
+  gap: 7px;
+}
+
+.model-textual {
+  padding: 18px 18px 30px;
+}
+
+.textual-empty,
+.diagram-placeholder {
+  padding: 34px 20px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.diagram-placeholder {
+  display: grid;
+  gap: 8px;
+}
+
+.diagram-placeholder strong {
+  color: var(--synopsys-purple-deep);
+  font-size: 14px;
+}
+
+.legacy-diagram-layer {
+  display: none !important;
+}
+
+.tree-section {
+  margin-bottom: 20px;
+}
+
+.tree-section > h3 {
+  margin: 0 0 9px;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+}
+
+.tree-item {
+  position: relative;
+  padding: 10px 11px;
+  margin-bottom: 8px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--confirmed);
+  border-radius: 10px;
+}
+
+.tree-item.temporary {
+  background: var(--synopsys-orange-soft);
+  border-color: #efc36b;
+  border-left-color: var(--temporary);
+}
+
+.tree-item-header {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.tree-item-name {
+  min-width: 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 750;
+  overflow-wrap: anywhere;
+}
+
+.tree-item-meta {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.tree-children {
+  margin-top: 7px;
+  margin-left: 9px;
+  padding-left: 11px;
+  border-left: 1px solid #dfd3e5;
+}
+
+.tree-children:empty {
+  display: none;
+}
+
+.tree-children .tree-item {
+  margin-top: 7px;
+  margin-bottom: 0;
+  border-left-width: 2px;
+  box-shadow: none;
+}
+
+.tree-line {
+  position: relative;
+  padding: 4px 0 4px 10px;
+  color: #44384b;
+  font-size: 11.5px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.tree-line::before {
+  content: '└';
+  position: absolute;
+  left: -5px;
+  color: #ad9bb8;
+}
+
+.tree-line.secondary {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+@media (max-width: 520px) {
+  .quick-actions.binary-options {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .tree-item-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+}

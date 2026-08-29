@@ -6,6 +6,7 @@
   <title>Guided Model Builder</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='interaction.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='revision.css') }}">
 </head>
 <body>
   <main class="workspace">
@@ -28,10 +29,10 @@
       </div>
 
       <div id="chat" class="chat" aria-live="polite"></div>
-      <div id="quickActions" class="quick-actions"></div>
+      <div id="quickActions" class="quick-actions" aria-label="Answer options"></div>
 
       <form id="composer" class="composer">
-        <textarea id="messageInput" rows="1" placeholder="Describe the next part of the model…" autocomplete="off"></textarea>
+        <textarea id="messageInput" rows="1" placeholder="Describe the next part of the model…" autocomplete="off" aria-label="Answer"></textarea>
         <button id="sendButton" type="submit" aria-label="Send">Send</button>
       </form>
       <div id="statusLine" class="status-line">Starting the guided model…</div>
@@ -51,16 +52,26 @@
         <span><i class="legend-dot temporary"></i>Temporary</span>
       </div>
 
-      <div class="model-tabs">
-        <button class="tab-button active" data-tab="diagram">Diagram</button>
-        <button class="tab-button" data-tab="details">Details</button>
+      <div class="model-tabs" role="tablist" aria-label="Model views">
+        <button class="tab-button active" data-tab="textual" role="tab" aria-selected="true">Textual</button>
+        <button class="tab-button" data-tab="diagram" role="tab" aria-selected="false">Diagram</button>
+        <button class="tab-button" data-tab="details" role="tab" aria-selected="false">Details</button>
       </div>
 
-      <div id="diagramTab" class="tab-content active">
-        <svg id="modelDiagram" class="model-diagram" viewBox="0 0 420 720" role="img" aria-label="Model diagram"></svg>
-        <div id="emptyModel" class="empty-model">Confirmed and temporary model elements will appear here as you work.</div>
+      <div id="textualTab" class="tab-content active" role="tabpanel">
+        <div id="modelTextual" class="model-textual"></div>
       </div>
-      <div id="detailsTab" class="tab-content">
+      <div id="diagramTab" class="tab-content" role="tabpanel">
+        <div class="diagram-placeholder">
+          <strong>Diagram view</strong>
+          <span>This view is reserved for a later iteration. Use Textual to follow the model while building it.</span>
+        </div>
+        <div class="legacy-diagram-layer" aria-hidden="true">
+          <svg id="modelDiagram" viewBox="0 0 420 720"></svg>
+          <div id="emptyModel"></div>
+        </div>
+      </div>
+      <div id="detailsTab" class="tab-content" role="tabpanel">
         <div id="modelDetails" class="model-details"></div>
       </div>
     </aside>
@@ -80,6 +91,7 @@
   </div>
 
   <script src="{{ url_for('static', filename='app.js') }}"></script>
-  <script src="{{ url_for('static', filename='interaction_ui.js') }}"></script>
+  <script src="{{ url_for('static', filename='revision_model.js') }}"></script>
+  <script src="{{ url_for('static', filename='revision_interaction.js') }}"></script>
 </body>
 </html>
