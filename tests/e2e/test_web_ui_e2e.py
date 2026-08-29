@@ -158,7 +158,7 @@ def test_searchable_model_picker_opens_and_filters(web_server):
     os.getenv("RUN_E2E") != "1",
     reason="Playwright E2E tests run in the dedicated CI job.",
 )
-def test_load_saved_model_populates_preview_and_resumes_at_review(web_server, tmp_path):
+def test_load_saved_model_populates_preview_and_opens_continuation_menu(web_server, tmp_path):
     from playwright.sync_api import expect, sync_playwright
 
     model = {
@@ -196,10 +196,13 @@ def test_load_saved_model_populates_preview_and_resumes_at_review(web_server, tm
             expect(page.locator("#modelTextual")).to_contain_text("Monitor perimeter")
             expect(page.locator("#modelFileName")).to_have_text("Loaded perimeter model")
             expect(
+                page.get_by_text("What would you like to change in the loaded model?", exact=True)
+            ).to_be_visible(timeout=20_000)
+            expect(
                 page.get_by_text(
                     "The loaded model has no obvious mandatory gaps. Would you like to edit or refine something?",
                     exact=True,
                 )
-            ).to_be_visible(timeout=20_000)
+            ).to_have_count(0)
         finally:
             browser.close()
