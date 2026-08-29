@@ -1,0 +1,58 @@
+/* Interaction enhancements layered on top of the Capella-compatible OA diagram style. */
+
+.oa-diagram-viewport {
+  overflow: auto !important;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable both-edges;
+}
+
+.oa-diagram-viewport.is-zoom-selecting {
+  cursor: crosshair !important;
+}
+
+.oa-diagram-zoom-rect {
+  position: absolute;
+  z-index: 80;
+  box-sizing: border-box;
+  border: 2px dashed #2f78d0;
+  background: rgba(47, 120, 208, .10);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .65) inset;
+  pointer-events: none;
+}
+
+.oa-diagram-zoom-rect[hidden] {
+  display: none !important;
+}
+
+#diagramTab:fullscreen,
+#diagramTab.oa-diagram-fullscreen-fallback {
+  display: flex !important;
+  flex-direction: column;
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: none !important;
+  max-height: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: #fbfbf8;
+}
+
+#diagramTab.oa-diagram-fullscreen-fallback {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 100000 !important;
+}
+
+#diagramTab:fullscreen .oa-diagram-viewport,
+#diagramTab.oa-diagram-fullscreen-fallback .oa-diagram-viewport {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+#diagramTab:fullscreen .oa-diagram-toolbar,
+#diagramTab.oa-diagram-fullscreen-fallback .oa-diagram-toolbar {
+  position: relative;
+  z-index: 100;
+}
