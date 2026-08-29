@@ -9,6 +9,7 @@ from typing import Callable, Iterator
 import app_base
 from action_first_inline_flow import ActionFirstInlineCreationMixin
 from action_goal_linking import ActionGoalLinkingMixin
+from focused_refinement import FocusedRefinementMixin
 from graph_model import OAGraph
 from web_ai import AIControlManager
 from web_guided_flow import WebGuidedFlowMixin
@@ -279,6 +280,7 @@ def main() -> None:
         WebInteractionMixin,
         ActionFirstInlineCreationMixin,
         ActionGoalLinkingMixin,
+        FocusedRefinementMixin,
         WebGuidedFlowMixin,
         app.OAApp,
     ):

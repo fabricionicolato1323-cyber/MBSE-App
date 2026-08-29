@@ -9,8 +9,10 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='revision.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='question_notice_separation.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='choice_help.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='searchable_choice_picker.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='ai_control.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='workspace_layout.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='oa_header_help.css') }}">
 </head>
 <body>
   <div class="workspace-shell">
@@ -18,7 +20,24 @@
       <div class="viewpoint-title-row">
         <div>
           <div class="eyebrow">Arcadia viewpoint sequence</div>
-          <h1>Operational Analysis</h1>
+          <div class="oa-title-line">
+            <h1>Operational Analysis</h1>
+            <span id="oaInfoWrap" class="oa-info-wrap">
+              <button
+                id="oaInfoButton"
+                type="button"
+                class="oa-info-button"
+                aria-label="About Operational Analysis"
+                aria-expanded="false"
+                aria-controls="oaInfoPopover"
+              >?</button>
+              <span id="oaInfoPopover" class="oa-info-popover" role="tooltip" hidden>
+                <span class="oa-info-item"><strong>Purpose</strong><span>Understand the operational need and context before defining the solution.</span></span>
+                <span class="oa-info-item"><strong>Objective</strong><span>Capture goals, participants, activities, interactions, communication and constraints.</span></span>
+                <span class="oa-info-item"><strong>Key question</strong><span>What must happen in the operational environment, by whom, and under which conditions?</span></span>
+              </span>
+            </span>
+          </div>
         </div>
         <div class="panel-visibility-controls" aria-label="Visible panels">
           <span>Panels</span>
@@ -26,12 +45,6 @@
           <button type="button" class="panel-toggle active" data-panel-toggle="completion">Completion</button>
           <button type="button" class="panel-toggle active" data-panel-toggle="model">Model</button>
         </div>
-      </div>
-
-      <div class="oa-brief" aria-label="Operational Analysis purpose">
-        <div><strong>Purpose</strong><span>Understand the operational need and context before defining the solution.</span></div>
-        <div><strong>Objective</strong><span>Capture goals, participants, activities, interactions, communication and constraints.</span></div>
-        <div><strong>Key question</strong><span>What must happen in the operational environment, by whom, and under which conditions?</span></div>
       </div>
 
       <nav class="viewpoint-tabs" aria-label="Arcadia viewpoints">
@@ -202,8 +215,10 @@
   <script src="{{ url_for('static', filename='model_relationships.js') }}"></script>
   <script src="{{ url_for('static', filename='revision_interaction.js') }}"></script>
   <script src="{{ url_for('static', filename='choice_help.js') }}"></script>
+  <script src="{{ url_for('static', filename='searchable_choice_picker.js') }}"></script>
   <script src="{{ url_for('static', filename='question_notice_separation.js') }}"></script>
   <script src="{{ url_for('static', filename='ai_control.js') }}"></script>
   <script src="{{ url_for('static', filename='workspace_layout.js') }}"></script>
+  <script src="{{ url_for('static', filename='oa_header_help.js') }}"></script>
 </body>
 </html>
