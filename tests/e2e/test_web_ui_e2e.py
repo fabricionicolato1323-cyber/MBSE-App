@@ -85,6 +85,16 @@ def test_ai_off_goal_to_participant_flow(web_server):
             expect(no_button).to_be_enabled()
             no_button.click()
 
+            expect(
+                page.get_by_text(
+                    "Would you like to add a participant or context element?",
+                    exact=True,
+                )
+            ).to_be_visible(timeout=20_000)
+            yes_button = page.get_by_role("button", name="Yes", exact=True)
+            expect(yes_button).to_be_enabled()
+            yes_button.click()
+
             expect(page.get_by_text("Who or what is involved?", exact=True)).to_be_visible(
                 timeout=20_000
             )
