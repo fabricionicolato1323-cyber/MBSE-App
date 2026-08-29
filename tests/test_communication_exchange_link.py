@@ -40,6 +40,12 @@ class _NewCommunicationFlow(_Flow):
         return "Backup radio"
 
 
+class _NoCommunicationFlow(_Flow):
+    def ask_choice(self, _question, choices, _why) -> str:
+        self.choice_history.append(list(choices))
+        return "__no_communication__"
+
+
 def _base_interaction_model() -> tuple[OAGraph, str, str, str, str]:
     graph = OAGraph()
     soldier = _add(graph, "OperationalActor", "Soldier")
@@ -70,6 +76,14 @@ def _communication_data(graph: OAGraph):
     ]
 
 
+def _exchange_data(graph: OAGraph, name: str):
+    return next(
+        data
+        for _source, _target, data in graph.graph.edges(data=True)
+        if data.get("type") == "OPERATIONAL_EXCHANGE" and data.get("name") == name
+    )
+
+
 def test_new_communication_mean_records_the_exchange_it_carries():
     graph, _soldier, _detector, report, detect = _base_interaction_model()
     _Flow(graph).capture_communication()
@@ -84,6 +98,7 @@ def test_new_communication_mean_records_the_exchange_it_carries():
             "exchange_name": "Threat report",
         }
     ]
+    assert _exchange_data(graph, "Threat report")["communication_assignment"] == "assigned"
 
 
 def test_existing_single_communication_mean_is_explicitly_offered_and_linked():
@@ -143,6 +158,60 @@ def test_existing_single_communication_mean_can_be_reused_for_new_exchanges():
         "target_activity_id": engage,
         "exchange_name": "Engagement command",
     } in refs
+
+
+def test_first_explicit_link_migrates_unambiguous_legacy_exchanges():
+    graph, soldier, detector, report, detect = _base_interaction_model()
+    engage = _add(graph, "OperationalActivity", "Engage threats")
+    assert graph.add_relation(soldier, "PERFORMS", engage)[0]
+    assert graph.add_relation(
+        detect,
+        "OPERATIONAL_EXCHANGE",
+        engage,
+        name="Threat location",
+    )[0]
+    assert graph.add_relation(
+        detector,
+        "COMMUNICATION_MEAN",
+        soldier,
+        name="Radio link",
+    )[0]
+
+    # The loaded legacy model has one medium and no exchange_refs. Associating
+    # one exchange must preserve the other old exchange that was previously
+    # unambiguously carried by the same medium.
+    _Flow(graph).capture_communication_for_exchange(detect, report, "Threat report")
+
+    refs = _communication_data(graph)[0]["exchange_refs"]
+    assert {
+        "source_activity_id": detect,
+        "target_activity_id": report,
+        "exchange_name": "Threat report",
+    } in refs
+    assert {
+        "source_activity_id": detect,
+        "target_activity_id": engage,
+        "exchange_name": "Threat location",
+    } in refs
+
+
+def test_explicit_no_communication_is_persisted_to_prevent_legacy_inference():
+    graph, soldier, detector, report, detect = _base_interaction_model()
+    assert graph.add_relation(
+        detector,
+        "COMMUNICATION_MEAN",
+        soldier,
+        name="Radio link",
+    )[0]
+
+    _NoCommunicationFlow(graph).capture_communication_for_exchange(
+        detect,
+        report,
+        "Threat report",
+    )
+
+    assert _exchange_data(graph, "Threat report")["communication_assignment"] == "none"
+    assert not _communication_data(graph)[0].get("exchange_refs")
 
 
 def test_user_can_add_another_communication_mean_for_the_same_interaction_pair():
