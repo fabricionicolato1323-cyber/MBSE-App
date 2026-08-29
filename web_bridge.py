@@ -115,24 +115,34 @@ class TerminalProcessSession:
         return cleaned
 
     @staticmethod
+    def _current_prompt_text(raw: str) -> str:
+        """Return only the newest terminal question block.
+
+        The terminal intentionally keeps its full history. Browser actions must
+        not therefore reuse numbered choices from an earlier question.
+        """
+        marker = "=" * 72
+        index = raw.rfind(marker)
+        return raw[index:] if index >= 0 else raw
+
+    @staticmethod
     def _buttons_from_text(raw: str) -> list[dict[str, str]]:
         if raw.rstrip().endswith(WAIT_CONTINUE):
             return [{"label": "Continue", "value": ""}]
 
-        choices = CHOICE_RE.findall(raw)
-        if choices:
-            # Only surface the final contiguous choice block. Earlier numbered
-            # lines may belong to a command/help page.
-            result: list[dict[str, str]] = []
-            for number, label in choices[-12:]:
-                result.append({"label": label.strip(), "value": number})
-            return result
-
-        if "(yes/no)" in raw.casefold():
+        prompt = TerminalProcessSession._current_prompt_text(raw)
+        if "(yes/no)" in prompt.casefold():
             return [
                 {"label": "Yes", "value": "yes"},
                 {"label": "No", "value": "no"},
             ]
+
+        choices = CHOICE_RE.findall(prompt)
+        if choices:
+            result: list[dict[str, str]] = []
+            for number, label in choices[-12:]:
+                result.append({"label": label.strip(), "value": number})
+            return result
         return []
 
     def _publish_if_ready(self) -> None:

@@ -24,6 +24,35 @@ class BridgeParsingTests(unittest.TestCase):
             [{"label": "Continue", "value": ""}],
         )
 
+
+    def test_old_numbered_choices_do_not_leak_into_new_yes_no_prompt(self):
+        raw = (
+            "========================================================================\n"
+            "Choose one:\n"
+            "  1. First option\n"
+            "  2. Second option\n\n> 1\n"
+            "========================================================================\n"
+            "Continue? (yes/no)\n> "
+        )
+        self.assertEqual(
+            TerminalProcessSession._buttons_from_text(raw),
+            [
+                {"label": "Yes", "value": "yes"},
+                {"label": "No", "value": "no"},
+            ],
+        )
+
+    def test_old_numbered_choices_do_not_leak_into_free_text_prompt(self):
+        raw = (
+            "========================================================================\n"
+            "Choose one:\n"
+            "  1. First option\n"
+            "  2. Second option\n\n> 1\n"
+            "========================================================================\n"
+            "What is the main goal?\n> "
+        )
+        self.assertEqual(TerminalProcessSession._buttons_from_text(raw), [])
+
     def test_clean_text_removes_terminal_chrome(self):
         raw = (
             "========================================================================\n"
