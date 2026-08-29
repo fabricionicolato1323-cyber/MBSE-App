@@ -6,6 +6,7 @@ from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, session
 
+from web_ai import LocalAIServiceError, list_installed_models, load_web_ai_config
 from web_bridge import SessionRegistry
 from web_ui_policy import should_track_temporary_input
 
@@ -24,6 +25,15 @@ def current_session(*, create_if_missing: bool = True):
         session_id, current = registry.create()
         session["mbse_session_id"] = session_id
     return session_id, current
+
+
+def discover_local_ai_models() -> list[str]:
+    config = load_web_ai_config()
+    timeout = min(float(config.get("timeout_seconds", 5.0)), 5.0)
+    return list_installed_models(
+        base_url=str(config.get("base_url", "http://localhost:11434")),
+        timeout_seconds=max(0.5, timeout),
+    )
 
 
 @app.get("/")
@@ -55,8 +65,6 @@ def api_input():
     track_temporary = should_track_temporary_input(value, interaction)
 
     try:
-        # Keep control answers atomic with draft suppression. TerminalProcessSession
-        # uses an RLock, so send() can safely re-enter it while state polling waits.
         with current._lock:  # noqa: SLF001 - local web adapter boundary
             current.send(value, display_value=display_value)
             if not track_temporary:
@@ -91,6 +99,56 @@ def api_command():
     except RuntimeError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 409
     return jsonify({"ok": True})
+
+
+@app.get("/api/ai/models")
+def api_ai_models():
+    _, current = current_session(create_if_missing=False)
+    if current is None:
+        return jsonify({"ok": False, "error": "The modeling session is no longer active."}), 409
+    try:
+        models = discover_local_ai_models()
+    except LocalAIServiceError:
+        return jsonify(
+            {
+                "ok": False,
+                "available": False,
+                "models": [],
+                "error": "The local AI service is unavailable.",
+            }
+        ), 503
+    return jsonify({"ok": True, "available": True, "models": models})
+
+
+@app.post("/api/ai/activate")
+def api_ai_activate():
+    _, current = current_session(create_if_missing=False)
+    if current is None:
+        return jsonify({"ok": False, "error": "The modeling session is no longer active."}), 409
+
+    payload = request.get_json(silent=True) or {}
+    model = str(payload.get("model", "")).strip()
+    if not model:
+        return jsonify({"ok": False, "error": "Select a local model first."}), 400
+
+    try:
+        installed = discover_local_ai_models()
+    except LocalAIServiceError:
+        return jsonify({"ok": False, "error": "The local AI service is unavailable."}), 503
+    if model not in installed:
+        return jsonify({"ok": False, "error": "The selected model is not installed locally."}), 400
+
+    request_id = current.request_ai("activate", model=model)
+    return jsonify({"ok": True, "request_id": request_id}), 202
+
+
+@app.post("/api/ai/disable")
+def api_ai_disable():
+    _, current = current_session(create_if_missing=False)
+    if current is None:
+        return jsonify({"ok": False, "error": "The modeling session is no longer active."}), 409
+    request_id = current.request_ai("disable")
+    return jsonify({"ok": True, "request_id": request_id}), 202
 
 
 @app.post("/api/reset")

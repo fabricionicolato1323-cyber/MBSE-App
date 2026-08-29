@@ -30,14 +30,14 @@ class ChatTurn:
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
 
 
-class TerminalProcessSession:
-    """Bridge the existing terminal workflow to a browser-friendly session.
+def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    temporary.replace(path)
 
-    The terminal application remains authoritative for sequencing, validation,
-    confirmations, and model writes. This class adapts stdin/stdout, removes
-    implementation details from the normal web experience, and exposes the live
-    model snapshot written by web_worker.py.
-    """
+
+class TerminalProcessSession:
+    """Bridge the existing terminal workflow to a browser-friendly session."""
 
     def __init__(self, project_dir: Path, runtime_dir: Path) -> None:
         self.project_dir = Path(project_dir).resolve()
@@ -45,6 +45,8 @@ class TerminalProcessSession:
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
         self.model_path = self.runtime_dir / "oa_model_web.json"
         self.diagnostic_path = self.runtime_dir / "worker.log"
+        self.ai_command_path = self.runtime_dir / "ai_command.json"
+        self.ai_status_path = self.runtime_dir / "ai_status.json"
         self._lock = threading.RLock()
         self._stdout = ""
         self._published_stdout = ""
@@ -127,7 +129,7 @@ class TerminalProcessSession:
             return None
 
         if stripped.startswith("Ollama is unavailable"):
-            return "AI assistance is unavailable. Deterministic validation is active."
+            return None
 
         replacements = (
             ("ARCADIA KNOWLEDGE GRAPH COMPARISON", "MODELING RULE COMPARISON"),
@@ -169,14 +171,12 @@ class TerminalProcessSession:
 
     @staticmethod
     def _current_prompt_text(raw: str) -> str:
-        """Return only the newest terminal question block."""
         marker = "=" * 72
         index = raw.rfind(marker)
         return raw[index:] if index >= 0 else raw
 
     @staticmethod
     def _fallback_interaction_from_text(raw: str) -> dict[str, Any]:
-        """Compatibility fallback for workers that do not emit the protocol."""
         if raw.rstrip().endswith(WAIT_CONTINUE):
             return normalize_interaction({"mode": "continue"})
 
@@ -200,7 +200,6 @@ class TerminalProcessSession:
 
     @staticmethod
     def _buttons_from_text(raw: str) -> list[dict[str, str]]:
-        """Legacy parser retained for compatibility and regression tests."""
         return TerminalProcessSession._fallback_interaction_from_text(raw)["choices"]
 
     def interaction_snapshot(self) -> dict[str, Any]:
@@ -279,6 +278,36 @@ class TerminalProcessSession:
         }
         self.send(command, display_value=labels.get(command, command))
 
+    def request_ai(self, action: str, *, model: str | None = None) -> str:
+        request_id = uuid.uuid4().hex
+        payload: dict[str, Any] = {
+            "request_id": request_id,
+            "action": action,
+        }
+        if model:
+            payload["model"] = model
+        _write_json_atomic(self.ai_command_path, payload)
+        return request_id
+
+    def ai_snapshot(self) -> dict[str, Any]:
+        default = {
+            "status": "off",
+            "model": None,
+            "message": "AI assistance is off.",
+        }
+        try:
+            payload = json.loads(self.ai_status_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return default
+        if not isinstance(payload, dict):
+            return default
+        status = str(payload.get("status", "off")).strip().casefold()
+        if status not in {"off", "activating", "active", "error"}:
+            status = "off"
+        model = str(payload.get("model") or "").strip() or None
+        message = str(payload.get("message") or "").strip()
+        return {"status": status, "model": model, "message": message}
+
     def model_snapshot(self) -> dict[str, Any]:
         self._refresh_draft_state()
         snapshot: dict[str, Any] = {
@@ -323,6 +352,7 @@ class TerminalProcessSession:
                 "buttons": buttons,
                 "interaction": interaction,
                 "model": self.model_snapshot(),
+                "ai": self.ai_snapshot(),
             }
 
     def close(self) -> None:
@@ -359,11 +389,6 @@ class SessionRegistry:
             return self._sessions.get(session_id)
 
     def reset(self, session_id: str) -> tuple[str, TerminalProcessSession]:
-        """Replace a session with a new identity.
-
-        A new id lets the browser reject late /api/state responses belonging to
-        the previous worker after a New model action.
-        """
         with self._lock:
             old = self._sessions.pop(session_id, None)
             if old is not None:

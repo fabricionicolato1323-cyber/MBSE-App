@@ -7,11 +7,12 @@ confirmation, undo, save, checks, composition/decomposition and characteristics.
 ## Layout
 
 - Left ~2/3: chat-like guided interaction.
-- Right ~1/3: live model panel.
+- Right ~1/3: live model panel, with Textual as the default view.
 - Confirmed model elements use the confirmed color.
 - User input waiting for confirmation is shown as temporary with a different color.
 - Yes/no questions and numbered choices are surfaced as clickable buttons.
 - Common commands are available as buttons above the chat.
+- Questions are visually emphasized while explanations and expected-answer guidance are secondary.
 
 ## Run on Windows
 
@@ -31,12 +32,30 @@ The original terminal version is still available with:
 python app.py
 ```
 
+## Runtime AI assistance
+
+The web application starts each new modeling session in deterministic mode. AI support is
+an explicit user choice and does not require editing `config.json` or restarting the model.
+
+The status control in the header shows whether AI assistance is off, activating, active, or
+unavailable. Selecting **Activate AI** queries the local Ollama service for the models that are
+actually installed on the computer and displays those names in a dropdown. Selecting a model
+activates that `OllamaLLM` client for the current web session only. AI can be disabled or the
+model can be changed while preserving the model already constructed in the session.
+
+No model name is hardcoded in the web control. AI remains advisory: deterministic write rules
+and user confirmation remain authoritative for persistent model facts.
+
 ## Architecture
 
 `web_app.py` hosts the local Flask UI. `web_bridge.py` adapts browser messages to the
-existing terminal workflow. `web_worker.py` runs the existing OAApp unchanged in a child
-Python process and uses an autosaving `OAGraph` subclass so the right-hand model view is
-updated after every accepted graph change.
+existing terminal workflow. `web_worker.py` runs the existing OAApp in a child Python process
+and uses an autosaving `OAGraph` subclass so the right-hand model view is updated after every
+accepted graph change.
+
+`web_ai.py` provides local-model discovery plus a session-local control channel. AI control
+messages are separate from modeling answers, so selecting or disabling an AI model cannot be
+mistaken for model content.
 
 ## Semantic neutrality
 

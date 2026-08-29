@@ -7,6 +7,7 @@ from typing import Callable, Iterator
 
 import app_base
 from graph_model import OAGraph
+from web_ai import AIControlManager
 from web_protocol import encode_interaction, normalize_interaction
 
 
@@ -171,7 +172,19 @@ def main() -> None:
     class WebOAApp(WebInteractionMixin, app.OAApp):
         pass
 
-    WebOAApp().run()
+    web_app = WebOAApp()
+
+    # The web UI owns AI selection explicitly. Discard any automatic startup
+    # selection made by the terminal-oriented base class, but preserve all
+    # deterministic rules and the current model state.
+    web_app.llm = None
+    web_app.notice = ""
+    ai_controller = AIControlManager(web_app, model_path.parent)
+    ai_controller.start()
+    try:
+        web_app.run()
+    finally:
+        ai_controller.stop()
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='interaction.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='revision.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='ai_control.css') }}">
 </head>
 <body>
   <main class="workspace">
@@ -16,7 +17,17 @@
           <div class="eyebrow">Guided modeling workspace</div>
           <h1>Model Builder</h1>
         </div>
-        <button id="resetButton" class="ghost-button">New model</button>
+        <div class="topbar-actions">
+          <div id="aiControl" class="ai-control" data-status="off" aria-live="polite">
+            <div class="ai-status-summary">
+              <span class="ai-status-dot" aria-hidden="true"></span>
+              <span id="aiStatusText">AI Off</span>
+              <span id="aiModelText" class="ai-model-name" hidden></span>
+            </div>
+            <button id="aiActionButton" class="ai-action-button" type="button">Activate AI</button>
+          </div>
+          <button id="resetButton" class="ghost-button">New model</button>
+        </div>
       </header>
 
       <div id="commandBar" class="command-bar" aria-label="Model commands">
@@ -90,8 +101,28 @@
     </div>
   </div>
 
+  <div id="aiModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="aiModalTitle" hidden>
+    <div class="modal-backdrop" data-close-ai></div>
+    <div class="modal-card">
+      <div class="modal-accent"></div>
+      <h2 id="aiModalTitle">AI assistance</h2>
+      <p>Select one of the AI models installed on this computer. AI remains advisory; you continue to confirm model content.</p>
+      <div class="ai-modal-field">
+        <label for="aiModelSelect">Installed model</label>
+        <select id="aiModelSelect" class="ai-model-select" disabled></select>
+      </div>
+      <p id="aiModalMessage" class="ai-modal-message" aria-live="polite"></p>
+      <div class="modal-actions">
+        <button id="disableAIButton" class="secondary-button ai-disable-button" type="button" hidden>Disable AI</button>
+        <button id="cancelAIButton" class="secondary-button" type="button">Cancel</button>
+        <button id="activateAIButton" class="primary-button" type="button" disabled>Activate</button>
+      </div>
+    </div>
+  </div>
+
   <script src="{{ url_for('static', filename='app.js') }}"></script>
   <script src="{{ url_for('static', filename='revision_model.js') }}"></script>
   <script src="{{ url_for('static', filename='revision_interaction.js') }}"></script>
+  <script src="{{ url_for('static', filename='ai_control.js') }}"></script>
 </body>
 </html>
