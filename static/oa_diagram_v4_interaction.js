@@ -40,8 +40,6 @@ function expandContainerAroundChildren(id) {
   const maxChildY = Math.max(...children.map(child => child.y + child.h));
   const [minW, minH] = minFor(state.byId.get(id)?.type);
 
-  // Containers only grow. When a child moves left/up, move the corresponding
-  // parent boundary outward while keeping the opposite boundary in place.
   const left = Math.min(box.x, minChildX - PAD);
   const top = Math.min(box.y, minChildY - HEADER - PAD);
   const right = Math.max(previousRight, maxChildX + PAD, left + minW);
@@ -174,10 +172,6 @@ function participantHeaderUnderPointer(event) {
 function onPointerDownCapture(event) {
   if (beginZoomSelection(event)) return;
 
-  // Edges must remain visually above participant fills so communication paths
-  // are readable. If a line crosses a participant header, however, the header
-  // keeps gesture priority for left-button drag. The edge is still clickable
-  // everywhere else along its visible path.
   if (event.button === 0 && event.target.closest('.oa-diagram-edge, .oa-diagram-edge-label')) {
     const underlyingParticipant = participantHeaderUnderPointer(event);
     if (underlyingParticipant) { beginMove(event, underlyingParticipant.dataset.nodeId); return; }
@@ -329,6 +323,12 @@ async function toggleFullscreen() {
   requestAnimationFrame(() => { updateBounds(); fitView(false); });
 }
 
+function publishDiagramModel(model) {
+  window.dispatchEvent(new CustomEvent('oa:diagram-model-rendered', {
+    detail: {model: model || {nodes: [], drafts: [], edges: []}, session: state.session}
+  }));
+}
+
 function setModel(model, session) {
   const nextModel = model || {nodes: [], drafts: [], edges: []};
   const nextSession = String(session || '').trim() || 'default';
@@ -337,6 +337,7 @@ function setModel(model, session) {
 
   if (!sessionChanged && state.modelSignature === nextSignature) {
     state.model = nextModel;
+    publishDiagramModel(nextModel);
     return;
   }
 
@@ -345,6 +346,7 @@ function setModel(model, session) {
     const saved = loadSaved(); state.showCapabilities = typeof saved.showCapabilities === 'boolean' ? saved.showCapabilities : true; updateCapabilityButton();
   }
   state.model = nextModel; state.modelSignature = nextSignature; buildModel(state.model); autoLayout(); render(); persist();
+  publishDiagramModel(nextModel);
 }
 
 function init() {
@@ -358,7 +360,6 @@ function init() {
   el.viewport.addEventListener('pointermove', onPointerMoveCapture, {capture: true});
   el.viewport.addEventListener('pointerup', onPointerEndCapture, {capture: true});
   el.viewport.addEventListener('pointercancel', onPointerEndCapture, {capture: true});
-  // Normal wheel gestures scroll the canvas. Ctrl/Cmd+wheel zooms around the pointer.
   el.viewport.addEventListener('wheel', event => {
     if (!(event.ctrlKey || event.metaKey)) return;
     event.preventDefault(); zoom(event.deltaY < 0 ? 1.12 : .89, event.clientX, event.clientY);
