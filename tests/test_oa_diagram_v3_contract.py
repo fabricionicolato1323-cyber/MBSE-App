@@ -4,14 +4,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 STATE = (ROOT / "static" / "oa_diagram_v2_state.js").read_text(encoding="utf-8")
 RENDER = (ROOT / "static" / "oa_diagram_v2_render.js").read_text(encoding="utf-8")
-INTERACTION = (ROOT / "static" / "oa_diagram_v2_interaction.js").read_text(encoding="utf-8")
+INTERACTION = (ROOT / "static" / "oa_diagram_v4_interaction.js").read_text(encoding="utf-8")
 STYLE = (ROOT / "static" / "oa_diagram_capella.css").read_text(encoding="utf-8")
+V4_STYLE = (ROOT / "static" / "oa_diagram_v4.css").read_text(encoding="utf-8")
 LOADER = (ROOT / "static" / "model_relationships.js").read_text(encoding="utf-8")
 
 
 def test_contract_targets_the_assets_loaded_by_the_application():
-    assert "oa_diagram_v2_interaction.js" in LOADER
+    assert "oa_diagram_v4_interaction.js" in LOADER
     assert "oa_diagram_capella.css" in LOADER
+    assert "oa_diagram_v4.css" in LOADER
 
 
 def test_containment_measurement_uses_current_seen_set_before_cycle_guard_extension():
@@ -61,6 +63,36 @@ def test_participant_containers_are_below_edges_and_leaf_blocks_are_above_edges(
 
 def test_live_canvas_does_not_show_instructional_placeholder():
     assert ".oa-diagram-empty { display:none!important; }" in STYLE
+
+
+def test_native_two_axis_scrolling_and_ctrl_wheel_zoom_are_available():
+    assert "overflow: auto !important" in V4_STYLE
+    assert "scrollbar-gutter: stable both-edges" in V4_STYLE
+    assert "if (!(event.ctrlKey || event.metaKey)) return;" in INTERACTION
+
+
+def test_right_mouse_drag_creates_zoom_selection_rectangle():
+    assert "beginZoomSelection" in INTERACTION
+    assert "event.button !== 2" in INTERACTION
+    assert "oaDiagramZoomRect" in INTERACTION
+    assert "zoomToSelection" in INTERACTION
+    assert ".oa-diagram-zoom-rect" in V4_STYLE
+
+
+def test_fullscreen_control_has_native_and_fallback_modes():
+    assert "oaDiagramFullscreen" in INTERACTION
+    assert "requestFullscreen" in INTERACTION
+    assert "oa-diagram-fullscreen-fallback" in INTERACTION
+    assert "#diagramTab:fullscreen" in V4_STYLE
+
+
+def test_parent_container_expands_left_right_up_and_down_around_moved_children():
+    assert "expandContainerAroundChildren" in INTERACTION
+    assert "const left = Math.min(box.x, minChildX - PAD);" in INTERACTION
+    assert "const top = Math.min(box.y, minChildY - HEADER - PAD);" in INTERACTION
+    assert "const right = Math.max(previousRight, maxChildX + PAD, left + minW);" in INTERACTION
+    assert "const bottom = Math.max(previousBottom, maxChildY + PAD, top + minH);" in INTERACTION
+    assert "constrainChildToParent" not in INTERACTION
 
 
 def test_capella_compatible_operational_analysis_color_tokens_are_defined():
