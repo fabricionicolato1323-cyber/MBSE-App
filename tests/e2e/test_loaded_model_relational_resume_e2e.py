@@ -132,3 +132,87 @@ def test_loaded_model_new_action_continues_to_relationship_question(web_server, 
             ).to_be_visible(timeout=20_000)
         finally:
             browser.close()
+
+
+@pytest.mark.skipif(
+    os.getenv("RUN_E2E") != "1",
+    reason="Playwright E2E tests run in the dedicated CI job.",
+)
+def test_loaded_participant_can_be_placed_in_existing_operational_area(web_server, tmp_path):
+    from playwright.sync_api import expect, sync_playwright
+
+    model = {
+        "directed": True,
+        "multigraph": True,
+        "graph": {"model": "Arcadia Operational Analysis", "model_name": "Loaded placement model"},
+        "nodes": [
+            {"id": "goal", "type": "OperationalCapability", "name": "Maintain safe area"},
+            {
+                "id": "soldier",
+                "type": "OperationalActor",
+                "name": "Soldier",
+                "nature": "human_individual",
+                "expects_activity": True,
+            },
+            {
+                "id": "battlefield",
+                "type": "OperationalEntity",
+                "name": "Battlefield",
+                "nature": "unspecified",
+                "expects_activity": False,
+            },
+            {"id": "engage", "type": "OperationalActivity", "name": "Engage threats"},
+        ],
+        "edges": [
+            {"source": "soldier", "target": "engage", "key": 0, "type": "PERFORMS"},
+            {"source": "engage", "target": "goal", "key": 0, "type": "SUPPORTS_CAPABILITY"},
+        ],
+    }
+    model_file = tmp_path / "loaded-placement-model.json"
+    model_file.write_text(json.dumps(model), encoding="utf-8")
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 1440, "height": 1000})
+        try:
+            page.goto(BASE_URL, wait_until="domcontentloaded")
+            expect(page.locator("#statusLine")).to_have_text("Ready", timeout=20_000)
+            page.locator("#loadModelInput").set_input_files(str(model_file))
+
+            expect(
+                page.get_by_text("What would you like to change in the loaded model?", exact=True)
+            ).to_be_visible(timeout=20_000)
+            page.get_by_role("button", name="Refine existing participants and actions", exact=True).click()
+
+            expect(
+                page.get_by_text("Which participant or action would you like to work on?", exact=True)
+            ).to_be_visible(timeout=20_000)
+            page.get_by_role("button", name="Participant: Soldier", exact=True).click()
+
+            expect(
+                page.get_by_text("What would you like to refine for 'Soldier'?", exact=True)
+            ).to_be_visible(timeout=20_000)
+            page.get_by_role("button", name="Location / operational area", exact=True).click()
+
+            expect(page.get_by_text("Where does Soldier operate?", exact=True)).to_be_visible(
+                timeout=20_000
+            )
+            page.get_by_role("button", name="Battlefield", exact=True).click()
+
+            expect(
+                page.get_by_text("What would you like to refine for 'Soldier'?", exact=True)
+            ).to_be_visible(timeout=20_000)
+
+            located = page.evaluate(
+                """async () => {
+                    const state = await fetch('/api/state').then(response => response.json());
+                    return state.model.edges.some(edge =>
+                        edge.source === 'soldier' &&
+                        edge.target === 'battlefield' &&
+                        edge.type === 'LOCATED_IN'
+                    );
+                }"""
+            )
+            assert located is True
+        finally:
+            browser.close()
