@@ -109,6 +109,20 @@ class WebInteractionMixin:
             result.append(line)
         return result
 
+    def _visible_choices_for_ai_state(
+        self,
+        choices: list[tuple[str, str]],
+    ) -> list[tuple[str, str]]:
+        """Hide AI/suggestion affordances that are not available in the current state."""
+        if self.llm is not None:
+            return list(choices)
+        return [
+            (key, label)
+            for key, label in choices
+            if label != "Confirm the suggestion"
+            and label != "Ask Ollama for another opinion"
+        ]
+
     def _emit_web_interaction(self, payload: dict) -> None:
         print(encode_interaction(payload), flush=True)
 
@@ -197,9 +211,10 @@ class WebInteractionMixin:
         why: str,
         extra_lines: list[str] | None = None,
     ) -> str:
+        visible_choices = self._visible_choices_for_ai_state(choices)
         display_choices = [
             (key, self._friendly_choice_label(label))
-            for key, label in choices
+            for key, label in visible_choices
         ]
         interaction = {
             "mode": "choice",
