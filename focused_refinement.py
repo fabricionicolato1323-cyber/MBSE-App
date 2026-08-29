@@ -68,11 +68,121 @@ class FocusedRefinementMixin:
 
         if selected.startswith("participant:"):
             participant_id = selected.split(":", 1)[1]
-            self.capture_actions_for_participant(participant_id)
+            self._refine_selected_participant(participant_id)
             return
 
         if selected.startswith("action:"):
             self._refine_selected_action(selected.split(":", 1)[1])
+
+    def _refine_selected_participant(self, participant_id: str) -> None:
+        """Refine actions and spatial/structural relations for one participant."""
+        participant_name = self.model.name(participant_id)
+
+        while True:
+            choice = self.ask_choice(
+                f"What would you like to refine for '{participant_name}'?",
+                [
+                    ("actions", "Actions performed by this participant"),
+                    ("location", "Location / operational area"),
+                    ("structure", "Structural membership / larger element"),
+                    ("back", "Back to the next-step menu"),
+                ],
+                (
+                    "A participant can be refined independently: add behavior, place it "
+                    "in an operational area, or describe the larger element it belongs to."
+                ),
+            )
+
+            if choice == "back":
+                return
+            if choice == "actions":
+                self.capture_actions_for_participant(participant_id)
+                continue
+            if choice == "location":
+                self._refine_participant_location(participant_id)
+                continue
+            if choice == "structure":
+                self._refine_participant_structure(participant_id)
+
+    def _participant_context_candidates(
+        self,
+        participant_id: str,
+        *,
+        exclude: set[str] | None = None,
+    ) -> list[str]:
+        excluded = set(exclude or set())
+        excluded.add(participant_id)
+        return [
+            node_id
+            for node_id in self.model.nodes_of_type("OperationalEntity")
+            if node_id not in excluded
+        ]
+
+    def _refine_participant_location(self, participant_id: str) -> None:
+        participant_name = self.model.name(participant_id)
+        existing_locations = set(self.model.locations_for(participant_id))
+        candidates = self._participant_context_candidates(
+            participant_id,
+            exclude=existing_locations,
+        )
+
+        location_id = self._select_existing_or_new_context(
+            f"Where does {participant_name} operate?",
+            candidates,
+            (
+                "Select an existing place or operational context, or add a missing "
+                "context element. This creates a location relationship without changing "
+                "the participant's organizational structure."
+            ),
+        )
+        if not location_id:
+            return
+
+        ok, error = self.model.add_relation(
+            participant_id,
+            "LOCATED_IN",
+            location_id,
+        )
+        if ok:
+            self.add_notice(
+                f"Added location: {participant_name} operates in {self.model.name(location_id)}"
+            )
+        else:
+            self.add_notice(f"Could not add the location relation: {error}")
+
+    def _refine_participant_structure(self, participant_id: str) -> None:
+        participant_name = self.model.name(participant_id)
+        existing_parent = self.model.structural_parent(participant_id)
+        if existing_parent is not None:
+            self.add_notice(
+                f"{participant_name} is already part of {self.model.name(existing_parent)}."
+            )
+            return
+
+        candidates = self._participant_context_candidates(participant_id)
+        parent_id = self._select_existing_or_new_context(
+            f"What larger element is {participant_name} part of?",
+            candidates,
+            (
+                "Select an existing organization, group, facility, or larger context "
+                "element. Use Location / operational area instead when the relationship "
+                "means where the participant operates rather than what contains it structurally."
+            ),
+        )
+        if not parent_id:
+            return
+
+        ok, error = self.model.add_relation(
+            parent_id,
+            "CONTAINS",
+            participant_id,
+        )
+        if ok:
+            self.add_notice(
+                f"Added structure: {self.model.name(parent_id)} contains {participant_name}"
+            )
+        else:
+            self.add_notice(f"Could not add the structural relation: {error}")
 
     def _refine_selected_action(self, action_id: str) -> None:
         action_label = self.model.action_label(action_id)
