@@ -70,3 +70,36 @@ const revisionBaseDetailsRelationshipRenderer = renderRevisionDetails;
 renderRevisionDetails = function relationshipAwareDetailsRenderer(model) {
   return revisionBaseDetailsRelationshipRenderer(revisionRelationshipAwareModel(model));
 };
+
+// The interactive diagram is isolated in its own assets so the existing
+// textual/details rendering stays lightweight. Load it only after the full
+// page has initialized; this guarantees it wraps the final applyState handler.
+(function installOperationalDiagramAssets() {
+  const current = [...document.scripts].find(script =>
+    /\/model_relationships\.js(?:\?|$)/.test(script.src)
+  );
+  if (!current?.src) return;
+  const base = current.src.replace(/model_relationships\.js(?:\?.*)?$/, '');
+
+  if (!document.querySelector('link[data-oa-diagram-style]')) {
+    const style = document.createElement('link');
+    style.rel = 'stylesheet';
+    style.href = `${base}oa_diagram.css`;
+    style.dataset.oaDiagramStyle = 'true';
+    document.head.appendChild(style);
+  }
+
+  const load = () => {
+    if (document.querySelector('script[data-oa-diagram-script]')) return;
+    const script = document.createElement('script');
+    script.src = `${base}oa_diagram.js`;
+    script.dataset.oaDiagramScript = 'true';
+    script.addEventListener('load', () => {
+      if (typeof pollState === 'function') pollState({force: true});
+    });
+    document.body.appendChild(script);
+  };
+
+  if (document.readyState === 'complete') load();
+  else window.addEventListener('load', load, {once: true});
+})();
