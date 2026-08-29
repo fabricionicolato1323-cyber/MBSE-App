@@ -73,9 +73,6 @@ class TerminalProcessSession:
         ]
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
-        # The browser/worker protocol contains Unicode labels such as ≥ and ≤.
-        # Do not inherit the Windows console code page for either end of the
-        # subprocess pipe; make the transport deterministic and lossless.
         env["PYTHONUTF8"] = "1"
         env["PYTHONIOENCODING"] = "utf-8"
         process = subprocess.Popen(
@@ -267,83 +264,99 @@ class TerminalProcessSession:
             if stat.st_mtime_ns > self._model_mtime_ns:
                 self._model_mtime_ns = stat.st_mtime_ns
                 changed = True
-        if changed:
-            self.pending_draft = self._load_model_snapshot()
+        rejection = any(
+            marker in assistant_text.casefold()
+            for marker in (
+                "nothing was added",
+                "candidate rejected",
+                "was not added",
+                "interpretation rejected",
+            )
+        )
+        if changed or rejection:
+            self.pending_draft = None
 
-    def _load_model_snapshot(self) -> dict[str, Any] | None:
-        if not self.model_path.exists():
-            return None
-        try:
-            return json.loads(self.model_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return None
-
-    def _write_input(self, value: str) -> bool:
-        process = self.process
-        if process is None or process.stdin is None or process.poll() is not None:
-            return False
-        try:
-            process.stdin.write(value + "\n")
-            process.stdin.flush()
-            return True
-        except (BrokenPipeError, OSError, ValueError):
-            return False
-
-    def submit(self, value: str, *, display_value: str | None = None) -> None:
-        with self._lock:
-            self._publish_if_ready()
-            if self._closed:
-                raise RuntimeError("The local modeling worker is not running.")
-            if not self._waiting:
-                raise RuntimeError("The local modeling worker is still processing.")
-
-            shown = display_value if display_value is not None else value
-            self.turns.append(ChatTurn(role="user", content=shown))
-            self.input_history.append((value, display_value))
-            self._waiting = False
-            self._active_prompt_raw = ""
-            if not self._write_input(value):
-                self._closed = True
-                self._waiting = True
-                raise RuntimeError("The local modeling worker stopped unexpectedly.")
-
-    def snapshot(self) -> dict[str, Any]:
+    def send(
+        self,
+        value: str,
+        *,
+        display_value: str | None = None,
+        record_history: bool = True,
+    ) -> None:
         self._publish_if_ready()
         with self._lock:
             process = self.process
-            closed = self._closed or process is None or process.poll() is not None
-            if closed:
-                self._closed = True
-                self._waiting = True
-            return {
-                "turns": [turn.__dict__.copy() for turn in self.turns],
-                "waiting": self._waiting,
-                "closed": self._closed,
-                "interaction": self.interaction_snapshot(),
-                "model": self._load_model_snapshot(),
-                "pending_draft": self.pending_draft,
-            }
+            if process is None or self._closed:
+                raise RuntimeError("The modeling session is no longer active.")
+            if not self._waiting:
+                raise RuntimeError("The model is still processing the previous input.")
+            self._waiting = False
+            self._active_prompt_raw = ""
 
-    def close(self) -> None:
-        process = self.process
-        if process is not None and process.poll() is None:
+            shown = display_value if display_value is not None else value
+            if shown:
+                self.turns.append(ChatTurn(role="user", content=shown))
+            if record_history and value and not value.lstrip().startswith("/"):
+                self.input_history.append((value, display_value))
+            if value and not value.lstrip().startswith("/"):
+                self.pending_draft = {
+                    "id": "pending-input",
+                    "name": value.strip(),
+                    "type": "Pending",
+                    "status": "temporary",
+                }
+
+            assert process.stdin is not None
+            process.stdin.write(value + "\n")
+            process.stdin.flush()
+
+    def _terminate_worker(self) -> None:
+        with self._lock:
+            process = self.process
+        if process is None:
+            return
+        if process.poll() is None:
             process.terminate()
             try:
-                process.wait(timeout=2)
+                process.wait(timeout=2.0)
             except subprocess.TimeoutExpired:
                 process.kill()
-        self._closed = True
+                process.wait(timeout=2.0)
 
-    def restart(self) -> None:
+    def _wait_until_waiting(self, timeout: float = 20.0) -> None:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            with self._lock:
+                closed = self._closed
+                waiting = self._waiting
+            if closed:
+                self._publish_if_ready()
+                raise RuntimeError("The modeling worker stopped while restoring the previous step.")
+            if waiting:
+                self._publish_if_ready()
+                return
+            time.sleep(0.02)
+        raise RuntimeError("Timed out while restoring the previous modeling step.")
+
+    def _wait_for_ai_model(self, model: str, timeout: float = 15.0) -> None:
+        self.request_ai("activate", model=model)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            status = self.ai_snapshot()
+            if status.get("status") == "active" and status.get("model") == model:
+                return
+            if status.get("status") == "error":
+                raise RuntimeError("AI assistance could not be restored after Undo.")
+            time.sleep(0.05)
+        raise RuntimeError("Timed out while restoring AI assistance after Undo.")
+
+    def _reset_runtime_for_replay(self) -> None:
+        for path in (self.model_path, self.ai_command_path, self.ai_status_path):
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
         with self._lock:
-            old_process = self.process
-            self.process = None
-            if old_process is not None and old_process.poll() is None:
-                old_process.terminate()
-                try:
-                    old_process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    old_process.kill()
             self._stdout = ""
             self._published_stdout = ""
             self._active_prompt_raw = ""
@@ -352,6 +365,187 @@ class TerminalProcessSession:
             self._model_mtime_ns = 0
             self.pending_draft = None
             self.turns = []
-            self.input_history = []
-            self._restoring = False
+            self.process = None
+
+    def undo_last_decision(self) -> None:
+        """Undo one user decision by rebuilding the deterministic guided session.
+
+        Replaying prior answers rewinds both NetworkX mutations and the Python
+        call stack, so one Undo corresponds to one user answer rather than one
+        low-level graph checkpoint.
+        """
+        self._publish_if_ready()
+        with self._lock:
+            if not self.input_history:
+                raise RuntimeError("There is no previous user decision to undo.")
+            prior_history = list(self.input_history[:-1])
+        ai_state = self.ai_snapshot()
+        active_ai_model = (
+            ai_state.get("model")
+            if ai_state.get("status") == "active"
+            else None
+        )
+
+        self._append_diagnostic("\n\n--- WEB UNDO: rebuilding previous user step ---\n")
+        with self._lock:
+            self._restoring = True
+        try:
+            self._terminate_worker()
+            self._reset_runtime_for_replay()
+            with self._lock:
+                self.input_history = prior_history
+                self._restoring = True
             self._launch_worker()
+            self._wait_until_waiting()
+
+            if active_ai_model:
+                self._wait_for_ai_model(str(active_ai_model))
+
+            for value, display_value in prior_history:
+                self._wait_until_waiting()
+                self.send(
+                    value,
+                    display_value=display_value,
+                    record_history=False,
+                )
+                self._wait_until_waiting()
+
+            self._publish_if_ready()
+        finally:
+            with self._lock:
+                self._restoring = False
+
+    def command(self, command: str) -> None:
+        if command == "/undo":
+            self.undo_last_decision()
+            return
+
+        labels = {
+            "/help": "Help",
+            "/show": "Show model",
+            "/check": "Check model",
+            "/why": "Why this question?",
+            "/save": "Save",
+            "/compare": "Compare with rules",
+            "/done": "Finish",
+        }
+        self.send(command, display_value=labels.get(command, command))
+
+    def request_ai(self, action: str, *, model: str | None = None) -> str:
+        request_id = uuid.uuid4().hex
+        payload: dict[str, Any] = {
+            "request_id": request_id,
+            "action": action,
+        }
+        if model:
+            payload["model"] = model
+        _write_json_atomic(self.ai_command_path, payload)
+        return request_id
+
+    def ai_snapshot(self) -> dict[str, Any]:
+        default = {
+            "status": "off",
+            "model": None,
+            "message": "AI assistance is off.",
+        }
+        try:
+            payload = json.loads(self.ai_status_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return default
+        if not isinstance(payload, dict):
+            return default
+        status = str(payload.get("status", "off")).strip().casefold()
+        if status not in {"off", "activating", "active", "error"}:
+            status = "off"
+        model = str(payload.get("model") or "").strip() or None
+        message = str(payload.get("message") or "").strip()
+        return {"status": status, "model": model, "message": message}
+
+    def model_snapshot(self) -> dict[str, Any]:
+        self._refresh_draft_state()
+        snapshot: dict[str, Any] = {
+            "nodes": [],
+            "edges": [],
+            "counts": {"nodes": 0, "edges": 0},
+        }
+        if self.model_path.exists():
+            try:
+                data = json.loads(self.model_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                data = {}
+            nodes = []
+            for item in data.get("nodes", []):
+                node = dict(item)
+                node.setdefault("status", "confirmed")
+                nodes.append(node)
+            edges = []
+            for item in data.get("edges", []):
+                edge = dict(item)
+                edge.setdefault("status", "confirmed")
+                edges.append(edge)
+            snapshot = {
+                "nodes": nodes,
+                "edges": edges,
+                "counts": {"nodes": len(nodes), "edges": len(edges)},
+            }
+
+        drafts = [self.pending_draft] if self.pending_draft else []
+        snapshot["drafts"] = drafts
+        return snapshot
+
+    def state(self) -> dict[str, Any]:
+        self._publish_if_ready()
+        with self._lock:
+            interaction = self.interaction_snapshot()
+            effective_waiting = self._waiting and not self._restoring
+            buttons = interaction["choices"] if effective_waiting else []
+            return {
+                "turns": [turn.__dict__ for turn in self.turns],
+                "waiting": effective_waiting,
+                "restoring": self._restoring,
+                "closed": self._closed,
+                "buttons": buttons,
+                "interaction": interaction,
+                "model": self.model_snapshot(),
+                "ai": self.ai_snapshot(),
+                "can_undo": bool(self.input_history),
+            }
+
+    def close(self) -> None:
+        self._terminate_worker()
+        with self._lock:
+            self._closed = True
+
+
+class SessionRegistry:
+    def __init__(self, project_dir: Path, runtime_root: Path) -> None:
+        self.project_dir = Path(project_dir)
+        self.runtime_root = Path(runtime_root)
+        self._sessions: dict[str, TerminalProcessSession] = {}
+        self._lock = threading.Lock()
+
+    def _create_unlocked(self) -> tuple[str, TerminalProcessSession]:
+        session_id = uuid.uuid4().hex
+        session = TerminalProcessSession(
+            self.project_dir,
+            self.runtime_root / session_id,
+        )
+        self._sessions[session_id] = session
+        return session_id, session
+
+    def create(self) -> tuple[str, TerminalProcessSession]:
+        with self._lock:
+            return self._create_unlocked()
+
+    def get(self, session_id: str | None) -> TerminalProcessSession | None:
+        if not session_id:
+            return None
+        with self._lock:
+            return self._sessions.get(session_id)
+
+    def reset(self, session_id: str) -> tuple[str, TerminalProcessSession]:
+        with self._lock:
+            old = self._sessions.pop(session_id, None)
+            if old is not None:
+                old.close()
+            return self._create_unlocked()
