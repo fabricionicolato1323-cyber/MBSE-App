@@ -29,11 +29,11 @@ class CommunicationExchangeLinkFlowMixin:
 
         Activity -> Port -> Communication Mean -> Port -> Activity
 
-    The association is always explicit. Even when exactly one Communication Mean
-    already exists between the performers, the user may associate the exchange to
-    it, create another Communication Mean, or leave the exchange unassigned.
-    Older models without ``exchange_refs`` therefore remain editable without the
-    app silently guessing which medium carries an interaction.
+    New decisions are explicit. For backward compatibility, an older model that
+    has exactly one Communication Mean between two performers may still have
+    exchanges that predate ``exchange_refs``. The first explicit association
+    migrates those unambiguous legacy exchanges to refs instead of making them
+    disappear from the Communication Mean presentation.
     """
 
     def _communication_edges_between(
@@ -46,6 +46,26 @@ class CommunicationExchangeLinkFlowMixin:
             if data.get("type") != "COMMUNICATION_MEAN":
                 continue
             if {source, target} != {first_participant, second_participant}:
+                continue
+            result.append((source, target, key, data))
+        return result
+
+    def _operational_exchange_edges(
+        self,
+        source_action: str | None = None,
+        target_action: str | None = None,
+        exchange_name: str | None = None,
+    ) -> list[tuple[str, str, Any, dict[str, Any]]]:
+        result: list[tuple[str, str, Any, dict[str, Any]]] = []
+        wanted_name = str(exchange_name or "").strip().casefold()
+        for source, target, key, data in self.model.graph.edges(keys=True, data=True):
+            if data.get("type") != "OPERATIONAL_EXCHANGE":
+                continue
+            if source_action is not None and source != source_action:
+                continue
+            if target_action is not None and target != target_action:
+                continue
+            if wanted_name and str(data.get("name") or "").strip().casefold() != wanted_name:
                 continue
             result.append((source, target, key, data))
         return result
@@ -65,6 +85,70 @@ class CommunicationExchangeLinkFlowMixin:
             for item in refs
         )
 
+    def _legacy_exchange_refs_for_communication(
+        self,
+        edge: tuple[str, str, Any, dict[str, Any]],
+    ) -> list[dict[str, str]]:
+        """Recover old implicit assignments only when the medium is unambiguous."""
+        source_participant, target_participant, _key, data = edge
+        existing = data.get("exchange_refs")
+        if isinstance(existing, list) and existing:
+            return []
+        if len(self._communication_edges_between(source_participant, target_participant)) != 1:
+            return []
+
+        refs: list[dict[str, str]] = []
+        for source_action, target_action, _exchange_key, exchange in self._operational_exchange_edges():
+            if str(exchange.get("communication_assignment") or "").casefold() == "none":
+                continue
+            source_participants = set(self.model.participants_for_activity(source_action))
+            target_participants = set(self.model.participants_for_activity(target_action))
+            matches = (
+                source_participant in source_participants
+                and target_participant in target_participants
+            ) or (
+                target_participant in source_participants
+                and source_participant in target_participants
+            )
+            if not matches:
+                continue
+            reference = _exchange_ref(
+                source_action,
+                target_action,
+                str(exchange.get("name") or "Exchange"),
+            )
+            if not any(_same_exchange_ref(item, reference) for item in refs):
+                refs.append(reference)
+        return refs
+
+    def _set_exchange_communication_assignment(
+        self,
+        source_action: str,
+        target_action: str,
+        exchange_name: str,
+        value: str,
+        *,
+        checkpoint: bool,
+        persist: bool,
+    ) -> None:
+        matching = self._operational_exchange_edges(
+            source_action,
+            target_action,
+            exchange_name,
+        )
+        if not matching:
+            return
+        if checkpoint:
+            checkpoint_fn = getattr(self.model, "_checkpoint", None)
+            if callable(checkpoint_fn):
+                checkpoint_fn()
+        for source, target, key, _data in matching:
+            self.model.graph[source][target][key]["communication_assignment"] = value
+        if persist:
+            persist_fn = getattr(self.model, "_persist", None)
+            if callable(persist_fn):
+                persist_fn()
+
     def _link_exchange_to_communication(
         self,
         edge: tuple[str, str, Any, dict[str, Any]],
@@ -76,22 +160,31 @@ class CommunicationExchangeLinkFlowMixin:
         reference = _exchange_ref(source_action, target_action, exchange_name)
         existing = data.get("exchange_refs")
         refs = [dict(item) for item in existing] if isinstance(existing, list) else []
-        if any(_same_exchange_ref(item, reference) for item in refs):
-            return False
+        if not refs:
+            refs.extend(self._legacy_exchange_refs_for_communication(edge))
+        already_linked = any(_same_exchange_ref(item, reference) for item in refs)
 
-        # Keep Undo semantics consistent with other graph mutations.
+        # Keep Undo semantics consistent with other graph mutations. The medium
+        # ref and the exchange assignment marker are one user decision.
         checkpoint = getattr(self.model, "_checkpoint", None)
         if callable(checkpoint):
             checkpoint()
-        self.model.graph[source][target][key]["exchange_refs"] = [*refs, reference]
+        if not already_linked:
+            refs.append(reference)
+        self.model.graph[source][target][key]["exchange_refs"] = refs
+        self._set_exchange_communication_assignment(
+            source_action,
+            target_action,
+            exchange_name,
+            "assigned",
+            checkpoint=False,
+            persist=False,
+        )
 
-        # Autosave graph variants persist accepted mutations through _persist().
-        # This association changes an edge attribute directly rather than adding
-        # an edge, so persist it explicitly when that hook is available.
         persist = getattr(self.model, "_persist", None)
         if callable(persist):
             persist()
-        return True
+        return not already_linked
 
     def _create_communication_for_exchange(
         self,
@@ -129,6 +222,16 @@ class CommunicationExchangeLinkFlowMixin:
             exchange_refs=[reference],
         )
         if ok:
+            # add_relation already checkpointed the user decision; keep the
+            # Operational Exchange marker consistent without adding another one.
+            self._set_exchange_communication_assignment(
+                source_action,
+                target_action,
+                exchange_name,
+                "assigned",
+                checkpoint=False,
+                persist=True,
+            )
             self.add_notice(f"Added communication method: {medium}")
         else:
             self.add_notice(f"Could not add the communication method: {error}")
@@ -180,6 +283,14 @@ class CommunicationExchangeLinkFlowMixin:
         )
 
         if selected == "__no_communication__":
+            self._set_exchange_communication_assignment(
+                source_action,
+                target_action,
+                exchange_name,
+                "none",
+                checkpoint=True,
+                persist=True,
+            )
             return
         if selected == "__new_communication__":
             self._create_communication_for_exchange(
