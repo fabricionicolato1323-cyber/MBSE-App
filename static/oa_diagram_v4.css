@@ -1,9 +1,37 @@
 /* Interaction enhancements layered on top of the Capella-compatible OA diagram style. */
 
+/* The Text workspace is a vertical flex column. Its active sub-view must consume
+   the remaining height; otherwise Diagram sizes itself only to its minimum
+   content and leaves a large unused area below the status bar. */
+#utilityTextView.active {
+  overflow: hidden;
+}
+
+#utilityTextView > .tab-content.active {
+  flex: 1 1 0;
+  min-height: 0;
+  height: auto;
+}
+
+#utilityTextView > #diagramTab.active {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .oa-diagram-viewport {
+  flex: 1 1 0;
+  min-height: 0;
   overflow: auto !important;
   overscroll-behavior: contain;
   scrollbar-gutter: stable both-edges;
+}
+
+/* Keep the instruction/selection message as a compact footer at the true base
+   of the Diagram view. It should never create a second unused content region. */
+.oa-diagram-selection-status {
+  flex: 0 0 auto;
+  margin: 0;
 }
 
 .oa-diagram-viewport.is-zoom-selecting {
@@ -47,7 +75,7 @@
 
 #diagramTab:fullscreen .oa-diagram-viewport,
 #diagramTab.oa-diagram-fullscreen-fallback .oa-diagram-viewport {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-height: 0;
 }
 
