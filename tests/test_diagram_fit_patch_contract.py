@@ -59,13 +59,13 @@ def test_detached_reset_preserves_main_window_camera_while_sharing_geometry():
     assert "state.view = resetCamera" in source
 
 
-def test_detached_fit_uses_detached_viewport_without_overwriting_main_camera():
+def test_detached_pseudocode_window_is_treated_as_an_independent_diagram_camera():
     source = (ROOT / "static" / "oa_diagram_fit_patch.js").read_text(encoding="utf-8")
-    assert "detachedPanel" in source
-    assert "clientWidth" in source
-    assert "clientHeight" in source
+    assert "['utility', 'text'].includes(query.get('detachedPanel'))" in source
     assert "persistView && !detachedUtilityWindow" in source
     assert "firstDetachedDiagramFitDone" in source
+    assert "clientWidth" in source
+    assert "clientHeight" in source
 
 
 def test_diagram_canvas_consumes_remaining_text_panel_height():
