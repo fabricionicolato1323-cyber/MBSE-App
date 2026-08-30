@@ -88,7 +88,7 @@
       const focusLabel = String(help.focus_label || '').trim();
       if (focusLabel) focus.appendChild(element('strong', 'oa-help-focus-label', focusLabel));
       const flow = element('div', 'oa-help-focus-flow');
-      focusSteps.forEach((step, index) => {
+      focusSteps.forEach(step => {
         const text = String(step || '').trim();
         if (!text) return;
         if (flow.childElementCount) flow.appendChild(element('span', 'oa-help-focus-arrow', '→'));
@@ -189,8 +189,8 @@
   document.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
     pinned = false;
-    hide({force: true});
     button.focus();
+    hide({force: true});
   });
 
   loadHelp();
