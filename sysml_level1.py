@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from arcadia_oa_library import ArcadiaOALibrary
+from sam_level1_sync import level1_snapshot_digest
 from sysml_v2 import generate_sysml_v2
 
 
@@ -23,7 +24,9 @@ def build_sysml_level1_preview(
 
     Level 1 represents the complete semantic model projection. Level 1A is
     intentionally local/read-only with respect to SAM: it generates text for
-    inspection and export, but performs no PySAM operation.
+    inspection and export, but performs no PySAM operation. The stable snapshot
+    digest is also exposed so Level 1B can prove that the model reviewed by the
+    user is the exact model sent to SAM.
     """
     model = payload if isinstance(payload, dict) else {}
     nodes = _dict_rows(model.get("nodes"))
@@ -51,6 +54,7 @@ def build_sysml_level1_preview(
         "label": "Level 1 · Model",
         "scope": "complete_model",
         "status": "ready" if has_confirmed_content else "empty",
+        "snapshot_digest": level1_snapshot_digest(model, valid_scenarios),
         "text": text,
         "counts": {
             "elements": len(nodes),
