@@ -212,7 +212,7 @@ def test_load_saved_model_populates_preview_and_opens_continuation_menu(web_serv
     os.getenv("RUN_E2E") != "1",
     reason="Playwright E2E tests run in the dedicated CI job.",
 )
-def test_pseudocode_and_sysml_can_be_undocked_independently(web_server):
+def test_unified_output_sidebar_splits_views_only_when_undocked(web_server):
     from playwright.sync_api import expect, sync_playwright
 
     with sync_playwright() as playwright:
@@ -222,7 +222,12 @@ def test_pseudocode_and_sysml_can_be_undocked_independently(web_server):
             page.goto(BASE_URL, wait_until="domcontentloaded")
             expect(page.locator("#statusLine")).to_have_text("Ready", timeout=20_000)
             expect(page.locator("#modelPanel")).to_be_visible()
-            expect(page.locator("#sysmlPanel")).to_be_visible()
+            expect(page.locator("#sysmlPanel")).to_have_count(0)
+            expect(page.get_by_role("tab", name="Pseudo-code", exact=True)).to_be_visible()
+            expect(page.get_by_role("tab", name="SysML V2", exact=True)).to_be_visible()
+            expect(page.get_by_role("tab", name="Diagram", exact=True)).to_be_visible()
+            expect(page.get_by_role("tab", name="Details", exact=True)).to_be_visible()
+            expect(page.locator("#utilityTextView")).to_be_visible()
 
             with page.expect_popup() as text_popup_info:
                 page.locator("#modelPanel [data-panel-action='dock']").click()
@@ -230,25 +235,29 @@ def test_pseudocode_and_sysml_can_be_undocked_independently(web_server):
             text_popup.wait_for_load_state("domcontentloaded")
             assert "detachedPanel=text" in text_popup.url
             expect(text_popup.locator("#modelPanel")).to_be_visible()
-            expect(text_popup.locator("#sysmlPanel")).to_be_hidden()
-            expect(page.locator("#modelPanel")).to_be_hidden()
-            expect(page.locator("#sysmlPanel")).to_be_visible()
+            expect(text_popup.locator("#utilityTextView")).to_be_visible()
+            expect(text_popup.locator("#utilitySysmlView")).to_be_hidden()
+            expect(page.locator("#modelPanel")).to_be_visible()
+            expect(page.locator("#utilitySysmlView")).to_be_visible()
 
             with page.expect_popup() as sysml_popup_info:
-                page.locator("#sysmlPanel [data-panel-action='dock']").click()
+                page.locator("#modelPanel [data-panel-action='dock']").click()
             sysml_popup = sysml_popup_info.value
             sysml_popup.wait_for_load_state("domcontentloaded")
             assert "detachedPanel=sysml" in sysml_popup.url
-            expect(sysml_popup.locator("#sysmlPanel")).to_be_visible()
-            expect(sysml_popup.locator("#modelPanel")).to_be_hidden()
+            expect(sysml_popup.locator("#utilitySysmlView")).to_be_visible()
+            expect(sysml_popup.locator("#utilityTextView")).to_be_hidden()
+            expect(page.locator("#modelPanel")).to_be_visible()
+            expect(page.locator("#diagramTab")).to_be_visible()
+
+            page.get_by_role("button", name="Model output", exact=True).click()
             expect(page.locator("#modelPanel")).to_be_hidden()
-            expect(page.locator("#sysmlPanel")).to_be_hidden()
+            assert not text_popup.is_closed()
+            assert not sysml_popup.is_closed()
 
-            text_popup.close()
+            text_popup.locator("#modelPanel [data-panel-action='dock']").click()
             expect(page.locator("#modelPanel")).to_be_visible(timeout=5_000)
-            expect(page.locator("#sysmlPanel")).to_be_hidden()
-
-            sysml_popup.locator("#sysmlPanel [data-panel-action='dock']").click()
-            expect(page.locator("#sysmlPanel")).to_be_visible(timeout=5_000)
+            expect(page.locator("#utilityTextView")).to_be_visible(timeout=5_000)
+            assert not sysml_popup.is_closed()
         finally:
             browser.close()
