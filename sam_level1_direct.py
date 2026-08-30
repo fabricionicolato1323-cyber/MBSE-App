@@ -6,6 +6,11 @@ server, can accept the aggregate commit without leaving the created package behi
 This writer therefore uses the documented direct-create path and only publishes the
 final package name after all required semantic content has been created.
 
+PySAM reloads the scripting project after every direct create/update/delete commit.
+The reload replaces the in-memory scripting element instances. All owners and
+cross-element references are therefore rebound by stable element ID immediately
+before each Factory call.
+
 Auxiliary annotations are deliberately best-effort. A SAM/PySAM combination may
 reject ``Documentation`` or ``TextualRepresentation`` even while accepting the
 native SysML semantic elements. Such optional metadata must not make an otherwise
@@ -28,6 +33,7 @@ from sam_level1_sync import (
     _rows,
     build_level1_sync_plan,
 )
+from sam_reload_safe_factory import ReloadSafeFactory
 from sysml_v2 import generate_sysml_v2
 
 
@@ -54,12 +60,25 @@ def _matches(project: Any, name: str) -> list[Any]:
     return list(project.find_elements_by_name(name) or [])
 
 
-def _rename_scripting_element(element: Any, name: str) -> None:
-    """Rename both real PySAM scripting elements and lightweight test doubles."""
-    if hasattr(element, "_name"):
-        element._name = name
-    else:
-        element.name = name
+def _fresh_element(project: Any, element: Any) -> Any:
+    """Resolve an element against the current post-reload scripting project."""
+    identity = _element_id(element)
+    finder = getattr(project, "find_element_by_id", None)
+    if identity and callable(finder):
+        current = finder(identity)
+        if current is not None:
+            return current
+    return element
+
+
+def _rename_scripting_element(project: Any, element: Any, name: str) -> Any:
+    """Persist a rename through the current PySAM scripting element observer."""
+    current = _fresh_element(project, element)
+    # The generated PySAM Element.name setter notifies the ModificationObserver,
+    # commits the change and reloads the project. Use the public property rather
+    # than mutating the backing field directly.
+    current.name = name
+    return _fresh_element(project, current)
 
 
 class _MetadataTolerantFactory:
@@ -93,9 +112,6 @@ class _MetadataTolerantFactory:
         if self._documentation_mode == "disabled":
             return None
 
-        # Do not send locale during the compatibility probe. The live SAM rejected
-        # the original payload that included locale="en". documented_element and
-        # body are the semantically relevant fields exposed by PySAM's metamodel.
         documentation_kwargs = {
             key: value for key, value in kwargs.items() if key != "locale"
         }
@@ -112,8 +128,6 @@ class _MetadataTolerantFactory:
                     )
                     return None
 
-        # Generic Comment is a less constrained SysML annotation. If SAM accepts
-        # it, preserve the payload as text while continuing the semantic transfer.
         comment_kwargs = {
             "owner": kwargs.get("owner"),
             "body": kwargs.get("body"),
@@ -152,12 +166,13 @@ def _remove_incomplete_staging(project: Any, staging_name: str) -> int:
         matches = _matches(project, staging_name)
         if not matches:
             return removed
-        element = matches[0]
-        element_id = _element_id(element)
-        observer = getattr(element, "_observer", None)
+        element = _fresh_element(project, matches[0])
 
-        if element_id and observer is not None and hasattr(observer, "delete_element"):
-            observer.delete_element(element_id)
+        delete = getattr(element, "delete", None)
+        if callable(delete):
+            # SysMLElement.delete() delegates to ModificationObserver.delete_element(),
+            # which commits and reloads the project in direct mode.
+            delete()
         elif hasattr(project, "elements") and element in project.elements:
             # Lightweight test-double path only.
             project.elements.remove(element)
@@ -263,7 +278,6 @@ def sync_level1_to_sam_direct(
     marker_name = level1_completion_marker_name(plan["snapshot_digest"])
     staging_name = level1_staging_package_name(package_name)
 
-    # A completed snapshot is immutable and wins over any cleanup action.
     existing_completed = _matches(project, package_name)
     existing_marker = _matches(project, marker_name)
     if existing_completed and existing_marker:
@@ -300,7 +314,8 @@ def sync_level1_to_sam_direct(
 
     root = project.get_root_package()
     raw_factory = factory_class(project, connector)
-    factory = _MetadataTolerantFactory(raw_factory)
+    reload_safe_factory = ReloadSafeFactory(project, raw_factory)
+    factory = _MetadataTolerantFactory(reload_safe_factory)
     model_package = None
     stage = "creating the Level 1 staging package"
     textual_representation_count = 0
@@ -359,9 +374,6 @@ def sync_level1_to_sam_direct(
             model_package=model_package,
         )
 
-        # This is a convenience copy of the already generated textual model. The
-        # native SysML elements above are the Level 1 authority, so a server that
-        # rejects TextualRepresentation must not invalidate the semantic transfer.
         stage = "creating the optional Level 1 textual SysML v2 representation"
         sysml_text = generate_sysml_v2(model, scenarios=scenario_rows, drafts=[])
         textual_representation = factory.create_textual_representation(
@@ -380,7 +392,7 @@ def sync_level1_to_sam_direct(
             )
 
         stage = "publishing the completed Level 1 package"
-        _rename_scripting_element(model_package, package_name)
+        model_package = _rename_scripting_element(project, model_package, package_name)
         completed_matches = _matches(project, package_name)
         if not completed_matches:
             raise SamLevel1SyncError(
