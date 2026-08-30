@@ -3,6 +3,8 @@
   window.__oaSysmlV2RenderInstalled = true;
 
   let latestSysmlText = '';
+  let latestLevel1 = null;
+  let latestSamSync = null;
 
   function roots() {
     const view = document.getElementById('utilitySysmlView');
@@ -29,6 +31,7 @@
       label: 'Level 1 · Model',
       scope: 'complete_model',
       status: nodes.length || edges.length || scenarios.length ? 'ready' : 'empty',
+      snapshot_digest: '',
       text: String(model?.sysml_v2 || ''),
       counts: {
         elements: nodes.length,
@@ -121,13 +124,22 @@
     return {root, summary};
   }
 
+  function ensureActionArea(ui) {
+    let actions = ui.container.querySelector('#sysmlLevel1Actions');
+    if (actions) return actions;
+    actions = document.createElement('div');
+    actions.id = 'sysmlLevel1Actions';
+    actions.className = 'model-file-actions sysml-export-actions';
+    const pre = ui.container.querySelector('pre');
+    if (pre) ui.container.insertBefore(actions, pre);
+    else ui.container.appendChild(actions);
+    return actions;
+  }
+
   function ensureExportButton(ui) {
     if (!ui?.container || !ui?.code) return null;
     let button = ui.container.querySelector('#exportSysmlButton');
     if (button) return button;
-
-    const actions = document.createElement('div');
-    actions.className = 'model-file-actions sysml-export-actions';
 
     button = document.createElement('button');
     button.id = 'exportSysmlButton';
@@ -165,10 +177,137 @@
       }
     });
 
-    actions.appendChild(button);
-    const pre = ui.container.querySelector('pre');
-    if (pre) ui.container.insertBefore(actions, pre);
-    else ui.container.appendChild(actions);
+    ensureActionArea(ui).appendChild(button);
+    return button;
+  }
+
+  function currentSyncMatches(level1) {
+    return Boolean(
+      latestSamSync?.snapshot_digest &&
+      level1?.snapshot_digest &&
+      latestSamSync.snapshot_digest === level1.snapshot_digest
+    );
+  }
+
+  function updateLevel1Summary(ui, level1) {
+    const controls = ensureLevelControls(ui);
+    if (!controls?.summary) return;
+    const counts = level1?.counts || {};
+    const statusText = level1?.status === 'ready'
+      ? 'Preview ready'
+      : 'Waiting for confirmed model content';
+    let samText = 'SAM not written';
+    if (currentSyncMatches(level1)) {
+      samText = latestSamSync.status === 'already_synced'
+        ? `Already in SAM · ${latestSamSync.package_name}`
+        : `SAM synced · ${latestSamSync.package_name}`;
+    }
+    controls.summary.textContent =
+      `${statusText} · ${Number(counts.elements || 0)} elements · ${Number(counts.relationships || 0)} relationships · ${Number(counts.scenarios || 0)} scenarios · ${samText}`;
+  }
+
+  async function readJson(response) {
+    return response.json().catch(() => ({}));
+  }
+
+  function ensureSamSendButton(ui) {
+    if (!ui?.container || !ui?.code) return null;
+    let button = ui.container.querySelector('#sendLevel1ToSamButton');
+    if (button) return button;
+
+    button = document.createElement('button');
+    button.id = 'sendLevel1ToSamButton';
+    button.className = 'ghost-button model-file-button';
+    button.type = 'button';
+    button.textContent = 'Send Level 1 to SAM';
+    button.title = 'Review a dry-run plan, then create this Level 1 snapshot in the configured SAM project';
+    button.setAttribute('aria-label', 'Send Level 1 model to SAM');
+
+    button.addEventListener('click', async () => {
+      if (!latestLevel1 || latestLevel1.status !== 'ready') return;
+      const normalLabel = 'Send Level 1 to SAM';
+      button.disabled = true;
+      button.textContent = 'Preparing SAM plan…';
+      try {
+        const planResponse = await fetch('/api/sam/level1/plan', {cache: 'no-store'});
+        const planData = await readJson(planResponse);
+        if (!planResponse.ok || !planData.plan) {
+          throw new Error(planData.error || 'The SAM transfer plan could not be prepared.');
+        }
+        const plan = planData.plan;
+        if (plan.status !== 'ready') {
+          const unsupported =
+            Number(plan.unsupported_nodes?.length || 0) +
+            Number(plan.unsupported_relations?.length || 0);
+          throw new Error(
+            unsupported
+              ? `SAM transfer is blocked by ${unsupported} unsupported model item(s).`
+              : 'SAM transfer is blocked for the current model.'
+          );
+        }
+        if (
+          latestLevel1.snapshot_digest &&
+          plan.snapshot_digest !== latestLevel1.snapshot_digest
+        ) {
+          throw new Error('The model changed while the transfer plan was being prepared. Review the current Level 1 output and try again.');
+        }
+
+        const counts = plan.counts || {};
+        const approved = window.confirm(
+          `Send this Level 1 snapshot to SAM?\n\n` +
+          `Project: ${plan.target_project_id}\n` +
+          `Package: ${plan.package_name}\n` +
+          `${Number(counts.elements || 0)} elements · ${Number(counts.relationships || 0)} relationships · ${Number(counts.scenarios || 0)} scenarios\n\n` +
+          `The transfer is transactional. The same snapshot will not be duplicated if sent again.`
+        );
+        if (!approved) {
+          button.textContent = normalLabel;
+          return;
+        }
+
+        button.textContent = 'Sending to SAM…';
+        const sendResponse = await fetch('/api/sam/level1/send', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            confirm: true,
+            snapshot_digest: plan.snapshot_digest,
+          }),
+        });
+        const sendData = await readJson(sendResponse);
+        if (!sendResponse.ok || !sendData.result) {
+          throw new Error(sendData.error || 'The Level 1 snapshot could not be sent to SAM.');
+        }
+        latestSamSync = sendData.result;
+        button.textContent = latestSamSync.status === 'already_synced'
+          ? 'Already in SAM'
+          : 'Sent to SAM';
+        updateLevel1Summary(ui, latestLevel1);
+        window.setTimeout(() => {
+          if (!button.isConnected) return;
+          button.textContent = currentSyncMatches(latestLevel1)
+            ? 'Level 1 in SAM'
+            : normalLabel;
+        }, 1400);
+      } catch (error) {
+        console.error('Level 1B SAM transfer failed.', error);
+        button.textContent = 'SAM transfer failed';
+        const controls = ensureLevelControls(ui);
+        if (controls?.summary) {
+          controls.summary.textContent = error?.message || 'SAM transfer failed.';
+        }
+        window.setTimeout(() => {
+          if (button.isConnected) {
+            button.textContent = normalLabel;
+            updateLevel1Summary(ui, latestLevel1);
+          }
+        }, 3500);
+      } finally {
+        button.disabled = latestLevel1?.status !== 'ready';
+      }
+    });
+
+    ensureActionArea(ui).appendChild(button);
     return button;
   }
 
@@ -177,26 +316,27 @@
     if (!ui?.code) return;
 
     const level1 = level1Projection(model);
-    const counts = level1?.counts || {};
+    latestLevel1 = level1;
 
     if (ui.heading) ui.heading.textContent = 'SysML V2 · Level 1 — Model';
     if (ui.note) {
       ui.note.textContent =
-        'Generated live from the complete confirmed Operational Analysis model. Level 1A is preview/export only; no model data is written to SAM.';
+        'Generated live from the complete confirmed Operational Analysis model. Level 1A previews/exports it; Level 1B writes only after an explicit reviewed confirmation.';
     }
 
-    const controls = ensureLevelControls(ui);
-    if (controls?.summary) {
-      const statusText = level1?.status === 'ready' ? 'Preview ready' : 'Waiting for confirmed model content';
-      controls.summary.textContent =
-        `${statusText} · ${Number(counts.elements || 0)} elements · ${Number(counts.relationships || 0)} relationships · ${Number(counts.scenarios || 0)} scenarios · SAM not written`;
-    }
+    updateLevel1Summary(ui, level1);
 
     const text = String(level1?.text || model?.sysml_v2 || '').trimEnd();
     latestSysmlText = text;
     ui.code.textContent = text || '// No confirmed Operational Analysis elements yet.';
     ui.code.setAttribute('aria-label', 'Generated SysML V2 text — Level 1 model');
     ensureExportButton(ui);
+    const samButton = ensureSamSendButton(ui);
+    if (samButton) {
+      samButton.disabled = level1?.status !== 'ready';
+      if (currentSyncMatches(level1)) samButton.textContent = 'Level 1 in SAM';
+      else if (!samButton.textContent.includes('…')) samButton.textContent = 'Send Level 1 to SAM';
+    }
   }
 
   const baseApplyState = window.applyState;
@@ -211,6 +351,7 @@
   if (typeof baseClearRenderedSession === 'function') {
     window.clearRenderedSession = function sysmlV2AwareClearRenderedSession() {
       baseClearRenderedSession();
+      latestSamSync = null;
       renderSysmlV2({});
     };
   }
