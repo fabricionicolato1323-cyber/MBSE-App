@@ -109,7 +109,7 @@ def _characteristics(
                         f"{indent}attribute {identifier} : {type_name} = {_num_text(value)};"
                     )
             if unit and unit_strategy == "comment_only":
-                lines += _comments(f"unit for {name}: {unit}", indent)
+                lines.extend(_comments(f"unit for {name}: {unit}", indent))
             continue
 
         identifier = _id(name, prefix, used)
@@ -123,15 +123,17 @@ def _characteristics(
                     f"{indent}attribute {identifier} : {type_name} = {_num_text(value)};"
                 )
             if unit and unit_strategy == "comment_only":
-                lines += _comments(f"unit: {unit}", indent)
+                lines.extend(_comments(f"unit: {unit}", indent))
         elif kind == "text":
             value = json.dumps(_clean(item.get("value")), ensure_ascii=False)
             lines.append(f"{indent}attribute {identifier} : {scalar['string']} = {value};")
         else:
             lines.append(f"{indent}attribute {identifier};")
-            lines += _comments(
-                "Characteristic value kind is not mapped by the library; value omitted.",
-                indent,
+            lines.extend(
+                _comments(
+                    "Characteristic value kind is not mapped by the library; value omitted.",
+                    indent,
+                )
             )
     return lines
 
@@ -240,6 +242,49 @@ def _paths_for(
     return paths
 
 
+def _emit_usage_tree(
+    node_id: str,
+    *,
+    level: int,
+    allowed_ids: set[str],
+    node_by_id: dict[str, dict[str, Any]],
+    node_mappings: dict[str, Any],
+    identifiers: dict[str, str],
+    children: dict[str, list[str]],
+    extra_body: dict[str, list[str]],
+    library: ArcadiaOALibrary,
+    output: list[str],
+) -> None:
+    node = node_by_id[node_id]
+    mapping = node_mappings[str(node.get("type"))]
+    indent = "    " * level
+    body = _characteristics(node.get("characteristics"), indent + "    ", library)
+    body.extend(extra_body.get(node_id, []))
+    child_ids = [child for child in children.get(node_id, []) if child in allowed_ids]
+    head = f"{indent}{mapping['usage_keyword']} {identifiers[node_id]} : {mapping['definition']}"
+
+    if body or child_ids:
+        output.append(head + " {")
+        output.extend(body)
+        for child_id in child_ids:
+            _emit_usage_tree(
+                child_id,
+                level=level + 1,
+                allowed_ids=allowed_ids,
+                node_by_id=node_by_id,
+                node_mappings=node_mappings,
+                identifiers=identifiers,
+                children=children,
+                extra_body=extra_body,
+                library=library,
+                output=output,
+            )
+        output.append(f"{indent}}}")
+    else:
+        output.append(head + ";")
+    output.extend(_comments(f"name: {_clean(node.get('name') or node_id)}", indent))
+
+
 def _scenario_lines(
     scenario: dict[str, Any],
     node_by_id: dict[str, dict[str, Any]],
@@ -258,7 +303,7 @@ def _scenario_lines(
         lines = _comments(f"Invalid Operational Scenario omitted: {name}", indent)
         issues = scenario.get("issues", []) if isinstance(scenario.get("issues"), list) else []
         for issue in issues:
-            lines += _comments(f"issue: {_clean(issue)}", indent)
+            lines.extend(_comments(f"issue: {_clean(issue)}", indent))
         return lines
 
     steps = [step for step in scenario.get("steps", []) if isinstance(step, dict)]
@@ -277,8 +322,8 @@ def _scenario_lines(
 
     used: set[str] = set()
     scenario_id = _id(name, str(config.get("identifier_prefix") or "scenario"), used)
-    step_ids: list[str] = []
     activity_prefix = str(config.get("activity_identifier_prefix") or "step")
+    step_ids: list[str] = []
     for index, step in enumerate(activity_steps, start=1):
         activity = node_by_id.get(str(step.get("activity_id") or ""), {})
         step_ids.append(
@@ -320,7 +365,7 @@ def _scenario_lines(
     flow_definition = str(flow_mapping.get("definition"))
 
     lines = [f"{indent}{usage_keyword} {scenario_id} : {definition} {{"]
-    lines += _comments(f"name: {name}", indent + "    ")
+    lines.extend(_comments(f"name: {name}", indent + "    "))
     for step, step_id in zip(activity_steps, step_ids):
         features = [
             *(f"{indent}        in item {feature} : {payload_definition};" for feature in inputs.get(step_id, [])),
@@ -333,9 +378,11 @@ def _scenario_lines(
         else:
             lines.append(f"{indent}    {activity_keyword} {step_id} : {activity_definition};")
         activity = node_by_id.get(str(step.get("activity_id") or ""), {})
-        lines += _comments(
-            f"references model activity: {_clean(activity.get('name') or step.get('activity_id'))}",
-            indent + "    ",
+        lines.extend(
+            _comments(
+                f"references model activity: {_clean(activity.get('name') or step.get('activity_id'))}",
+                indent + "    ",
+            )
         )
 
     if config.get("sequence_strategy") == "first_then":
@@ -346,18 +393,18 @@ def _scenario_lines(
 
     for flow_id, source_step, out_name, target_ref, interaction in flow_rows:
         lines.append("")
-        lines.append(
-            f"{indent}    flow {flow_id} : {flow_definition} of {payload_definition}"
-        )
+        lines.append(f"{indent}    flow {flow_id} : {flow_definition} of {payload_definition}")
         lines.append(f"{indent}        from {source_step}.{out_name}")
         lines.append(f"{indent}        to {target_ref};")
         if config.get("communication_reference_strategy") == "comment_only":
             communication = interaction.get("communication_mean")
             if isinstance(communication, dict) and _clean(communication.get("name")):
-                lines += _comments(
-                    "Communication Mean reference retained without additional SysML mapping: "
-                    f"{_clean(communication.get('name'))}",
-                    indent + "    ",
+                lines.extend(
+                    _comments(
+                        "Communication Mean reference retained without additional SysML mapping: "
+                        f"{_clean(communication.get('name'))}",
+                        indent + "    ",
+                    )
                 )
     lines.append(f"{indent}}}")
     return lines
@@ -435,27 +482,32 @@ def generate_sysml_v2(
         f"    private import {package}::*;",
         "",
     ]
-    lines += _comments(f"Generated from source model: {model_name}", "    ")
-    lines += _comments(
-        "Translation authority: library bundle only. No semantic fallback is permitted.",
-        "    ",
+    lines.extend(_comments(f"Generated from source model: {model_name}", "    "))
+    lines.extend(
+        _comments(
+            "Translation authority: library bundle only. No semantic fallback is permitted.",
+            "    ",
+        )
     )
 
     unknown_nodes = [node for node in nodes if str(node.get("type") or "") not in node_mappings]
     if unknown_nodes:
-        lines += ["", "    // Unmapped source nodes"]
+        lines.extend(["", "    // Unmapped source nodes"])
         for node in unknown_nodes:
-            lines += _comments(
-                f"UNMAPPED Arcadia node {_clean(node.get('type') or 'UNKNOWN')}: "
-                f"{_clean(node.get('name') or node.get('id'))}",
-                "    ",
+            lines.extend(
+                _comments(
+                    f"UNMAPPED Arcadia node {_clean(node.get('type') or 'UNKNOWN')}: "
+                    f"{_clean(node.get('name') or node.get('id'))}",
+                    "    ",
+                )
             )
 
     placement_ids: dict[str, set[str]] = defaultdict(set)
     for node in nodes:
         mapping = node_mappings.get(str(node.get("type") or ""))
-        if isinstance(mapping, dict) and str(node.get("id") or "") in identifiers:
-            placement_ids[str(mapping.get("placement") or "")].add(str(node.get("id") or ""))
+        node_id = str(node.get("id") or "")
+        if isinstance(mapping, dict) and node_id in identifiers:
+            placement_ids[str(mapping.get("placement") or "")].add(node_id)
 
     top_ids = placement_ids.get("top_level", set())
     behavior_ids = placement_ids.get("behavior", set())
@@ -465,35 +517,27 @@ def generate_sysml_v2(
     structure_paths = _paths_for(structure_ids, nested_parents, identifiers)
 
     if top_ids:
-        lines += ["", "    // Top-level library usages"]
-
-        def emit_top(node_id: str, level: int) -> None:
-            node = node_by_id[node_id]
-            mapping = node_mappings[str(node.get("type"))]
-            indent = "    " * level
-            attrs = _characteristics(node.get("characteristics"), indent + "    ", library)
-            child_ids = [child for child in nested_children.get(node_id, []) if child in top_ids]
-            head = f"{indent}{mapping['usage_keyword']} {identifiers[node_id]} : {mapping['definition']}"
-            if attrs or child_ids:
-                lines.append(head + " {")
-                lines.extend(attrs)
-                for child_id in child_ids:
-                    emit_top(child_id, level + 1)
-                lines.append(f"{indent}}}")
-            else:
-                lines.append(head + ";")
-            lines += _comments(f"name: {_clean(node.get('name') or node_id)}", indent)
-
+        lines.extend(["", "    // Top-level library usages"])
         top_roots = sorted(
             [node_id for node_id in top_ids if nested_parents.get(node_id) not in top_ids],
             key=lambda item: identifiers.get(item, item),
         )
         for root in top_roots:
-            emit_top(root, 1)
+            _emit_usage_tree(
+                root,
+                level=1,
+                allowed_ids=top_ids,
+                node_by_id=node_by_id,
+                node_mappings=node_mappings,
+                identifiers=identifiers,
+                children=nested_children,
+                extra_body={},
+                library=library,
+                output=lines,
+            )
 
     flow_rows: list[tuple[dict[str, Any], dict[str, Any], str, str, str]] = []
-    incoming: dict[str, list[tuple[str, str]]] = defaultdict(list)
-    outgoing: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    behavior_body: dict[str, list[str]] = defaultdict(list)
     flow_used: set[str] = set()
     for index, (edge, mapping) in enumerate(classified.get("flow", []), start=1):
         source = str(edge.get("source") or "")
@@ -505,8 +549,8 @@ def generate_sysml_v2(
         out_name = f"{prefix}_{index}_out"
         in_name = f"{prefix}_{index}_in"
         payload_definition = str(mapping.get("payload_definition"))
-        outgoing[source].append((out_name, payload_definition))
-        incoming[target].append((in_name, payload_definition))
+        behavior_body[source].append(f"out item {out_name} : {payload_definition};")
+        behavior_body[target].append(f"in item {in_name} : {payload_definition};")
         flow_rows.append(
             (
                 edge,
@@ -520,52 +564,46 @@ def generate_sysml_v2(
     behavior_container = projection.get("behavior_container", {})
     behavior_container_id = str(behavior_container.get("identifier") or "behavior")
     if behavior_ids or flow_rows:
-        lines += [
-            "",
-            f"    {behavior_container.get('usage_keyword', 'action')} {behavior_container_id} {{",
-        ]
-
-        def emit_behavior(node_id: str, level: int) -> None:
-            node = node_by_id[node_id]
-            mapping = node_mappings[str(node.get("type"))]
-            indent = "    " * level
-            body = _characteristics(node.get("characteristics"), indent + "    ", library)
-            body += [
-                f"{indent}    in item {name} : {payload};"
-                for name, payload in incoming.get(node_id, [])
+        lines.extend(
+            [
+                "",
+                f"    {behavior_container.get('usage_keyword', 'action')} {behavior_container_id} {{",
             ]
-            body += [
-                f"{indent}    out item {name} : {payload};"
-                for name, payload in outgoing.get(node_id, [])
-            ]
-            child_ids = [child for child in nested_children.get(node_id, []) if child in behavior_ids]
-            head = f"{indent}{mapping['usage_keyword']} {identifiers[node_id]} : {mapping['definition']}"
-            if body or child_ids:
-                lines.append(head + " {")
-                lines.extend(body)
-                for child_id in child_ids:
-                    emit_behavior(child_id, level + 1)
-                lines.append(f"{indent}}}")
-            else:
-                lines.append(head + ";")
-            lines += _comments(f"name: {_clean(node.get('name') or node_id)}", indent)
-
+        )
+        behavior_extra: dict[str, list[str]] = {}
+        for node_id, features in behavior_body.items():
+            depth = behavior_paths.get(node_id, identifiers.get(node_id, "")).count(".")
+            feature_indent = "    " * (3 + depth)
+            behavior_extra[node_id] = [f"{feature_indent}{feature}" for feature in features]
         behavior_roots = sorted(
             [node_id for node_id in behavior_ids if nested_parents.get(node_id) not in behavior_ids],
             key=lambda item: identifiers.get(item, item),
         )
         for root in behavior_roots:
-            emit_behavior(root, 2)
+            _emit_usage_tree(
+                root,
+                level=2,
+                allowed_ids=behavior_ids,
+                node_by_id=node_by_id,
+                node_mappings=node_mappings,
+                identifiers=identifiers,
+                children=nested_children,
+                extra_body=behavior_extra,
+                library=library,
+                output=lines,
+            )
 
         for edge, mapping, flow_id, out_name, in_name in flow_rows:
             source = str(edge.get("source") or "")
             target = str(edge.get("target") or "")
-            lines += [
-                "",
-                f"        flow {flow_id} : {mapping['definition']} of {mapping['payload_definition']}",
-                f"            from {behavior_paths[source]}.{out_name}",
-                f"            to {behavior_paths[target]}.{in_name};",
-            ]
+            lines.extend(
+                [
+                    "",
+                    f"        flow {flow_id} : {mapping['definition']} of {mapping['payload_definition']}",
+                    f"            from {behavior_paths[source]}.{out_name}",
+                    f"            to {behavior_paths[target]}.{in_name};",
+                ]
+            )
         lines.append("    }")
 
     performs_by_participant: dict[str, list[str]] = defaultdict(list)
@@ -599,46 +637,48 @@ def generate_sysml_v2(
     structure_container_id = str(structure_container.get("identifier") or "structure")
     connection_rows = classified.get("connection", [])
     if structure_ids or connection_rows:
-        lines += [
-            "",
-            f"    {structure_container.get('usage_keyword', 'part')} {structure_container_id} {{",
-        ]
-
-        def emit_part(node_id: str, level: int) -> None:
-            node = node_by_id[node_id]
-            mapping = node_mappings[str(node.get("type"))]
-            indent = "    " * level
-            body = _characteristics(node.get("characteristics"), indent + "    ", library)
+        lines.extend(
+            [
+                "",
+                f"    {structure_container.get('usage_keyword', 'part')} {structure_container_id} {{",
+            ]
+        )
+        structure_extra: dict[str, list[str]] = defaultdict(list)
+        for node_id in structure_ids:
+            depth = structure_paths.get(node_id, identifiers.get(node_id, "")).count(".")
+            body_indent = "    " * (3 + depth)
             for activity_id in sorted(
                 set(performs_by_participant.get(node_id, [])),
                 key=lambda value: behavior_paths.get(value, identifiers.get(value, value)),
             ):
-                body.append(
-                    f"{indent}    perform {behavior_container_id}.{behavior_paths[activity_id]};"
+                structure_extra[node_id].append(
+                    f"{body_indent}perform {behavior_container_id}.{behavior_paths[activity_id]};"
                 )
-            for _edge, ref_mapping, reference_id in references_by_owner.get(node_id, []):
+            for edge, ref_mapping, reference_id in references_by_owner.get(node_id, []):
                 target_endpoint = str(ref_mapping.get("referenced_endpoint") or "target")
-                target = str(_edge.get(target_endpoint) or "")
-                body.append(
-                    f"{indent}    ref {ref_mapping['usage_keyword']} {reference_id} : "
+                target = str(edge.get(target_endpoint) or "")
+                structure_extra[node_id].append(
+                    f"{body_indent}ref {ref_mapping['usage_keyword']} {reference_id} : "
                     f"{ref_mapping['definition']} = {structure_container_id}.{structure_paths[target]};"
                 )
-            child_ids = [child for child in nested_children.get(node_id, []) if child in structure_ids]
-            lines.append(
-                f"{indent}{mapping['usage_keyword']} {identifiers[node_id]} : {mapping['definition']} {{"
-            )
-            lines.extend(body)
-            for child_id in child_ids:
-                emit_part(child_id, level + 1)
-            lines.append(f"{indent}}}")
-            lines += _comments(f"name: {_clean(node.get('name') or node_id)}", indent)
 
         structure_roots = sorted(
             [node_id for node_id in structure_ids if nested_parents.get(node_id) not in structure_ids],
             key=lambda item: identifiers.get(item, item),
         )
         for root in structure_roots:
-            emit_part(root, 2)
+            _emit_usage_tree(
+                root,
+                level=2,
+                allowed_ids=structure_ids,
+                node_by_id=node_by_id,
+                node_mappings=node_mappings,
+                identifiers=identifiers,
+                children=nested_children,
+                extra_body=structure_extra,
+                library=library,
+                output=lines,
+            )
 
         connection_used: set[str] = set()
         for index, (edge, mapping) in enumerate(connection_rows, start=1):
@@ -656,9 +696,8 @@ def generate_sysml_v2(
                 f"        connection {connection_id} : {mapping['definition']} "
                 f"connect {structure_paths[source]} to {structure_paths[target]};"
             )
-            lines += _comments(
-                f"name: {_clean(edge.get('name') or connection_id)}",
-                "        ",
+            lines.extend(
+                _comments(f"name: {_clean(edge.get('name') or connection_id)}", "        ")
             )
         lines.append("    }")
 
@@ -673,7 +712,7 @@ def generate_sysml_v2(
 
     allocation_rows = classified.get("allocation", [])
     if allocation_rows:
-        lines += ["", "    // Allocations declared by the library translation contract"]
+        lines.extend(["", "    // Allocations declared by the library translation contract"])
         for edge, mapping in allocation_rows:
             from_endpoint = str(mapping.get("from_endpoint") or "source")
             to_endpoint = str(mapping.get("to_endpoint") or "target")
@@ -689,15 +728,17 @@ def generate_sysml_v2(
         unique: dict[tuple[str, str, str, str, str], dict[str, Any]] = {}
         for edge in unmapped_edges:
             unique[_edge_key(edge)] = edge
-        lines += [
-            "",
-            "    // Source relations not translated because the library declares no valid SysML mapping",
-        ]
+        lines.extend(
+            [
+                "",
+                "    // Source relations not translated because the library declares no valid SysML mapping",
+            ]
+        )
         for edge in sorted(unique.values(), key=_edge_key):
             lines.extend(_unmapped_relation_comment(edge, node_by_id, "    "))
 
     if scenarios:
-        lines += ["", "    // Operational Scenarios"]
+        lines.extend(["", "    // Operational Scenarios"])
         for scenario in sorted(
             scenarios,
             key=lambda item: (_clean(item.get("name")).casefold(), str(item.get("id") or "")),
@@ -705,12 +746,14 @@ def generate_sysml_v2(
             lines.extend(_scenario_lines(scenario, node_by_id, library, "    "))
 
     if drafts and contract.get("policy", {}).get("temporary_content") == "comment_only":
-        lines += ["", "    // Temporary, unconfirmed source content"]
+        lines.extend(["", "    // Temporary, unconfirmed source content"])
         for draft in drafts:
-            lines += _comments(
-                f"TEMPORARY: {_clean(draft.get('name') or draft.get('id') or 'candidate')} "
-                f"[{_clean(draft.get('type') or 'Pending')}]",
-                "    ",
+            lines.extend(
+                _comments(
+                    f"TEMPORARY: {_clean(draft.get('name') or draft.get('id') or 'candidate')} "
+                    f"[{_clean(draft.get('type') or 'Pending')}]",
+                    "    ",
+                )
             )
 
     lines.append("}")
