@@ -17,7 +17,10 @@ import {
 } from './oa_diagram_v2_render.js';
 
 const query = new URLSearchParams(window.location.search);
-const detachedUtilityWindow = query.get('detachedPanel') === 'utility';
+// The diagram lives in the pseudo-code/Text panel. Keep legacy "utility"
+// support for old detached URLs, but treat the new independent Text window as
+// detached so its camera never overwrites the docked application's camera.
+const detachedUtilityWindow = ['utility', 'text'].includes(query.get('detachedPanel'));
 const MAX_FIT_ZOOM = 1.0;
 const FIT_PADDING = 56;
 let firstDetachedDiagramFitDone = false;
@@ -28,17 +31,10 @@ function correctedFitView({persistView = true} = {}) {
   const entries = visibleLayoutEntries();
   if (!entries.length) return false;
 
-  // A fitted camera should not inherit native scrollbar offsets from a previous
-  // pan/zoom state. Hide native overflow while fitted; any manual camera gesture
-  // restores the normal scrollable viewport.
   el.viewport.classList.add('is-fit-view');
   el.viewport.scrollLeft = 0;
   el.viewport.scrollTop = 0;
 
-  // updateBounds may change the presentation-only canvas origin when model
-  // elements have negative coordinates. Fit must use the origin actually used
-  // by the renderer, otherwise the camera is centered in a different coordinate
-  // system and can appear to behave like Reset layout.
   updateBounds();
   const origin = getCanvasOrigin();
   const viewportWidth = el.viewport.clientWidth;
@@ -60,11 +56,6 @@ function correctedFitView({persistView = true} = {}) {
   const modelHeight = Math.max(1, maxY - minY);
   const availableWidth = Math.max(1, viewportWidth - FIT_PADDING * 2);
   const availableHeight = Math.max(1, viewportHeight - FIT_PADDING * 2);
-
-  // Fit means "show the whole model", not "magnify the model". The previous
-  // 2.5x ceiling made a compact automatic layout look over-zoomed in full screen.
-  // Full-screen real estate is now used by the canvas itself, while Fit never
-  // enlarges geometry above its natural 100% scale.
   const zoom = Math.max(
     .25,
     Math.min(
@@ -82,18 +73,12 @@ function correctedFitView({persistView = true} = {}) {
   applyView();
   renderEdges();
 
-  // Re-assert the fitted origin after transforms/layout settle. Some browsers
-  // preserve a native scroll offset when entering fullscreen if overflow was
-  // scrollable immediately beforehand.
   requestAnimationFrame(() => {
     if (!el.viewport?.classList.contains('is-fit-view')) return;
     el.viewport.scrollLeft = 0;
     el.viewport.scrollTop = 0;
   });
 
-  // A detached browser window has a different viewport from the docked panel.
-  // Do not overwrite the docked camera merely because the user fitted the
-  // detached view. Node positions remain shared through the normal layout state.
   if (persistView && !detachedUtilityWindow) persist();
   return true;
 }
@@ -111,13 +96,8 @@ function scheduleCorrectedFit(options = {}) {
 function correctedResetLayout() {
   if (!el.viewport) return false;
 
-  // Keep the main-window camera when Reset is initiated from a detached browser
-  // window. Geometry is shared, but each window must keep its own camera.
   const previouslySaved = loadSaved();
 
-  // Reset means geometry reset, not merely camera reset. Clear the persisted
-  // node geometry and communication-port offsets, rebuild the authoritative
-  // automatic layout, then fit that fresh layout to the current viewport.
   try {
     localStorage.removeItem(storageKey());
   } catch (_error) {
@@ -134,9 +114,6 @@ function correctedResetLayout() {
   el.viewport.scrollTop = 0;
   render();
 
-  // Persist the rebuilt node geometry. In a detached window preserve the camera
-  // previously stored by the docked application instead of replacing it with
-  // this detached window's temporary reset camera.
   const resetCamera = {...state.view};
   if (detachedUtilityWindow && previouslySaved?.view) {
     state.view = previouslySaved.view;
@@ -163,8 +140,6 @@ function installFitButtonOverride() {
   if (!fitButton || fitButton.dataset.correctedFitInstalled === 'true') return;
   fitButton.dataset.correctedFitInstalled = 'true';
 
-  // Capture phase intentionally runs before the original bubble listener.
-  // Fit is camera-only: it never calls autoLayout or changes node geometry.
   fitButton.addEventListener('click', event => {
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -177,8 +152,6 @@ function installResetButtonOverride() {
   if (!resetButton || resetButton.dataset.correctedResetInstalled === 'true') return;
   resetButton.dataset.correctedResetInstalled = 'true';
 
-  // The original Reset layout uses the old internal Fit implementation. Stop it
-  // before it runs so reset and fit use one consistent viewport-aware path.
   resetButton.addEventListener('click', event => {
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -187,9 +160,6 @@ function installResetButtonOverride() {
 }
 
 function installManualCameraRelease() {
-  // Fit intentionally hides native overflow. The instant the user manually pans,
-  // zooms, selects a zoom rectangle or presses +/- we return to normal scrollable
-  // navigation before the interaction layer handles that gesture.
   el.viewport?.addEventListener('pointerdown', releaseFittedCamera, true);
   el.viewport?.addEventListener('wheel', releaseFittedCamera, {capture: true, passive: true});
   document.getElementById('oaDiagramZoomIn')?.addEventListener('click', releaseFittedCamera, true);
