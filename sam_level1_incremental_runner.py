@@ -14,9 +14,20 @@ from pathlib import Path
 from typing import Any
 
 from sam_connection import SamSettings
-from sam_level1_incremental import adopt_existing_instance, sync_level1_incremental
+from sam_level1_incremental import (
+    _build_state,
+    _nodes_by_id,
+    _unique_descendant_by_name,
+    sync_level1_incremental,
+)
 from sam_level1_managed_direct import sync_level1_to_sam_managed_direct
-from sam_level1_sync import _model_name, _rows, _slug
+from sam_level1_sync import _model_name, _rows, _slug, build_level1_sync_plan
+from sam_level1_transactional import (
+    _element_id,
+    _element_name,
+    _load_project,
+    level1_instance_package_name,
+)
 
 _RUNTIME_ROOT = Path(__file__).resolve().parent / ".web_runtime" / "sam_sync"
 
@@ -54,6 +65,46 @@ def _with_manifest(model: dict[str, Any], state: dict[str, Any] | None) -> dict[
     return value
 
 
+def _adopt_current_managed_instance(
+    model: dict[str, Any],
+    scenarios: list[dict[str, Any]],
+    settings: SamSettings,
+    *,
+    connector_class: type[Any] | None,
+    project_manager_class: type[Any] | None,
+    factory_class: type[Any] | None,
+) -> dict[str, Any] | None:
+    """Adopt the current MBSE_Instance package, never a legacy MBSE_Level1 package."""
+    plan = build_level1_sync_plan(model, scenarios=scenarios, project_id=settings.project_id)
+    managed_name = level1_instance_package_name(plan["model_name"], plan["snapshot_digest"])
+    _, _, project, _ = _load_project(
+        settings,
+        connector_class=connector_class,
+        project_manager_class=project_manager_class,
+        factory_class=factory_class,
+    )
+    matches = list(project.find_elements_by_name(managed_name) or [])
+    if len(matches) != 1:
+        return None
+
+    package = matches[0]
+    node_elements: dict[str, Any] = {}
+    for node_id, node in _nodes_by_id(model).items():
+        node_elements[node_id] = _unique_descendant_by_name(
+            project,
+            package,
+            str(node.get("name") or node_id),
+        )
+    return _build_state(
+        model,
+        scenarios,
+        settings=settings,
+        package_name=_element_name(package),
+        package_id=_element_id(package),
+        node_elements=node_elements,
+    )
+
+
 def sync_level1_with_incremental_state(
     payload: Any,
     *,
@@ -68,8 +119,49 @@ def sync_level1_with_incremental_state(
     model = payload if isinstance(payload, dict) else {}
     scenario_rows = _rows(scenarios if scenarios is not None else model.get("scenarios"))
     manifest = _load_manifest(model, settings)
-    working_model = _with_manifest(model, manifest)
 
+    if manifest is None:
+        adopted = _adopt_current_managed_instance(
+            model,
+            scenario_rows,
+            settings,
+            connector_class=connector_class,
+            project_manager_class=project_manager_class,
+            factory_class=factory_class,
+        )
+        if adopted is None:
+            # No current managed instance exists yet. Create/reuse the managed
+            # baseline once, then adopt exactly that MBSE_Instance package.
+            baseline = sync_level1_to_sam_managed_direct(
+                model,
+                scenarios=scenario_rows,
+                settings=settings,
+                expected_digest=expected_digest,
+                connector_class=connector_class,
+                project_manager_class=project_manager_class,
+                factory_class=factory_class,
+            )
+            adopted = _adopt_current_managed_instance(
+                model,
+                scenario_rows,
+                settings,
+                connector_class=connector_class,
+                project_manager_class=project_manager_class,
+                factory_class=factory_class,
+            )
+            if adopted is None:
+                baseline["incremental_baseline_ready"] = False
+                return baseline
+            _save_manifest(model, settings, adopted)
+            baseline["sync_state"] = adopted
+            baseline["incremental_baseline_ready"] = True
+            baseline["mode"] = "baseline_created_or_adopted_for_incremental_sync"
+            return baseline
+
+        _save_manifest(model, settings, adopted)
+        manifest = adopted
+
+    working_model = _with_manifest(model, manifest)
     result = sync_level1_incremental(
         working_model,
         scenarios=scenario_rows,
@@ -79,37 +171,6 @@ def sync_level1_with_incremental_state(
         project_manager_class=project_manager_class,
         factory_class=factory_class,
     )
-
-    if result.get("status") == "baseline_required":
-        # No usable baseline exists yet. Create/reuse the normal managed Level 1
-        # instance once, then adopt its stable MBSE-App-ID -> SAM-ID mapping.
-        baseline = sync_level1_to_sam_managed_direct(
-            model,
-            scenarios=scenario_rows,
-            settings=settings,
-            expected_digest=expected_digest,
-            connector_class=connector_class,
-            project_manager_class=project_manager_class,
-            factory_class=factory_class,
-        )
-        adopted = adopt_existing_instance(
-            model,
-            scenarios=scenario_rows,
-            settings=settings,
-            connector_class=connector_class,
-            project_manager_class=project_manager_class,
-            factory_class=factory_class,
-        )
-        if adopted is None:
-            # Preserve the baseline result for diagnostics; the next incremental
-            # attempt must not guess a mapping if SAM names are ambiguous.
-            baseline["incremental_baseline_ready"] = False
-            return baseline
-        _save_manifest(model, settings, adopted)
-        baseline["sync_state"] = adopted
-        baseline["incremental_baseline_ready"] = True
-        baseline["mode"] = "baseline_created_or_adopted_for_incremental_sync"
-        return baseline
 
     state = result.get("sync_state")
     if isinstance(state, dict):
