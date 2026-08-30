@@ -14,6 +14,73 @@ let renderFrame = 0;
 let viewFrame = 0;
 let forceOriginScroll = false;
 let edgeObserver = null;
+let scenarioAuthoringObserver = null;
+
+function scenarioAuthoringActive() {
+  const bar = document.getElementById('oaScenarioAuthoringBar');
+  return state.mode === 'scenario' && Boolean(bar && !bar.hidden);
+}
+
+function syncScenarioAuthoringClass() {
+  el.tab?.classList.toggle('oa-scenario-authoring-active', scenarioAuthoringActive());
+}
+
+function blockScenarioAuthoringManipulation(event) {
+  if (event.button !== 0 || !scenarioAuthoringActive()) return;
+  if (!el.viewport?.contains(event.target)) return;
+
+  // During Operational Scenario authoring the left button belongs exclusively
+  // to path selection. Stop the normal diagram pointer-down pipeline before it
+  // can start move, resize, pan or port-drag gestures. Do not preventDefault():
+  // the browser must still synthesize the click consumed by oa_scenario.js.
+  event.stopPropagation();
+  event.stopImmediatePropagation();
+}
+
+function installScenarioAuthoringSelectionGuard() {
+  if (!el.tab || el.tab.dataset.scenarioSelectionGuardInstalled === 'true') return;
+  el.tab.dataset.scenarioSelectionGuardInstalled = 'true';
+
+  window.addEventListener('pointerdown', blockScenarioAuthoringManipulation, {capture: true});
+
+  scenarioAuthoringObserver?.disconnect();
+  scenarioAuthoringObserver = new MutationObserver(syncScenarioAuthoringClass);
+  scenarioAuthoringObserver.observe(el.tab, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['hidden'],
+  });
+
+  if (!document.getElementById('oaScenarioSelectionCursorStyle')) {
+    const style = document.createElement('style');
+    style.id = 'oaScenarioSelectionCursorStyle';
+    style.textContent = `
+      #diagramTab.oa-scenario-authoring-active .oa-diagram-viewport {
+        cursor: crosshair !important;
+      }
+      #diagramTab.oa-scenario-authoring-active .oa-diagram-node {
+        cursor: not-allowed !important;
+      }
+      #diagramTab.oa-scenario-authoring-active .oa-diagram-node.type-operationalactivity,
+      #diagramTab.oa-scenario-authoring-active .oa-diagram-edge.operational-exchange,
+      #diagramTab.oa-scenario-authoring-active .oa-diagram-edge-label.interaction-label {
+        cursor: crosshair !important;
+      }
+      #diagramTab.oa-scenario-authoring-active .oa-diagram-resize-handle {
+        pointer-events: none !important;
+        opacity: .18 !important;
+        cursor: not-allowed !important;
+      }
+      #diagramTab.oa-scenario-authoring-active .oa-diagram-port {
+        cursor: not-allowed !important;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  syncScenarioAuthoringClass();
+}
 
 function ensureRoutedSourceArrows() {
   document.querySelectorAll('#oaDiagramEdges .source-segment').forEach(path => {
@@ -98,7 +165,7 @@ function ratioForPointer(event, participantId) {
 }
 
 function beginPortDrag(event) {
-  if (event.button !== 0) return;
+  if (event.button !== 0 || scenarioAuthoringActive()) return;
   const port = event.target.closest('.oa-diagram-port[data-port-id][data-participant-id]');
   if (!port) return;
 
@@ -151,6 +218,8 @@ function install() {
   if (!el.viewport || el.viewport.dataset.portDragInstalled === 'true') return;
   el.viewport.dataset.portDragInstalled = 'true';
   el.viewport.dataset.scrollOriginInstalled = 'true';
+
+  installScenarioAuthoringSelectionGuard();
 
   el.viewport.addEventListener('pointerdown', beginPortDrag, {capture: true});
   el.viewport.addEventListener('pointermove', movePort, {capture: true});
