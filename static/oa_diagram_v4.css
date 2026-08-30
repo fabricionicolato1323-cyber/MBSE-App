@@ -27,6 +27,15 @@
   scrollbar-gutter: stable both-edges;
 }
 
+/* Fit is a camera mode. Native scrollbars reflect the large internal scene, not
+   the fitted model bounds, and can preserve stale offsets when fullscreen is
+   entered. Hide them while fitted; any manual pan/zoom gesture removes this
+   class and restores the normal scrollable viewport. */
+.oa-diagram-viewport.is-fit-view {
+  overflow: hidden !important;
+  scrollbar-gutter: auto;
+}
+
 /* Keep the instruction/selection message as a compact footer at the true base
    of the Diagram view. It should never create a second unused content region. */
 .oa-diagram-selection-status {
