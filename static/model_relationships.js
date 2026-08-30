@@ -142,11 +142,7 @@ renderRevisionDetails = function relationshipAwareDetailsRenderer(model) {
     if (typeof pollState === 'function') pollState({force: true});
   };
 
-  const load = () => {
-    // workspace_layout.js has executed before window.load, so this patch wraps
-    // the final applyState chain and makes Completion the continuous checker.
-    ensureCompletionPatch();
-
+  const loadOutputRenderers = () => {
     if (!document.querySelector('script[data-oa-communication-presentation-script]')) {
       const presentation = document.createElement('script');
       presentation.src = `${base}communication_presentation.js`;
@@ -168,6 +164,32 @@ renderRevisionDetails = function relationshipAwareDetailsRenderer(model) {
     script.dataset.oaDiagramScript = 'true';
     script.addEventListener('load', afterDiagramLoaded, {once: true});
     document.body.appendChild(script);
+  };
+
+  const ensureProjectionSync = () => {
+    if (window.mbseModelProjectionSync) {
+      loadOutputRenderers();
+      return;
+    }
+    const existing = document.querySelector('script[data-model-projection-sync-script]');
+    if (existing) {
+      existing.addEventListener('load', loadOutputRenderers, {once: true});
+      return;
+    }
+    const sync = document.createElement('script');
+    sync.src = `${base}model_projection_sync.js`;
+    sync.dataset.modelProjectionSyncScript = 'true';
+    sync.async = false;
+    sync.addEventListener('load', loadOutputRenderers, {once: true});
+    document.body.appendChild(sync);
+  };
+
+  const load = () => {
+    // workspace_layout.js has executed before window.load, so these patches wrap
+    // the final state-application chain. Projection sync is loaded first so all
+    // later output renderers receive the same complete model-change signal.
+    ensureCompletionPatch();
+    ensureProjectionSync();
   };
 
   if (document.readyState === 'complete') load();
