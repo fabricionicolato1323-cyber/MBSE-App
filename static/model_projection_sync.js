@@ -1,4 +1,6 @@
 (() => {
+  if (window.mbseModelProjectionSync) return;
+
   const renderers = new Map();
   let latestModel = {nodes: [], drafts: [], edges: []};
   let latestSession = '';
@@ -23,6 +25,9 @@
   }
 
   function signatureForModel(model) {
+    // Deliberately uses the complete persisted model instead of an allow-list
+    // of known fields. New attributes and relationships automatically become
+    // projection-invalidating changes without another synchronization patch.
     return JSON.stringify({
       nodes: canonicalCollection(model?.nodes),
       drafts: canonicalCollection(model?.drafts),
@@ -86,6 +91,9 @@
     },
   });
 
+  // Projection functions are resolved at render time so later presentation
+  // wrappers (relationship-aware text, communication hierarchy, etc.) remain
+  // part of the same synchronization path.
   register('pseudo-code', model => {
     if (typeof window.renderRevisionTextualModel === 'function') {
       window.renderRevisionTextualModel(model);
@@ -96,4 +104,15 @@
       window.renderRevisionDetails(model);
     }
   });
+
+  // Wrap the final state application chain. Every browser window polls the same
+  // /api/state endpoint, so docked and undocked projections receive identical
+  // persisted changes without special-case communication between windows.
+  if (typeof window.applyState === 'function') {
+    const baseApplyState = window.applyState;
+    window.applyState = function projectionSynchronizedApplyState(state) {
+      baseApplyState(state);
+      apply(state?.model || {}, state?.session_id || '');
+    };
+  }
 })();
