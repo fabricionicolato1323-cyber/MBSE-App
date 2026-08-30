@@ -51,14 +51,14 @@ class SamLevel1VerificationTests(unittest.TestCase):
         with self.assertRaises(SamLevel1SyncError):
             verify_level1_package(
                 self.settings,
-                "MBSE_Level1_Test_12345678",
+                "MBSE_Instance_Test_12345678",
                 snapshot_digest="12345678",
                 connector_class=FakeConnector,
                 project_manager_class=FakeManager,
             )
 
     def test_verify_requires_completion_marker(self):
-        package_name = "MBSE_Level1_Test_12345678"
+        package_name = "MBSE_Instance_Test_12345678"
         FakeManager.project = FakeProject(
             {package_name: [FakeElement("sam-package-1")]}
         )
@@ -72,8 +72,8 @@ class SamLevel1VerificationTests(unittest.TestCase):
             )
 
     def test_verified_sync_adds_fresh_package_and_marker_evidence(self):
-        package_name = "MBSE_Level1_Test_12345678"
-        marker_name = "MBSE_Level1_Complete_12345678"
+        package_name = "MBSE_Instance_Test_12345678"
+        marker_name = "MBSE_Instance_Complete_12345678"
         FakeManager.project = FakeProject(
             {
                 package_name: [FakeElement("sam-package-1")],
@@ -86,9 +86,10 @@ class SamLevel1VerificationTests(unittest.TestCase):
             "snapshot_digest": "12345678",
             "completion_marker_name": marker_name,
             "sam_write_performed": True,
+            "timings": {"commit_seconds": 1.0},
         }
         with patch(
-            "sam_level1_verify.sync_level1_to_sam_direct",
+            "sam_level1_verify.sync_level1_to_sam_transactional",
             return_value=upstream.copy(),
         ):
             result = sync_level1_to_sam_verified(
@@ -105,6 +106,8 @@ class SamLevel1VerificationTests(unittest.TestCase):
         self.assertEqual(result["verified_package_id"], "sam-package-1")
         self.assertEqual(result["verified_completion_marker_id"], "sam-marker-1")
         self.assertEqual(result["sam_package_id"], "sam-package-1")
+        self.assertIn("verification_seconds", result["timings"])
+        self.assertIn("total_with_verification_seconds", result["timings"])
 
 
 if __name__ == "__main__":
