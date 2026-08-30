@@ -2,7 +2,8 @@
 
 :root {
   --completion-width: clamp(210px, 18vw, 320px);
-  --model-width: clamp(330px, 30vw, 520px);
+  --text-width: clamp(300px, 24vw, 460px);
+  --sysml-width: clamp(280px, 22vw, 420px);
   --splitter-width: 7px;
 }
 
@@ -105,7 +106,7 @@
   justify-content: flex-end;
   align-items: center;
   gap: 6px;
-  max-width: 520px;
+  max-width: 620px;
 }
 
 .panel-visibility-controls > span {
@@ -175,11 +176,21 @@
 }
 
 .model-panel.workspace-panel {
-  flex: 0 0 var(--model-width);
-  min-width: 300px;
+  min-width: 280px;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   border-left: 1px solid var(--border);
+}
+
+.text-panel.workspace-panel {
+  flex: 0 0 var(--text-width);
+  min-width: 300px;
+}
+
+.sysml-panel.workspace-panel {
+  flex: 0 0 var(--sysml-width);
+  min-width: 280px;
+  background: #fdfcfe;
 }
 
 .panel-header,
@@ -425,6 +436,12 @@
   display: none !important;
 }
 
+.standalone-output-content.active {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 #utilityTextView.active {
   display: flex;
   min-height: 0;
@@ -434,6 +451,10 @@
 #utilityTextView .tab-content.active {
   min-height: 0;
   overflow: auto;
+}
+
+#utilitySysmlView.active {
+  overflow: hidden;
 }
 
 .sysml-text-placeholder {
@@ -558,13 +579,13 @@
   display: none !important;
 }
 
-body.detached-utility-window {
+body.detached-output-window {
   min-width: 0;
   overflow: hidden;
   background: var(--panel);
 }
 
-body.detached-utility-window .workspace-shell {
+body.detached-output-window .workspace-shell {
   width: 100%;
   height: 100vh;
   height: 100dvh;
@@ -574,19 +595,18 @@ body.detached-utility-window .workspace-shell {
   box-shadow: none;
 }
 
-body.detached-utility-window .viewpoint-header,
-body.detached-utility-window .completion-panel,
-body.detached-utility-window .chat-panel,
-body.detached-utility-window .panel-splitter {
+body.detached-output-window .viewpoint-header,
+body.detached-output-window .workspace-panel:not(.detached-target),
+body.detached-output-window .panel-splitter {
   display: none !important;
 }
 
-body.detached-utility-window .workspace {
+body.detached-output-window .workspace {
   display: block;
   overflow: hidden;
 }
 
-body.detached-utility-window .model-panel.workspace-panel {
+body.detached-output-window .workspace-panel.detached-target {
   width: 100%;
   height: 100%;
   min-width: 0;
@@ -594,7 +614,7 @@ body.detached-utility-window .model-panel.workspace-panel {
   border: 0;
 }
 
-body.detached-utility-window .model-panel.workspace-panel.is-maximized {
+body.detached-output-window .workspace-panel.detached-target.is-maximized {
   position: relative;
   inset: auto;
   width: 100% !important;
@@ -602,7 +622,7 @@ body.detached-utility-window .model-panel.workspace-panel.is-maximized {
   box-shadow: none;
 }
 
-body.detached-utility-window .panel-visibility-controls {
+body.detached-output-window .panel-visibility-controls {
   display: none !important;
 }
 
@@ -644,8 +664,9 @@ body.detached-utility-window .panel-visibility-controls {
     flex-basis: 220px;
   }
 
-  .model-panel.workspace-panel {
-    flex-basis: 340px;
+  .text-panel.workspace-panel,
+  .sysml-panel.workspace-panel {
+    flex-basis: 320px;
   }
 }
 
@@ -689,7 +710,7 @@ body.detached-utility-window .panel-visibility-controls {
     display: none !important;
   }
 
-  body.detached-utility-window .workspace-panel:not(.is-floating) {
+  body.detached-output-window .workspace-panel:not(.is-floating) {
     min-height: 100%;
     border-bottom: 0;
   }
