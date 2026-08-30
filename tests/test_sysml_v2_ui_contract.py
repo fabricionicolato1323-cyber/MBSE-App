@@ -22,6 +22,15 @@ class SysMLV2UIContractTests(unittest.TestCase):
         self.assertIn("SAM not written", source)
         self.assertIn("Export Level 1 .sysml", source)
 
+    def test_level1b_requires_plan_and_explicit_confirmation_before_send(self) -> None:
+        source = (ROOT / "static" / "sysml_v2_render.js").read_text(encoding="utf-8")
+        self.assertIn("Send Level 1 to SAM", source)
+        self.assertIn("/api/sam/level1/plan", source)
+        self.assertIn("window.confirm", source)
+        self.assertIn("/api/sam/level1/send", source)
+        self.assertIn("snapshot_digest", source)
+        self.assertIn("confirm: true", source)
+
     def test_sysml_output_remains_text_based(self) -> None:
         template = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
         self.assertIn('data-output-tab="sysml"', template)
@@ -33,6 +42,13 @@ class SysMLV2UIContractTests(unittest.TestCase):
         self.assertIn("build_sysml_level1_preview", source)
         self.assertIn('model_state["sysml_v2_level1"]', source)
         self.assertIn('model_state["sysml_v2"] = preview["text"]', source)
+
+    def test_level1b_backend_exposes_plan_and_transactional_send_endpoints(self) -> None:
+        source = (ROOT / "web_app.py").read_text(encoding="utf-8")
+        self.assertIn('@app.get("/api/sam/level1/plan")', source)
+        self.assertIn('@app.post("/api/sam/level1/send")', source)
+        self.assertIn('body.get("confirm") is not True', source)
+        self.assertIn("sync_level1_to_sam", source)
 
 
 if __name__ == "__main__":
