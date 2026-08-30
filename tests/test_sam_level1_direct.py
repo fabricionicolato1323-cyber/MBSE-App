@@ -8,7 +8,7 @@ from sam_level1_direct import (
     level1_staging_package_name,
     sync_level1_to_sam_direct,
 )
-from sam_level1_sync import SamLevel1SyncError, level1_snapshot_digest
+from sam_level1_sync import level1_snapshot_digest
 
 
 class FakeElement:
@@ -77,6 +77,18 @@ class FakeFactory:
         return create
 
 
+class DocumentationRejectingFactory(FakeFactory):
+    """Mimic the live SAM behavior observed during Gate 1B."""
+
+    def create_documentation(self, **kwargs):
+        raise RuntimeError("Bad Request")
+
+
+class AllAnnotationRejectingFactory(DocumentationRejectingFactory):
+    def create_comment(self, **kwargs):
+        raise RuntimeError("Bad Request")
+
+
 class SamLevel1DirectTests(unittest.TestCase):
     def setUp(self):
         FakeElement.counter = 0
@@ -99,17 +111,21 @@ class SamLevel1DirectTests(unittest.TestCase):
             ],
         }
 
-    def test_direct_writer_never_enters_transactional_mode(self):
+    def _sync(self, factory_class=FakeFactory):
         digest = level1_snapshot_digest(self.model, [])
-        result = sync_level1_to_sam_direct(
+        return sync_level1_to_sam_direct(
             self.model,
             scenarios=[],
             settings=self.settings,
             expected_digest=digest,
             connector_class=FakeConnector,
             project_manager_class=FakeProjectManager,
-            factory_class=FakeFactory,
+            factory_class=factory_class,
         )
+
+    def test_direct_writer_never_enters_transactional_mode(self):
+        digest = level1_snapshot_digest(self.model, [])
+        result = self._sync()
 
         project = FakeProjectManager.project
         self.assertEqual(result["status"], "synced")
@@ -125,35 +141,17 @@ class SamLevel1DirectTests(unittest.TestCase):
                 level1_staging_package_name(result["package_name"])
             )
         )
+        self.assertEqual(result["cleanup"]["removed_incomplete_staging_packages"], 0)
 
     def test_completed_snapshot_is_idempotent(self):
-        digest = level1_snapshot_digest(self.model, [])
-        first = sync_level1_to_sam_direct(
-            self.model,
-            scenarios=[],
-            settings=self.settings,
-            expected_digest=digest,
-            connector_class=FakeConnector,
-            project_manager_class=FakeProjectManager,
-            factory_class=FakeFactory,
-        )
-        second = sync_level1_to_sam_direct(
-            self.model,
-            scenarios=[],
-            settings=self.settings,
-            expected_digest=digest,
-            connector_class=FakeConnector,
-            project_manager_class=FakeProjectManager,
-            factory_class=FakeFactory,
-        )
+        first = self._sync()
+        second = self._sync()
         self.assertEqual(first["status"], "synced")
         self.assertEqual(second["status"], "already_synced")
         self.assertFalse(second["sam_write_performed"])
 
-    def test_incomplete_staging_package_blocks_retry(self):
+    def test_incomplete_staging_package_is_removed_before_retry(self):
         digest = level1_snapshot_digest(self.model, [])
-        package_name = sync_plan_name = None
-        # First derive the deterministic name without performing a write.
         from sam_level1_sync import build_level1_sync_plan
 
         plan = build_level1_sync_plan(
@@ -161,23 +159,39 @@ class SamLevel1DirectTests(unittest.TestCase):
             scenarios=[],
             project_id=self.settings.project_id,
         )
-        package_name = plan["package_name"]
-        staging_name = level1_staging_package_name(package_name)
+        staging_name = level1_staging_package_name(plan["package_name"])
         FakeProjectManager.project.elements.append(
             FakeElement("Package", name=staging_name)
         )
 
-        with self.assertRaises(SamLevel1SyncError) as ctx:
-            sync_level1_to_sam_direct(
-                self.model,
-                scenarios=[],
-                settings=self.settings,
-                expected_digest=digest,
-                connector_class=FakeConnector,
-                project_manager_class=FakeProjectManager,
-                factory_class=FakeFactory,
+        result = self._sync()
+        self.assertEqual(result["status"], "synced")
+        self.assertEqual(result["cleanup"]["removed_incomplete_staging_packages"], 1)
+        self.assertFalse(FakeProjectManager.project.find_elements_by_name(staging_name))
+        self.assertTrue(
+            FakeProjectManager.project.find_elements_by_name(
+                level1_completion_marker_name(digest)
             )
-        self.assertIn("incomplete Level 1 staging package", str(ctx.exception))
+        )
+
+    def test_documentation_rejection_falls_back_to_comment(self):
+        result = self._sync(DocumentationRejectingFactory)
+        self.assertEqual(result["status"], "synced")
+        self.assertTrue(result["metadata_warnings"])
+        self.assertIn("used Comment annotations", result["metadata_warnings"][0])
+        created_types = {
+            element.element_type for element in FakeProjectManager.project.elements
+        }
+        self.assertIn("Comment", created_types)
+
+    def test_all_annotation_rejection_does_not_block_semantic_sync(self):
+        result = self._sync(AllAnnotationRejectingFactory)
+        self.assertEqual(result["status"], "synced")
+        self.assertTrue(result["metadata_warnings"])
+        self.assertIn("annotations were skipped", result["metadata_warnings"][0])
+        self.assertTrue(
+            FakeProjectManager.project.find_elements_by_name(result["package_name"])
+        )
 
 
 if __name__ == "__main__":
