@@ -145,12 +145,4 @@
   window.addEventListener('mbse:model-projections-updated', event => {
     schedule(event.detail?.model || latestModel);
   });
-
-  const observer = new MutationObserver(() => schedule(latestModel));
-  const diagram = document.getElementById('diagramTab');
-  const textual = document.getElementById('modelTextual');
-  const sysml = document.getElementById('utilitySysmlView');
-  [diagram, textual, sysml].filter(Boolean).forEach(root => {
-    observer.observe(root, {childList: true, subtree: true});
-  });
 })();
