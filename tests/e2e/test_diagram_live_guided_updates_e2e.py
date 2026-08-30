@@ -135,7 +135,7 @@ def _assigned_communication_model() -> dict:
     os.getenv("RUN_E2E") != "1",
     reason="Playwright E2E tests run in the dedicated CI job.",
 )
-def test_guided_communication_change_updates_detached_diagram_without_reload(
+def test_guided_communication_change_updates_detached_model_projections_without_reload(
     web_server_diagram_live_updates,
     tmp_path,
 ):
@@ -155,6 +155,20 @@ def test_guided_communication_change_updates_detached_diagram_without_reload(
                 page.get_by_role("button", name="Change something that already exists", exact=True)
             ).to_be_visible(timeout=20_000)
 
+            # Pseudo-code is a live projection of the same model. It must expose
+            # the communication decision and keep updating in its detached window.
+            expect(
+                page.locator("#modelTextual .exchange-communication-line")
+            ).to_contain_text("Communication: Radio link", timeout=10_000)
+            with page.expect_popup() as pseudo_popup_info:
+                page.locator("#modelPanel [data-panel-action='dock']").click()
+            pseudo_window = pseudo_popup_info.value
+            pseudo_window.wait_for_load_state("domcontentloaded")
+            assert "detachedPanel=text" in pseudo_window.url
+            expect(
+                pseudo_window.locator("#modelTextual .exchange-communication-line")
+            ).to_contain_text("Communication: Radio link", timeout=10_000)
+
             page.get_by_role("tab", name="Diagram", exact=True).click()
             expect(page.locator("#oaDiagramEdges .source-segment")).to_have_count(1, timeout=10_000)
             expect(page.locator("#oaDiagramEdges .direct-exchange")).to_have_count(0)
@@ -170,8 +184,8 @@ def test_guided_communication_change_updates_detached_diagram_without_reload(
             expect(diagram_window.locator("#oaDiagramEdges .direct-exchange")).to_have_count(0)
 
             # Change the communication decision through the normal loaded-model
-            # guided flow. The detached diagram must follow the persisted model
-            # update by polling /api/state; no reload or redock is allowed here.
+            # guided flow. All detached projections must follow the persisted
+            # model update by polling /api/state; no reload or redock is allowed.
             page.get_by_role("button", name="Change something that already exists", exact=True).click()
             page.get_by_role("button", name="Information or material exchanged", exact=True).click()
             page.get_by_role("button", name=re.compile(r"^Kill count"), exact=False).click()
@@ -194,6 +208,16 @@ def test_guided_communication_change_updates_detached_diagram_without_reload(
             expect(diagram_window.locator("#oaDiagramEdges .target-segment")).to_have_count(0)
             expect(diagram_window.locator("#oaDiagramEdges .direct-exchange")).to_have_count(1)
 
+            expect(
+                pseudo_window.locator("#modelTextual .exchange-communication-line")
+            ).to_contain_text("Communication: Unassigned", timeout=10_000)
+            expect(
+                pseudo_window.locator("#modelTextual .communication-unassigned")
+            ).to_contain_text(
+                "No interaction explicitly assigned to this communication method.",
+                timeout=10_000,
+            )
+
             persisted = page.evaluate(
                 """async () => {
                     const state = await fetch('/api/state').then(response => response.json());
@@ -212,6 +236,7 @@ def test_guided_communication_change_updates_detached_diagram_without_reload(
                 }"""
             )
             assert persisted == {"assignment": "none", "staleRef": False}
+            assert not pseudo_window.is_closed()
             assert not diagram_window.is_closed()
         finally:
             browser.close()
