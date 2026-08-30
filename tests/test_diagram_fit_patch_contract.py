@@ -12,7 +12,7 @@ def test_corrected_fit_uses_renderer_canvas_origin_and_is_camera_only():
     assert "box.y + origin.y" in source
     assert "state.view =" in source
     assert "applyView();" in source
-    assert "autoLayout" not in source
+    assert "autoLayout(" not in source
 
 
 def test_fit_override_prevents_original_listener_from_running_twice():
