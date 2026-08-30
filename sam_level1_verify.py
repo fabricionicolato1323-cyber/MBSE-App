@@ -1,12 +1,16 @@
-"""Post-write verification for SAM Level 1B transfers."""
+"""Post-write verification for transactional SAM Level 1 instantiations."""
 
 from __future__ import annotations
 
+from time import perf_counter
 from typing import Any
 
 from sam_connection import SamSettings
-from sam_level1_direct import level1_completion_marker_name, sync_level1_to_sam_direct
 from sam_level1_sync import SamLevel1SyncError
+from sam_level1_transactional import (
+    level1_completion_marker_name,
+    sync_level1_to_sam_transactional,
+)
 
 
 def _element_id(element: Any) -> str | None:
@@ -57,7 +61,7 @@ def verify_level1_package(
     connector_class: type[Any] | None = None,
     project_manager_class: type[Any] | None = None,
 ) -> dict[str, Any]:
-    """Reload SAM and prove that both package and completion marker exist."""
+    """Reload SAM and prove that both instantiation and completion marker exist."""
     project = _load_project(
         settings,
         connector_class=connector_class,
@@ -66,8 +70,9 @@ def verify_level1_package(
     matches = list(project.find_elements_by_name(package_name) or [])
     if not matches:
         raise SamLevel1SyncError(
-            "SAM accepted the transfer call, but the Level 1 package was not found after "
-            "the project was reloaded. The transfer is therefore not marked as synchronized."
+            "SAM accepted the transfer call, but the Level 1 model instantiation was not "
+            "found after the project was reloaded. The transfer is therefore not marked "
+            "as synchronized."
         )
 
     marker_name = completion_marker_name
@@ -77,9 +82,9 @@ def verify_level1_package(
         marker_matches = list(project.find_elements_by_name(marker_name) or [])
         if not marker_matches:
             raise SamLevel1SyncError(
-                "The Level 1 package exists in SAM, but its completion marker was not found "
-                "after a fresh project reload. The package is treated as incomplete and is "
-                "not marked as synchronized."
+                "The Level 1 model instantiation exists in SAM, but its completion marker "
+                "was not found after a fresh project reload. The instantiation is treated "
+                "as incomplete and is not marked as synchronized."
             )
     else:
         marker_matches = []
@@ -106,8 +111,9 @@ def sync_level1_to_sam_verified(
     project_manager_class: type[Any] | None = None,
     factory_class: type[Any] | None = None,
 ) -> dict[str, Any]:
-    """Run direct Level 1B creation and return success only after a fresh SAM read verifies it."""
-    result = sync_level1_to_sam_direct(
+    """Load/reuse the library, commit the instantiation, then verify by fresh read."""
+    total_started = perf_counter()
+    result = sync_level1_to_sam_transactional(
         payload,
         scenarios=scenarios,
         settings=settings,
@@ -118,6 +124,8 @@ def sync_level1_to_sam_verified(
     )
     if result.get("status") not in {"synced", "already_synced"}:
         return result
+
+    verify_started = perf_counter()
     verification = verify_level1_package(
         settings,
         str(result.get("package_name") or ""),
@@ -126,7 +134,13 @@ def sync_level1_to_sam_verified(
         connector_class=connector_class,
         project_manager_class=project_manager_class,
     )
+    verification_seconds = perf_counter() - verify_started
     result.update(verification)
     if verification.get("verified_package_id"):
         result["sam_package_id"] = verification["verified_package_id"]
+
+    timings = dict(result.get("timings") or {})
+    timings["verification_seconds"] = round(verification_seconds, 3)
+    timings["total_with_verification_seconds"] = round(perf_counter() - total_started, 3)
+    result["timings"] = timings
     return result
