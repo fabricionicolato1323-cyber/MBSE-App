@@ -105,7 +105,7 @@ class SamLevel1VerificationTests(unittest.TestCase):
             "timings": {"write_seconds": 1.0},
         }
         with patch(
-            "sam_level1_verify.sync_level1_to_sam_managed_direct",
+            "sam_level1_verify.sync_level1_with_incremental_state",
             return_value=upstream.copy(),
         ):
             result = sync_level1_to_sam_verified(
