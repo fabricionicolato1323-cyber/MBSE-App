@@ -2,6 +2,10 @@
   const workspaceRoot = document.getElementById('workspace');
   if (!workspaceRoot) return;
 
+  const query = new URLSearchParams(window.location.search);
+  const detachedUtilityWindow = query.get('detachedPanel') === 'utility';
+  const requestedUtilityView = query.get('utilityView') === 'sysml' ? 'sysml' : 'text';
+
   const panels = new Map(
     [...workspaceRoot.querySelectorAll('.workspace-panel[data-panel]')]
       .map(panel => [panel.dataset.panel, panel])
@@ -17,15 +21,43 @@
     model: workspaceRoot.querySelector('[data-splitter="model"]'),
   };
 
+  const utilityButtons = [...document.querySelectorAll('[data-utility-tab]')];
+  const utilityViews = [...document.querySelectorAll('[data-utility-view]')];
+  let activeUtilityView = 'text';
+  let utilityPopup = null;
+  let utilityPopupMonitor = null;
+
   function clamp(value, min, max) {
     return Math.min(Math.max(value, min), max);
   }
+
+  function setUtilityView(name) {
+    const next = name === 'sysml' ? 'sysml' : 'text';
+    activeUtilityView = next;
+    utilityButtons.forEach(button => {
+      const active = button.dataset.utilityTab === next;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    utilityViews.forEach(view => {
+      const active = view.dataset.utilityView === next;
+      view.classList.toggle('active', active);
+      view.hidden = !active;
+    });
+  }
+
+  utilityButtons.forEach(button => {
+    button.addEventListener('click', () => setUtilityView(button.dataset.utilityTab));
+  });
+
+  setUtilityView(detachedUtilityWindow ? requestedUtilityView : 'text');
 
   function panelIsDockedUsable(name) {
     const panel = panels.get(name);
     return Boolean(
       panel &&
       !panel.hidden &&
+      !panel.classList.contains('is-detached') &&
       !panel.classList.contains('is-floating') &&
       !panel.classList.contains('is-minimized') &&
       !panel.classList.contains('is-maximized')
@@ -35,21 +67,25 @@
   function refreshSplitters() {
     if (splitters.completion) {
       splitters.completion.hidden = !(
-        panelIsDockedUsable('chat') && panelIsDockedUsable('completion')
+        panelIsDockedUsable('completion') && panelIsDockedUsable('chat')
       );
     }
     if (splitters.model) {
       splitters.model.hidden = !(
-        panelIsDockedUsable('completion') && panelIsDockedUsable('model')
+        panelIsDockedUsable('chat') && panelIsDockedUsable('model')
       );
     }
+  }
+
+  function panelIsExternallyVisible(name) {
+    return name === 'model' && Boolean(utilityPopup && !utilityPopup.closed);
   }
 
   function refreshPanelToggle(name) {
     const panel = panels.get(name);
     const button = panelToggles.get(name);
     if (!panel || !button) return;
-    const visible = !panel.hidden;
+    const visible = !panel.hidden || panelIsExternallyVisible(name);
     button.classList.toggle('active', visible);
     button.setAttribute('aria-pressed', visible ? 'true' : 'false');
   }
@@ -63,8 +99,15 @@
     const maximizeButton = panel.querySelector('[data-panel-action="maximize"]');
 
     if (dockButton) {
-      dockButton.textContent = floating ? '↙' : '↗';
-      dockButton.title = floating ? 'Dock panel' : 'Undock panel';
+      if (detachedUtilityWindow && panel.dataset.panel === 'model') {
+        dockButton.textContent = '↙';
+        dockButton.title = 'Dock view in the main browser window';
+      } else {
+        dockButton.textContent = floating ? '↙' : '↗';
+        dockButton.title = panel.dataset.panel === 'model' && !floating
+          ? 'Open active view in a new browser window'
+          : floating ? 'Dock panel' : 'Undock panel';
+      }
       dockButton.setAttribute('aria-label', dockButton.title);
     }
     if (minimizeButton) {
@@ -73,8 +116,10 @@
       minimizeButton.setAttribute('aria-label', minimizeButton.title);
     }
     if (maximizeButton) {
-      maximizeButton.textContent = maximized ? '❐' : '□';
-      maximizeButton.title = maximized ? 'Restore panel size' : 'Maximize panel';
+      maximizeButton.textContent = maximized || document.fullscreenElement ? '❐' : '□';
+      maximizeButton.title = maximized || document.fullscreenElement
+        ? 'Restore panel size'
+        : panel.dataset.panel === 'model' ? 'Full screen panel' : 'Maximize panel';
       maximizeButton.setAttribute('aria-label', maximizeButton.title);
     }
   }
@@ -107,6 +152,67 @@
     refreshSplitters();
   }
 
+  function stopUtilityPopupMonitor() {
+    if (utilityPopupMonitor) {
+      window.clearInterval(utilityPopupMonitor);
+      utilityPopupMonitor = null;
+    }
+  }
+
+  function redockUtilityPanel({closePopup = false} = {}) {
+    if (detachedUtilityWindow) return;
+    const panel = panels.get('model');
+    if (!panel) return;
+
+    if (closePopup && utilityPopup && !utilityPopup.closed) {
+      utilityPopup.close();
+    }
+    stopUtilityPopupMonitor();
+    utilityPopup = null;
+    panel.classList.remove('is-detached');
+    panel.hidden = false;
+    refreshPanelToggle('model');
+    refreshPanelControls(panel);
+    refreshSplitters();
+  }
+
+  function openUtilityBrowserWindow(panel) {
+    if (detachedUtilityWindow) return;
+    if (utilityPopup && !utilityPopup.closed) {
+      utilityPopup.focus();
+      return;
+    }
+
+    const url = new URL(window.location.href);
+    url.searchParams.set('detachedPanel', 'utility');
+    url.searchParams.set('utilityView', activeUtilityView);
+    const popupName = `mbse-${activeUtilityView}-output`;
+    utilityPopup = window.open(
+      url.toString(),
+      popupName,
+      'popup=yes,width=760,height=900,resizable=yes,scrollbars=yes'
+    );
+
+    if (!utilityPopup) {
+      const status = document.getElementById('statusLine');
+      if (status) status.textContent = 'The browser blocked the new panel window. Allow pop-ups for this local app and try again.';
+      return;
+    }
+
+    panel.classList.remove('is-minimized', 'is-maximized');
+    panel.classList.add('is-detached');
+    panel.hidden = true;
+    refreshPanelToggle('model');
+    refreshSplitters();
+
+    stopUtilityPopupMonitor();
+    utilityPopupMonitor = window.setInterval(() => {
+      if (!utilityPopup || utilityPopup.closed) {
+        redockUtilityPanel();
+      }
+    }, 500);
+  }
+
   function toggleMinimize(panel) {
     if (panel.classList.contains('is-maximized')) {
       panel.classList.remove('is-maximized');
@@ -116,7 +222,24 @@
     refreshSplitters();
   }
 
+  async function toggleDetachedFullscreen(panel) {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await document.documentElement.requestFullscreen();
+      }
+    } catch (_error) {
+      panel.classList.toggle('is-maximized');
+    }
+    refreshPanelControls(panel);
+  }
+
   function toggleMaximize(panel) {
+    if (detachedUtilityWindow && panel.dataset.panel === 'model') {
+      void toggleDetachedFullscreen(panel);
+      return;
+    }
     if (panel.classList.contains('is-minimized')) {
       panel.classList.remove('is-minimized');
     }
@@ -128,13 +251,35 @@
   function setPanelVisible(name, visible) {
     const panel = panels.get(name);
     if (!panel) return;
-    panel.hidden = !visible;
+
+    if (name === 'model' && panelIsExternallyVisible(name)) {
+      if (visible) {
+        redockUtilityPanel({closePopup: true});
+      } else {
+        if (utilityPopup && !utilityPopup.closed) utilityPopup.close();
+        stopUtilityPopupMonitor();
+        utilityPopup = null;
+        panel.classList.remove('is-detached');
+        panel.hidden = true;
+      }
+    } else {
+      panel.hidden = !visible;
+    }
+
     if (visible) {
       panel.classList.remove('is-minimized');
       refreshPanelControls(panel);
     }
     refreshPanelToggle(name);
     refreshSplitters();
+  }
+
+  function requestRedockFromDetachedWindow() {
+    if (!detachedUtilityWindow) return;
+    if (window.opener && !window.opener.closed) {
+      window.opener.postMessage({type: 'mbse-redock-utility'}, window.location.origin);
+    }
+    window.close();
   }
 
   panels.forEach((panel, name) => {
@@ -146,14 +291,24 @@
         event.stopPropagation();
         const action = button.dataset.panelAction;
         if (action === 'dock') {
-          if (panel.classList.contains('is-floating')) dockPanel(panel);
-          else undockPanel(panel);
+          if (name === 'model') {
+            if (detachedUtilityWindow) requestRedockFromDetachedWindow();
+            else openUtilityBrowserWindow(panel);
+          } else if (panel.classList.contains('is-floating')) {
+            dockPanel(panel);
+          } else {
+            undockPanel(panel);
+          }
         } else if (action === 'minimize') {
           toggleMinimize(panel);
         } else if (action === 'maximize') {
           toggleMaximize(panel);
         } else if (action === 'close') {
-          setPanelVisible(name, false);
+          if (detachedUtilityWindow && name === 'model') {
+            requestRedockFromDetachedWindow();
+          } else {
+            setPanelVisible(name, false);
+          }
         }
       });
     });
@@ -194,6 +349,10 @@
     button.addEventListener('click', () => {
       const panel = panels.get(name);
       if (!panel) return;
+      if (name === 'model' && panelIsExternallyVisible(name)) {
+        redockUtilityPanel({closePopup: true});
+        return;
+      }
       setPanelVisible(name, panel.hidden);
     });
   });
@@ -212,7 +371,7 @@
       const onMove = moveEvent => {
         const delta = moveEvent.clientX - startX;
         const next = panelName === 'completion'
-          ? startWidth - delta
+          ? startWidth + delta
           : startWidth - delta;
         document.documentElement.style.setProperty(
           cssVariable,
@@ -231,7 +390,7 @@
     });
   }
 
-  installSplitter(splitters.completion, '--completion-width', 'completion', 175, 520);
+  installSplitter(splitters.completion, '--completion-width', 'completion', 190, 520);
   installSplitter(splitters.model, '--model-width', 'model', 300, 760);
 
   function countCharacteristics(nodes) {
@@ -373,6 +532,34 @@
 
   document.querySelectorAll('.viewpoint-tab.placeholder').forEach(button => {
     button.addEventListener('click', event => event.preventDefault());
+  });
+
+  if (detachedUtilityWindow) {
+    document.body.classList.add('detached-utility-window');
+    const modelPanel = panels.get('model');
+    if (modelPanel) {
+      modelPanel.hidden = false;
+      modelPanel.classList.remove('is-detached', 'is-floating', 'is-minimized', 'is-maximized');
+      refreshPanelControls(modelPanel);
+    }
+    window.addEventListener('beforeunload', () => {
+      if (window.opener && !window.opener.closed) {
+        window.opener.postMessage({type: 'mbse-utility-window-closed'}, window.location.origin);
+      }
+    });
+  } else {
+    window.addEventListener('message', event => {
+      if (event.origin !== window.location.origin) return;
+      if (!event.data || typeof event.data !== 'object') return;
+      if (event.data.type === 'mbse-redock-utility' || event.data.type === 'mbse-utility-window-closed') {
+        redockUtilityPanel();
+      }
+    });
+  }
+
+  document.addEventListener('fullscreenchange', () => {
+    const modelPanel = panels.get('model');
+    if (modelPanel) refreshPanelControls(modelPanel);
   });
 
   window.addEventListener('resize', refreshSplitters);
