@@ -8,6 +8,12 @@ or relationship endpoint without resolving it again from the current project.
 This adapter keeps the existing Factory API while rebinding every SysML element
 argument by stable element ID immediately before a create call and returning the
 fresh post-reload element afterwards.
+
+SAM also validates some relationship payloads more strictly than the generated
+PySAM metamodel classes imply. In particular, ``Subclassification`` defines its
+semantic ends through ``subclassifier`` and ``superclassifier``; inherited
+``source`` and ``target`` are derived/redefined views of those ends and must not
+be redundantly submitted on direct creation.
 """
 
 from __future__ import annotations
@@ -30,6 +36,19 @@ def element_id(value: Any) -> str | None:
         if candidate is not None and str(candidate).strip():
             return str(candidate).strip()
     return None
+
+
+def _normalize_create_kwargs(name: str, kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Return the minimal server-valid payload for known strict SAM relationships."""
+    normalized = dict(kwargs)
+    if name == "create_subclassification":
+        # SysML v2 Subclassification owns the semantic classifier ends directly.
+        # Relationship.source/target are inherited/redefined projections and SAM
+        # rejects a direct-create payload that redundantly submits them alongside
+        # subclassifier/superclassifier.
+        normalized.pop("source", None)
+        normalized.pop("target", None)
+    return normalized
 
 
 class ReloadSafeFactory:
@@ -76,10 +95,11 @@ class ReloadSafeFactory:
 
         @wraps(target)
         def reload_safe_create(*args, **kwargs):
+            normalized_kwargs = _normalize_create_kwargs(name, kwargs)
             rebound_args = tuple(self.fresh(arg, required=True) for arg in args)
             rebound_kwargs = {
                 key: self.fresh(value, required=True)
-                for key, value in kwargs.items()
+                for key, value in normalized_kwargs.items()
             }
             try:
                 created = target(*rebound_args, **rebound_kwargs)
