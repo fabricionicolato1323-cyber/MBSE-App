@@ -354,8 +354,16 @@ applyState = function revisedApplyState(state) {
     showQuestionHelp: interaction.mode !== 'yes_no',
     canUndo: Boolean(state.can_undo)
   });
-  renderRevisionTextualModel(state.model || {});
-  renderRevisionDetails(state.model || {});
+
+  // Once the generic projection synchronizer is present, it is the single owner
+  // of Pseudo-code and Details rendering. Re-rendering them here on every 600 ms
+  // state poll would overwrite projection-specific decoration even when the model
+  // itself has not changed. Before the synchronizer loads, retain the legacy
+  // direct render as a startup/fallback path.
+  if (!window.mbseModelProjectionSync) {
+    renderRevisionTextualModel(state.model || {});
+    renderRevisionDetails(state.model || {});
+  }
 
   const countRoot = document.getElementById('modelCount');
   const counts = state.model?.counts || {nodes: 0, edges: 0};
