@@ -27,6 +27,7 @@ class PySAMLevel1BAPIContractTests(unittest.TestCase):
             "create_allocation_usage",
             "create_satisfy_requirement_usage",
             "create_reference_usage",
+            "create_reference_subsetting",
             "create_succession",
             "create_textual_representation",
         }
