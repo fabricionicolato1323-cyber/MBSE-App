@@ -37,10 +37,10 @@ jobs:
         run: pip install pytest
 
       - name: Validate Python syntax
-        run: python -m py_compile arcadia_oa_library.py sysml_v2.py web_app.py
+        run: python -m py_compile arcadia_oa_library.py sysml_v2.py sysml_level1.py web_app.py
 
       - name: Test ArcadiaOA-only translation contract
-        run: python -m pytest -q tests/test_sysml_v2.py tests/test_sysml_v2_ui_contract.py
+        run: python -m pytest -q tests/test_sysml_v2.py tests/test_sysml_level1.py tests/test_sysml_v2_ui_contract.py
 
   tests:
     name: Tests - ${{ matrix.os }}
