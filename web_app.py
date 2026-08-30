@@ -24,12 +24,13 @@ from operational_scenario import (
     scenarios_from_payload,
     write_runtime_scenarios,
 )
-from sam_connection import SamConfigurationError, settings_from_env
+from sam_connection import SamConfigurationError, run_connection_test, settings_from_env
 from sam_level1_sync import (
     SamLevel1SyncError,
     build_level1_sync_plan,
     sync_level1_to_sam,
 )
+from sam_pysam_compat import PySamCompatibilityError, install_transactional_factory_fix
 from sysml_level1 import build_sysml_level1_preview
 from ui_guidance import configured_section
 from web_ai import LocalAIServiceError, list_installed_models, load_web_ai_config
@@ -288,23 +289,34 @@ def api_model_load():
 
 @app.get("/api/sam/level1/plan")
 def api_sam_level1_plan():
-    """Return a no-write Level 1B transfer plan for explicit user review."""
+    """Return a read-only live-SAM Level 1B transfer plan for explicit review."""
     _, current = current_session(create_if_missing=False)
     if current is None:
         return jsonify({"ok": False, "error": "The modeling session is no longer active."}), 409
+    settings = None
     try:
         settings = settings_from_env()
+        # Gate 1B preflight: this actually authenticates and loads the configured
+        # SAM project, but performs no write.
+        target = run_connection_test(settings)
         model = _current_model_payload(current)
         scenarios = _scenario_views(current, model)
         plan = build_level1_sync_plan(
             model,
             scenarios=scenarios,
-            project_id=settings.project_id,
+            project_id=target["project_id"],
         )
+        plan["target"] = target
     except SamConfigurationError as exc:
         return jsonify({"ok": False, "error": str(exc), "sam_configured": False}), 503
-    except RuntimeError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 409
+    except Exception as exc:  # network/PySAM read-only preflight boundary
+        return jsonify(
+            {
+                "ok": False,
+                "error": _safe_sam_error(exc, settings.access_token if settings else None),
+                "sam_configured": settings is not None,
+            }
+        ), 409
     return jsonify({"ok": True, "sam_configured": True, "plan": plan})
 
 
@@ -325,6 +337,9 @@ def api_sam_level1_send():
     settings = None
     try:
         settings = settings_from_env()
+        # PySAM 0.3.1 has a known ScriptingProject transactional Factory bug.
+        # Install the equivalent upstream fix locally before the write starts.
+        compatibility = install_transactional_factory_fix()
         with current._lock:  # noqa: SLF001 - freeze the local snapshot during transfer
             if not current._waiting:  # noqa: SLF001
                 raise RuntimeError(
@@ -338,17 +353,26 @@ def api_sam_level1_send():
                 settings=settings,
                 expected_digest=expected_digest,
             )
+        # Re-read target metadata after the transaction so the UI can show the
+        # actual project/root package where the snapshot was written.
+        result["target"] = run_connection_test(settings)
+        result["pysam_compatibility"] = compatibility
     except SamConfigurationError as exc:
         return jsonify({"ok": False, "error": str(exc), "sam_configured": False}), 503
-    except SamLevel1SyncError as exc:
+    except (SamLevel1SyncError, PySamCompatibilityError) as exc:
         return jsonify(
             {
                 "ok": False,
                 "error": _safe_sam_error(exc, settings.access_token if settings else None),
             }
         ), 409
-    except RuntimeError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 409
+    except Exception as exc:
+        return jsonify(
+            {
+                "ok": False,
+                "error": _safe_sam_error(exc, settings.access_token if settings else None),
+            }
+        ), 409
 
     return jsonify({"ok": True, "result": result})
 
