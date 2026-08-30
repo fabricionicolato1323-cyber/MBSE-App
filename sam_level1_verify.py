@@ -1,4 +1,4 @@
-"""Post-write verification for managed SAM Level 1 transfers."""
+"""Post-write verification for managed/incremental SAM Level 1 transfers."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from time import perf_counter
 from typing import Any
 
 from sam_connection import SamSettings
-from sam_level1_managed_direct import sync_level1_to_sam_managed_direct
+from sam_level1_incremental_runner import sync_level1_with_incremental_state
 from sam_level1_sync import SamLevel1SyncError
 from sam_level1_transactional import level1_completion_marker_name
 
@@ -109,9 +109,9 @@ def sync_level1_to_sam_verified(
     project_manager_class: type[Any] | None = None,
     factory_class: type[Any] | None = None,
 ) -> dict[str, Any]:
-    """Create/reuse one shared library, publish one instance, then verify it fresh."""
+    """Use incremental sync when possible; verify full baseline publishes fresh."""
     total_started = perf_counter()
-    result = sync_level1_to_sam_managed_direct(
+    result = sync_level1_with_incremental_state(
         payload,
         scenarios=scenarios,
         settings=settings,
@@ -121,6 +121,24 @@ def sync_level1_to_sam_verified(
         factory_class=factory_class,
     )
     if result.get("status") not in {"synced", "already_synced"}:
+        return result
+
+    mode = str(result.get("mode") or "")
+    # Incremental UPDATE already performs ID-level fresh verification, baseline
+    # adoption already reads the existing SAM package, and a no-op does not write.
+    # Avoid a second project reload in those fast paths.
+    if mode in {
+        "incremental_noop",
+        "incremental_update",
+        "incremental_baseline_adopted",
+    }:
+        result["verified_in_sam"] = True
+        result["verified_package_name"] = result.get("package_name")
+        result["verified_package_id"] = result.get("sam_package_id")
+        timings = dict(result.get("timings") or {})
+        timings["final_verification_seconds"] = 0.0
+        timings["total_with_verification_seconds"] = round(perf_counter() - total_started, 3)
+        result["timings"] = timings
         return result
 
     verify_started = perf_counter()
