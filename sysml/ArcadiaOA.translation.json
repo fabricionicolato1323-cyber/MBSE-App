@@ -47,13 +47,18 @@
   },
   "relationships": {
     "CONTAINS": {
-      "strategy": "containment",
-      "source_node_types": [
-        "OperationalEntity"
-      ],
-      "target_node_types": [
-        "OperationalEntity",
-        "OperationalActor"
+      "strategy": "nested_usage",
+      "parent_endpoint": "source",
+      "child_endpoint": "target",
+      "variants": [
+        {
+          "source_node_type": "OperationalEntity",
+          "target_node_type": "OperationalEntity"
+        },
+        {
+          "source_node_type": "OperationalEntity",
+          "target_node_type": "OperationalActor"
+        }
       ]
     },
     "PERFORMS": {
@@ -92,13 +97,46 @@
       ]
     },
     "SUPPORTS_CAPABILITY": {
-      "strategy": "unmapped"
+      "strategy": "allocation",
+      "from_endpoint": "target",
+      "to_endpoint": "source",
+      "source_node_types": [
+        "OperationalActivity"
+      ],
+      "target_node_types": [
+        "OperationalCapability"
+      ]
     },
     "LOCATED_IN": {
-      "strategy": "unmapped"
+      "strategy": "reference",
+      "owner_endpoint": "source",
+      "referenced_endpoint": "target",
+      "usage_keyword": "part",
+      "definition": "OperationalEntity",
+      "identifier_prefix": "oa_locatedIn",
+      "value_strategy": "feature_value",
+      "source_node_types": [
+        "OperationalActor",
+        "OperationalEntity"
+      ],
+      "target_node_types": [
+        "OperationalEntity"
+      ]
     },
     "DECOMPOSES": {
-      "strategy": "unmapped"
+      "strategy": "nested_usage",
+      "parent_endpoint": "source",
+      "child_endpoint": "target",
+      "variants": [
+        {
+          "source_node_type": "OperationalCapability",
+          "target_node_type": "OperationalCapability"
+        },
+        {
+          "source_node_type": "OperationalActivity",
+          "target_node_type": "OperationalActivity"
+        }
+      ]
     }
   },
   "operational_scenario": {
