@@ -20,8 +20,8 @@ def test_loaded_model_menu_contains_only_supported_oa_concepts():
     ]
     for label in expected:
         assert label in source
-    assert 'Check model' not in source
-    assert 'Finish modeling' not in source
+    assert '("check",' not in source
+    assert '("finish",' not in source
 
 
 def test_loaded_model_asks_modify_existing_or_add_new_after_concept_choice():
