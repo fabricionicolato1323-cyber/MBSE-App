@@ -2,11 +2,22 @@
   font-weight: 650;
 }
 
+/* A carried Operational Exchange is a child of the participant-to-participant
+   Communication Mean path, not a sibling of it. The extra indentation makes
+   that semantic level visible in the pseudo-code tree. */
 .tree-line.communication-carried-exchange {
+  margin-left: 18px;
+  padding-left: 13px;
+  border-left: 1px solid #e4d9ea;
   color: #5d4a2d;
 }
 
+.tree-line.communication-carried-exchange::before {
+  left: -4px;
+}
+
 .tree-line.communication-unassigned {
+  margin-left: 18px;
   font-style: italic;
 }
 
