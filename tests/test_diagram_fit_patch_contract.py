@@ -50,30 +50,30 @@ def test_reset_override_rebuilds_geometry_resets_ports_and_uses_corrected_fit():
     assert "window.oaCorrectedDiagramReset" in source
 
 
-def test_detached_reset_preserves_main_window_camera_while_sharing_geometry():
+def test_detached_diagram_reset_preserves_main_window_camera_while_sharing_geometry():
     source = (ROOT / "static" / "oa_diagram_fit_patch.js").read_text(encoding="utf-8")
     assert "loadSaved" in source
     assert "previouslySaved" in source
-    assert "detachedUtilityWindow && previouslySaved?.view" in source
+    assert "detachedDiagramWindow && previouslySaved?.view" in source
     assert "state.view = previouslySaved.view" in source
     assert "state.view = resetCamera" in source
 
 
-def test_detached_pseudocode_window_is_treated_as_an_independent_diagram_camera():
+def test_only_detached_diagram_view_uses_independent_diagram_camera():
     source = (ROOT / "static" / "oa_diagram_fit_patch.js").read_text(encoding="utf-8")
-    assert "['utility', 'text'].includes(query.get('detachedPanel'))" in source
-    assert "persistView && !detachedUtilityWindow" in source
+    assert "rawDetachedPanel === 'diagram'" in source
+    assert "persistView && !detachedDiagramWindow" in source
     assert "firstDetachedDiagramFitDone" in source
     assert "clientWidth" in source
     assert "clientHeight" in source
 
 
-def test_diagram_canvas_consumes_remaining_text_panel_height():
+def test_diagram_canvas_consumes_remaining_unified_output_height():
     css = (ROOT / "static" / "oa_diagram_v4.css").read_text(encoding="utf-8")
-    assert "#utilityTextView.active" in css
-    assert "#utilityTextView > .tab-content.active" in css
+    assert "#diagramTab.active" in css
+    assert "display: flex !important;" in css
     assert "flex: 1 1 0;" in css
-    assert "#utilityTextView > #diagramTab.active" in css
+    assert "overflow: hidden;" in css
     assert ".oa-diagram-selection-status" in css
 
 
