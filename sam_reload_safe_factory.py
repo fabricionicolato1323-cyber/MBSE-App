@@ -46,7 +46,7 @@ class ReloadSafeFactory:
         if isinstance(value, list):
             return [self.fresh(item, required=required) for item in value]
         if isinstance(value, tuple):
-            return tuple(self.fresh(item, required=required) for item in value)
+            return tuple(self.fresh(item, required=required) for item in value]
         if isinstance(value, set):
             return {self.fresh(item, required=required) for item in value}
         if isinstance(value, dict):
@@ -81,7 +81,10 @@ class ReloadSafeFactory:
                 key: self.fresh(value, required=True)
                 for key, value in kwargs.items()
             }
-            created = target(*rebound_args, **rebound_kwargs)
+            try:
+                created = target(*rebound_args, **rebound_kwargs)
+            except Exception as exc:
+                raise RuntimeError(f"{name} failed: {exc}") from exc
             if created is None:
                 return None
             return self.fresh(created, required=True)
