@@ -17,10 +17,12 @@ import {
 } from './oa_diagram_v2_render.js';
 
 const query = new URLSearchParams(window.location.search);
-// The diagram lives in the pseudo-code/Text panel. Keep legacy "utility"
-// support for old detached URLs, but treat the new independent Text window as
-// detached so its camera never overwrites the docked application's camera.
-const detachedUtilityWindow = ['utility', 'text'].includes(query.get('detachedPanel'));
+const rawDetachedPanel = query.get('detachedPanel');
+// In the unified docked sidebar, Diagram is its own output view. Only a
+// separately undocked Diagram window needs an independent camera. Keep the old
+// detached utility/Text URL as a migration fallback because it could contain the
+// diagram in previous builds.
+const detachedDiagramWindow = rawDetachedPanel === 'diagram' || rawDetachedPanel === 'utility';
 const MAX_FIT_ZOOM = 1.0;
 const FIT_PADDING = 56;
 let firstDetachedDiagramFitDone = false;
@@ -79,7 +81,7 @@ function correctedFitView({persistView = true} = {}) {
     el.viewport.scrollTop = 0;
   });
 
-  if (persistView && !detachedUtilityWindow) persist();
+  if (persistView && !detachedDiagramWindow) persist();
   return true;
 }
 
@@ -115,7 +117,7 @@ function correctedResetLayout() {
   render();
 
   const resetCamera = {...state.view};
-  if (detachedUtilityWindow && previouslySaved?.view) {
+  if (detachedDiagramWindow && previouslySaved?.view) {
     state.view = previouslySaved.view;
     persist();
     state.view = resetCamera;
@@ -123,7 +125,7 @@ function correctedResetLayout() {
     persist();
   }
 
-  scheduleCorrectedFit({persistView: !detachedUtilityWindow});
+  scheduleCorrectedFit({persistView: !detachedDiagramWindow});
   return true;
 }
 
@@ -143,7 +145,7 @@ function installFitButtonOverride() {
   fitButton.addEventListener('click', event => {
     event.preventDefault();
     event.stopImmediatePropagation();
-    correctedFitView({persistView: !detachedUtilityWindow});
+    correctedFitView({persistView: !detachedDiagramWindow});
   }, true);
 }
 
@@ -167,7 +169,7 @@ function installManualCameraRelease() {
 }
 
 function installDetachedWindowFit() {
-  if (!detachedUtilityWindow) return;
+  if (!detachedDiagramWindow) return;
 
   const diagramTabButton = document.querySelector('[data-tab="diagram"]');
   diagramTabButton?.addEventListener('click', () => {
@@ -186,14 +188,14 @@ function installDetachedWindowFit() {
 function installFullscreenCorrection() {
   document.addEventListener('fullscreenchange', () => {
     if (!diagramIsVisible()) return;
-    scheduleCorrectedFit({persistView: !detachedUtilityWindow});
+    scheduleCorrectedFit({persistView: !detachedDiagramWindow});
   });
 }
 
 function installResizeCorrection() {
   window.addEventListener('resize', () => {
     if (!diagramIsVisible() || !el.viewport?.classList.contains('is-fit-view')) return;
-    scheduleCorrectedFit({persistView: !detachedUtilityWindow});
+    scheduleCorrectedFit({persistView: !detachedDiagramWindow});
   });
 }
 
