@@ -148,7 +148,7 @@ def test_sysml_view_is_generated_from_arcadiaoa_contract_and_updates_after_load(
             page.locator("#loadModelInput").set_input_files(str(model_file))
 
             page.locator('[data-output-tab="sysml"]').click()
-            code = page.locator("#sysmlV2Code")
+            code = page.locator("#utilitySysmlView code")
             expect(code).to_contain_text("flow def OperationalExchange;", timeout=20_000)
             expect(code).to_contain_text("connection def CommunicationMean;")
             expect(code).to_contain_text(
