@@ -25,17 +25,31 @@ export const selectionKey = (kind, id) => `${kind}:${id}`;
 export const edgeId = (edge, i) => clean(edge.id) || clean(edge.key) || `${edge.type}:${edge.source}:${edge.target}:${clean(edge.name)}:${i}`;
 export const storageKey = () => `oa-diagram-layout:v${LAYOUT_VERSION}:${state.session}`;
 
-export function signatureForModel(model) {
-  const nodes = [...(model?.nodes || []), ...(model?.drafts || [])]
-    .map(node => [node.id, node.type, node.name, node.status])
-    .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
-  const edges = (model?.edges || [])
-    .map(edge => [
-      edge.id || edge.key || '', edge.source, edge.target, edge.type, edge.name || '',
-      Array.isArray(edge.exchange_refs) ? edge.exchange_refs : [],
-    ])
+function canonicalModelValue(value) {
+  if (Array.isArray(value)) return value.map(canonicalModelValue);
+  if (value && typeof value === 'object') {
+    const result = {};
+    Object.keys(value).sort().forEach(key => { result[key] = canonicalModelValue(value[key]); });
+    return result;
+  }
+  return value;
+}
+
+function canonicalModelCollection(items) {
+  return (Array.isArray(items) ? items : [])
+    .map(item => canonicalModelValue(item))
     .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
-  return JSON.stringify({nodes, edges});
+}
+
+export function signatureForModel(model) {
+  // The diagram must react to every persisted element change, including future
+  // attributes that the renderer may learn to use. Keep this generic instead
+  // of maintaining a hardcoded allow-list such as name/exchange_refs.
+  return JSON.stringify({
+    nodes: canonicalModelCollection(model?.nodes),
+    drafts: canonicalModelCollection(model?.drafts),
+    edges: canonicalModelCollection(model?.edges),
+  });
 }
 
 export function validContainment(parent, child) {
