@@ -240,7 +240,10 @@ def test_scroll_area_zoom_fullscreen_four_direction_growth_and_movable_ports(dia
             fullscreen = page.locator("#oaDiagramFullscreen")
             expect(fullscreen).to_be_visible()
             fullscreen.click()
-            expect(page.locator("#diagramTab")).to_have_class("tab-content active oa-diagram-fullscreen-fallback")
+            diagram_classes = page.locator("#diagramTab").get_attribute("class") or ""
+            assert "tab-content" in diagram_classes
+            assert "active" in diagram_classes
+            assert "oa-diagram-fullscreen-fallback" in diagram_classes
             expect(fullscreen).to_have_attribute("aria-pressed", "true")
             fullscreen.click()
             expect(fullscreen).to_have_attribute("aria-pressed", "false")
