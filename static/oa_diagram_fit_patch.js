@@ -4,6 +4,7 @@ import {
   persist,
   autoLayout,
   storageKey,
+  loadSaved,
 } from './oa_diagram_v2_state.js';
 import {
   el,
@@ -17,6 +18,8 @@ import {
 
 const query = new URLSearchParams(window.location.search);
 const detachedUtilityWindow = query.get('detachedPanel') === 'utility';
+const MAX_FIT_ZOOM = 1.0;
+const FIT_PADDING = 56;
 let firstDetachedDiagramFitDone = false;
 let scheduledFitFrame = 0;
 
@@ -24,6 +27,13 @@ function correctedFitView({persistView = true} = {}) {
   if (!el.viewport) return false;
   const entries = visibleLayoutEntries();
   if (!entries.length) return false;
+
+  // A fitted camera should not inherit native scrollbar offsets from a previous
+  // pan/zoom state. Hide native overflow while fitted; any manual camera gesture
+  // restores the normal scrollable viewport.
+  el.viewport.classList.add('is-fit-view');
+  el.viewport.scrollLeft = 0;
+  el.viewport.scrollTop = 0;
 
   // updateBounds may change the presentation-only canvas origin when model
   // elements have negative coordinates. Fit must use the origin actually used
@@ -48,20 +58,22 @@ function correctedFitView({persistView = true} = {}) {
 
   const modelWidth = Math.max(1, maxX - minX);
   const modelHeight = Math.max(1, maxY - minY);
-  const pad = 38;
-  const availableWidth = Math.max(1, viewportWidth - pad * 2);
-  const availableHeight = Math.max(1, viewportHeight - pad * 2);
+  const availableWidth = Math.max(1, viewportWidth - FIT_PADDING * 2);
+  const availableHeight = Math.max(1, viewportHeight - FIT_PADDING * 2);
+
+  // Fit means "show the whole model", not "magnify the model". The previous
+  // 2.5x ceiling made a compact automatic layout look over-zoomed in full screen.
+  // Full-screen real estate is now used by the canvas itself, while Fit never
+  // enlarges geometry above its natural 100% scale.
   const zoom = Math.max(
     .25,
     Math.min(
-      2.5,
+      MAX_FIT_ZOOM,
       availableWidth / modelWidth,
       availableHeight / modelHeight,
     ),
   );
 
-  el.viewport.scrollLeft = 0;
-  el.viewport.scrollTop = 0;
   state.view = {
     x: (viewportWidth - modelWidth * zoom) / 2 - minX * zoom,
     y: (viewportHeight - modelHeight * zoom) / 2 - minY * zoom,
@@ -69,6 +81,15 @@ function correctedFitView({persistView = true} = {}) {
   };
   applyView();
   renderEdges();
+
+  // Re-assert the fitted origin after transforms/layout settle. Some browsers
+  // preserve a native scroll offset when entering fullscreen if overflow was
+  // scrollable immediately beforehand.
+  requestAnimationFrame(() => {
+    if (!el.viewport?.classList.contains('is-fit-view')) return;
+    el.viewport.scrollLeft = 0;
+    el.viewport.scrollTop = 0;
+  });
 
   // A detached browser window has a different viewport from the docked panel.
   // Do not overwrite the docked camera merely because the user fitted the
@@ -90,9 +111,13 @@ function scheduleCorrectedFit(options = {}) {
 function correctedResetLayout() {
   if (!el.viewport) return false;
 
+  // Keep the main-window camera when Reset is initiated from a detached browser
+  // window. Geometry is shared, but each window must keep its own camera.
+  const previouslySaved = loadSaved();
+
   // Reset means geometry reset, not merely camera reset. Clear the persisted
   // node geometry and communication-port offsets, rebuild the authoritative
-  // automatic layout, then fit that fresh layout to the *current* viewport.
+  // automatic layout, then fit that fresh layout to the current viewport.
   try {
     localStorage.removeItem(storageKey());
   } catch (_error) {
@@ -109,16 +134,28 @@ function correctedResetLayout() {
   el.viewport.scrollTop = 0;
   render();
 
-  // Persist the rebuilt geometry before fitting. In a detached window, the
-  // camera itself remains local to that window while the reset node geometry is
-  // still the shared model layout.
-  persist();
+  // Persist the rebuilt node geometry. In a detached window preserve the camera
+  // previously stored by the docked application instead of replacing it with
+  // this detached window's temporary reset camera.
+  const resetCamera = {...state.view};
+  if (detachedUtilityWindow && previouslySaved?.view) {
+    state.view = previouslySaved.view;
+    persist();
+    state.view = resetCamera;
+  } else {
+    persist();
+  }
+
   scheduleCorrectedFit({persistView: !detachedUtilityWindow});
   return true;
 }
 
 function diagramIsVisible() {
   return Boolean(el.tab && el.tab.classList.contains('active') && !el.tab.hidden);
+}
+
+function releaseFittedCamera() {
+  el.viewport?.classList.remove('is-fit-view');
 }
 
 function installFitButtonOverride() {
@@ -149,6 +186,16 @@ function installResetButtonOverride() {
   }, true);
 }
 
+function installManualCameraRelease() {
+  // Fit intentionally hides native overflow. The instant the user manually pans,
+  // zooms, selects a zoom rectangle or presses +/- we return to normal scrollable
+  // navigation before the interaction layer handles that gesture.
+  el.viewport?.addEventListener('pointerdown', releaseFittedCamera, true);
+  el.viewport?.addEventListener('wheel', releaseFittedCamera, {capture: true, passive: true});
+  document.getElementById('oaDiagramZoomIn')?.addEventListener('click', releaseFittedCamera, true);
+  document.getElementById('oaDiagramZoomOut')?.addEventListener('click', releaseFittedCamera, true);
+}
+
 function installDetachedWindowFit() {
   if (!detachedUtilityWindow) return;
 
@@ -173,11 +220,20 @@ function installFullscreenCorrection() {
   });
 }
 
+function installResizeCorrection() {
+  window.addEventListener('resize', () => {
+    if (!diagramIsVisible() || !el.viewport?.classList.contains('is-fit-view')) return;
+    scheduleCorrectedFit({persistView: !detachedUtilityWindow});
+  });
+}
+
 function install() {
   installFitButtonOverride();
   installResetButtonOverride();
+  installManualCameraRelease();
   installDetachedWindowFit();
   installFullscreenCorrection();
+  installResizeCorrection();
   window.oaCorrectedDiagramFit = correctedFitView;
   window.oaCorrectedDiagramReset = correctedResetLayout;
 }
