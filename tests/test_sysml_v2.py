@@ -132,16 +132,15 @@ class SysMLV2GenerationTests(unittest.TestCase):
     def test_library_bundle_is_the_translation_authority(self) -> None:
         contract = DEFAULT_ARCADIA_OA_LIBRARY.contract
         self.assertEqual(contract["policy"]["semantic_fallback"], "forbidden")
-        self.assertEqual(
-            contract["relationships"]["OPERATIONAL_EXCHANGE"]["strategy"],
-            "flow",
-        )
-        self.assertEqual(
-            contract["relationships"]["COMMUNICATION_MEAN"]["strategy"],
-            "connection",
-        )
+        self.assertEqual(contract["relationships"]["CONTAINS"]["strategy"], "nested_usage")
+        self.assertEqual(contract["relationships"]["DECOMPOSES"]["strategy"], "nested_usage")
+        self.assertEqual(contract["relationships"]["LOCATED_IN"]["strategy"], "reference")
+        self.assertEqual(contract["relationships"]["SUPPORTS_CAPABILITY"]["strategy"], "allocation")
+        self.assertEqual(contract["relationships"]["OPERATIONAL_EXCHANGE"]["strategy"], "flow")
+        self.assertEqual(contract["relationships"]["COMMUNICATION_MEAN"]["strategy"], "connection")
         self.assertIn("flow def OperationalExchange;", ARCADIA_OA_LIBRARY_TEXT)
         self.assertIn("connection def CommunicationMean;", ARCADIA_OA_LIBRARY_TEXT)
+        self.assertIn("requirement def OperationalCapability;", ARCADIA_OA_LIBRARY_TEXT)
         self.assertNotIn("OperationalProcess", ARCADIA_OA_LIBRARY_TEXT)
 
     def test_generator_contains_no_hardcoded_arcadia_mapping_names(self) -> None:
@@ -169,7 +168,7 @@ class SysMLV2GenerationTests(unittest.TestCase):
                 msg=f"Mapping token {token} must live only in ArcadiaOA library files",
             )
 
-    def test_generates_only_declared_flow_connection_and_perform_mappings(self) -> None:
+    def test_generates_declared_flow_connection_perform_and_containment(self) -> None:
         text = generate_sysml_v2(sample_payload())
         self.assertIn(
             "flow oa_exchange_Threat_Information : OperationalExchange",
@@ -191,13 +190,151 @@ class SysMLV2GenerationTests(unittest.TestCase):
             "perform oa_operationalBehavior.oa_activity_Detect_Threat;",
             text,
         )
+        self.assertIn("part oa_entity_Control_Center : OperationalEntity {", text)
+        self.assertIn("part oa_actor_Operator : OperationalActor {", text)
         self.assertNotIn("port oa_communication_Radio", text)
+
+    def test_supports_capability_uses_library_declared_allocation_direction(self) -> None:
+        payload = sample_payload()
+        payload["edges"].append(
+            {
+                "source": "activity:detect",
+                "target": "cap:respond",
+                "key": 1,
+                "type": "SUPPORTS_CAPABILITY",
+            }
+        )
+        text = generate_sysml_v2(payload)
+        self.assertIn(
+            "allocate oa_capability_Respond_to_threat "
+            "to oa_operationalBehavior.oa_activity_Detect_Threat;",
+            text,
+        )
+        self.assertNotIn("UNMAPPED Arcadia relation SUPPORTS_CAPABILITY", text)
+        self.assertNotIn("satisfy oa_capability", text)
+
+    def test_located_in_uses_non_composite_reference_not_containment(self) -> None:
+        payload = sample_payload()
+        payload["nodes"].append(
+            {
+                "id": "entity:building",
+                "type": "OperationalEntity",
+                "name": "Operations Building",
+            }
+        )
+        payload["edges"].append(
+            {
+                "source": "actor:operator",
+                "target": "entity:building",
+                "key": 0,
+                "type": "LOCATED_IN",
+            }
+        )
+        text = generate_sysml_v2(payload)
+        self.assertIn(
+            "ref part oa_locatedIn_Operations_Building : OperationalEntity = "
+            "oa_operationalContext.oa_entity_Operations_Building;",
+            text,
+        )
+        self.assertNotIn("UNMAPPED Arcadia relation LOCATED_IN", text)
+        # The operator remains structurally nested only under Control Center via CONTAINS.
+        center_index = text.index("part oa_entity_Control_Center : OperationalEntity {")
+        operator_index = text.index("part oa_actor_Operator : OperationalActor {")
+        building_index = text.index("part oa_entity_Operations_Building : OperationalEntity {")
+        self.assertGreater(operator_index, center_index)
+        self.assertGreater(building_index, operator_index)
+
+    def test_activity_decomposition_is_native_nested_action_usage(self) -> None:
+        payload = sample_payload()
+        payload["nodes"].append(
+            {
+                "id": "activity:respond",
+                "type": "OperationalActivity",
+                "name": "Respond To Threat",
+            }
+        )
+        payload["edges"].append(
+            {
+                "source": "activity:respond",
+                "target": "activity:detect",
+                "key": 0,
+                "type": "DECOMPOSES",
+            }
+        )
+        text = generate_sysml_v2(payload)
+        self.assertIn("action oa_activity_Respond_To_Threat : OperationalActivity {", text)
+        self.assertIn("action oa_activity_Detect_Threat : OperationalActivity {", text)
+        self.assertIn(
+            "from oa_activity_Respond_To_Threat.oa_activity_Detect_Threat.oa_exchange_1_out",
+            text,
+        )
+        self.assertIn(
+            "perform oa_operationalBehavior.oa_activity_Respond_To_Threat.oa_activity_Detect_Threat;",
+            text,
+        )
+        self.assertNotIn("UNMAPPED Arcadia relation DECOMPOSES", text)
+
+    def test_capability_decomposition_is_native_nested_requirement_usage(self) -> None:
+        payload = sample_payload()
+        payload["nodes"].append(
+            {
+                "id": "cap:protect",
+                "type": "OperationalCapability",
+                "name": "Protect Area",
+            }
+        )
+        payload["edges"].append(
+            {
+                "source": "cap:protect",
+                "target": "cap:respond",
+                "key": 0,
+                "type": "DECOMPOSES",
+            }
+        )
+        text = generate_sysml_v2(payload)
+        self.assertIn("requirement oa_capability_Protect_Area : OperationalCapability {", text)
+        self.assertIn("requirement oa_capability_Respond_to_threat : OperationalCapability;", text)
+        self.assertNotIn("UNMAPPED Arcadia relation DECOMPOSES", text)
+
+    def test_invalid_second_decomposition_parent_is_not_invented(self) -> None:
+        payload = sample_payload()
+        payload["nodes"].extend(
+            [
+                {
+                    "id": "activity:parent-a",
+                    "type": "OperationalActivity",
+                    "name": "Parent A",
+                },
+                {
+                    "id": "activity:parent-b",
+                    "type": "OperationalActivity",
+                    "name": "Parent B",
+                },
+            ]
+        )
+        payload["edges"].extend(
+            [
+                {
+                    "source": "activity:parent-a",
+                    "target": "activity:detect",
+                    "key": 0,
+                    "type": "DECOMPOSES",
+                },
+                {
+                    "source": "activity:parent-b",
+                    "target": "activity:detect",
+                    "key": 0,
+                    "type": "DECOMPOSES",
+                },
+            ]
+        )
+        text = generate_sysml_v2(payload)
+        self.assertIn("UNMAPPED Arcadia relation DECOMPOSES", text)
+        self.assertEqual(text.count("action oa_activity_Detect_Threat : OperationalActivity"), 1)
 
     def test_removing_mapping_from_library_prevents_generation(self) -> None:
         contract = copy.deepcopy(DEFAULT_ARCADIA_OA_LIBRARY.contract)
-        contract["relationships"]["OPERATIONAL_EXCHANGE"] = {
-            "strategy": "unmapped"
-        }
+        contract["relationships"]["OPERATIONAL_EXCHANGE"] = {"strategy": "unmapped"}
         contract["operational_scenario"] = {}
         library = validate_arcadia_oa_library(
             ArcadiaOALibrary(DEFAULT_ARCADIA_OA_LIBRARY.sysml_text, contract)
@@ -219,10 +356,7 @@ class SysMLV2GenerationTests(unittest.TestCase):
         )
         text = generate_sysml_v2(payload)
         self.assertIn("UNMAPPED Arcadia relation FUTURE_RELATION", text)
-        self.assertNotIn(
-            "connection oa_communication_Must_not_be_invented",
-            text,
-        )
+        self.assertNotIn("connection oa_communication_Must_not_be_invented", text)
         self.assertNotIn("flow oa_exchange_Must_not_be_invented", text)
 
     def test_unknown_source_node_never_uses_generic_fallback(self) -> None:
@@ -239,42 +373,15 @@ class SysMLV2GenerationTests(unittest.TestCase):
         self.assertNotIn("Do_Not_Guess", text)
 
     def test_scenario_mapping_comes_from_library_contract(self) -> None:
-        text = generate_sysml_v2(
-            sample_payload(),
-            scenarios=[sample_scenario()],
-        )
-        self.assertIn(
-            "action oa_scenario_Nominal_response : OperationalScenario",
-            text,
-        )
+        text = generate_sysml_v2(sample_payload(), scenarios=[sample_scenario()])
+        self.assertIn("action oa_scenario_Nominal_response : OperationalScenario", text)
         self.assertIn("first oa_step1_Detect_Threat;", text)
         self.assertIn("then oa_step2_Assess_Threat;", text)
-        self.assertIn(
-            "flow oa_exchange_Threat_Information : OperationalExchange",
-            text,
-        )
+        self.assertIn("flow oa_exchange_Threat_Information : OperationalExchange", text)
         self.assertIn(
             "Communication Mean reference retained without additional SysML mapping: Radio",
             text,
         )
-
-    def test_declared_unmapped_relations_are_comments_only(self) -> None:
-        payload = sample_payload()
-        payload["edges"].append(
-            {
-                "source": "activity:detect",
-                "target": "cap:respond",
-                "key": 1,
-                "type": "SUPPORTS_CAPABILITY",
-            }
-        )
-        text = generate_sysml_v2(payload)
-        self.assertIn(
-            "UNMAPPED Arcadia relation SUPPORTS_CAPABILITY: "
-            "Detect Threat -> Respond to threat",
-            text,
-        )
-        self.assertNotIn("satisfy oa_capability", text)
 
     def test_temporary_content_is_comment_only(self) -> None:
         text = generate_sysml_v2(
