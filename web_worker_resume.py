@@ -53,7 +53,26 @@ def main() -> None:
         WebGuidedFlowMixin,
         app.OAApp,
     ):
-        pass
+        def _select_node_for_deletion(self, node_type: str, label: str) -> str | None:
+            node_ids = self.model.nodes_of_type(node_type)
+            if not node_ids:
+                self.add_notice(f"No {label} exists yet.")
+                return None
+            return self.ask_choice(
+                f"Which {label} would you like to delete?",
+                [(node_id, self.model.name(node_id)) for node_id in node_ids],
+                "Choose one item. Nothing will be deleted until you review the impact and confirm.",
+            )
+
+        def _delete_loaded_goal(self) -> None:
+            node_id = self._select_node_for_deletion("OperationalCapability", "goal")
+            if node_id:
+                self._delete_selected_node(node_id)
+
+        def _delete_loaded_activity(self) -> None:
+            node_id = self._select_node_for_deletion("OperationalActivity", "activity")
+            if node_id:
+                self._delete_selected_node(node_id)
 
     web_app = LoadedWebOAApp()
     web_app.llm = None
