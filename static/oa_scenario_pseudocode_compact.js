@@ -4,11 +4,12 @@
 
   let scheduled = false;
   let observer = null;
+  let latestScenarioModel = null;
 
   const clean = value => String(value ?? '').replace(/\s+/g, ' ').trim();
 
   function latestModel() {
-    return window.mbseModelProjectionSync?.getLatest?.().model || null;
+    return latestScenarioModel || window.mbseModelProjectionSync?.getLatest?.().model || null;
   }
 
   function scenarioLines(scenario, nodes) {
@@ -93,6 +94,14 @@
     document.head.appendChild(style);
   }
 
-  window.addEventListener('mbse:model-projections-updated', scheduleCompactRender);
+  window.addEventListener('oa:diagram-model-rendered', event => {
+    if (event.detail?.model) latestScenarioModel = event.detail.model;
+    scheduleCompactRender();
+  });
+  window.addEventListener('mbse:model-projections-updated', event => {
+    if (event.detail?.model) latestScenarioModel = event.detail.model;
+    scheduleCompactRender();
+  });
+
   installObserver();
 })();
