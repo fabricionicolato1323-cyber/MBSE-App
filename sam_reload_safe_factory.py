@@ -15,8 +15,17 @@ native writable classifier ends. ``AllocationUsage`` connector endpoints are
 derived in the SAM metamodel and cannot be populated directly; for the ArcadiaOA
 SUPPORTS_CAPABILITY mapping, the transport adapter persists the same intent as a
 ``SatisfyRequirementUsage`` whose satisfied requirement is the Operational
-Capability and whose satisfying feature is the Operational Activity. The Level 1A
-textual model remains the normative translation artifact.
+Capability and whose satisfying feature is the Operational Activity.
+
+``ConnectionUsage`` and ``FlowConnectionUsage`` also expose derived endpoint
+collections (Relationship.source/target, Connector.target_feature and
+Connector.related_feature). The adapter therefore creates the connector itself
+without those derived attributes and then represents each binary endpoint as an
+owned end ``ReferenceUsage`` with an owned ``ReferenceSubsetting`` to the actual
+model feature. This mirrors the SysML v2 abstract syntax behind ``connect A to B``
+without trying to mutate derived ELists.
+
+The Level 1A textual model remains the normative translation artifact.
 """
 
 from __future__ import annotations
@@ -51,7 +60,7 @@ def _normalize_create_call(
     name: str,
     kwargs: dict[str, Any],
 ) -> tuple[str, dict[str, Any]]:
-    """Return the server-valid Factory method and payload for a create call."""
+    """Return the server-valid Factory method and payload for a simple create call."""
     normalized = dict(kwargs)
 
     if name == "create_subclassification":
@@ -98,6 +107,16 @@ def _normalize_create_call(
 class ReloadSafeFactory:
     """Wrap a PySAM Factory whose direct create path reloads the project."""
 
+    _CONNECTOR_METHODS = {"create_connection_usage", "create_flow_connection_usage"}
+    _DERIVED_CONNECTOR_KEYS = {
+        "source",
+        "target",
+        "source_feature",
+        "target_feature",
+        "related_feature",
+        "connector_end",
+    }
+
     def __init__(self, project: Any, delegate: Any):
         self.project = project
         self.delegate = delegate
@@ -132,6 +151,84 @@ class ReloadSafeFactory:
             )
         return value
 
+    def _direct_create(
+        self,
+        method_name: str,
+        *,
+        args: tuple[Any, ...] = (),
+        kwargs: dict[str, Any] | None = None,
+        label: str | None = None,
+    ) -> Any:
+        """Call one delegate create method with fresh references and rebind its result."""
+        target = getattr(self.delegate, method_name)
+        rebound_args = tuple(self.fresh(arg, required=True) for arg in args)
+        rebound_kwargs = {
+            key: self.fresh(value, required=True)
+            for key, value in (kwargs or {}).items()
+        }
+        try:
+            created = target(*rebound_args, **rebound_kwargs)
+        except Exception as exc:
+            raise RuntimeError(f"{label or method_name} failed: {exc}") from exc
+        if created is None:
+            return None
+        return self.fresh(created, required=True)
+
+    def _create_binary_connector(
+        self,
+        method_name: str,
+        *,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+    ) -> Any:
+        """Create a binary connector using writable owned reference ends."""
+        if args:
+            raise ReloadSafeReferenceError(
+                f"{method_name} connector transport requires keyword arguments."
+            )
+
+        raw = dict(kwargs)
+        source = raw.get("source_feature") or _first(raw.get("source"))
+        target = _first(raw.get("target_feature")) or _first(raw.get("target"))
+        if source is None or target is None:
+            raise ReloadSafeReferenceError(
+                f"{method_name} requires both source and target features."
+            )
+
+        base_kwargs = {
+            key: value
+            for key, value in raw.items()
+            if key not in self._DERIVED_CONNECTOR_KEYS
+        }
+        connector = self._direct_create(
+            method_name,
+            kwargs=base_kwargs,
+            label=method_name,
+        )
+
+        base_name = str(raw.get("name") or "connector").strip() or "connector"
+        for role, endpoint in (("source", source), ("target", target)):
+            end = self._direct_create(
+                "create_reference_usage",
+                kwargs={
+                    "name": f"{base_name}__{role}_end",
+                    "owner": connector,
+                    "is_end": True,
+                },
+                label=f"{method_name} {role} end",
+            )
+            self._direct_create(
+                "create_reference_subsetting",
+                kwargs={
+                    "owner": end,
+                    "referencing_feature": end,
+                    "referenced_feature": endpoint,
+                },
+                label=f"{method_name} {role} reference subsetting",
+            )
+
+        return self.fresh(connector, required=True)
+
     def __getattr__(self, name: str) -> Any:
         original_target = getattr(self.delegate, name)
         if not name.startswith("create_") or not callable(original_target):
@@ -139,23 +236,23 @@ class ReloadSafeFactory:
 
         @wraps(original_target)
         def reload_safe_create(*args, **kwargs):
+            if name in self._CONNECTOR_METHODS:
+                return self._create_binary_connector(
+                    name,
+                    args=args,
+                    kwargs=kwargs,
+                )
+
             transport_name, normalized_kwargs = _normalize_create_call(name, kwargs)
-            target = getattr(self.delegate, transport_name)
-            rebound_args = tuple(self.fresh(arg, required=True) for arg in args)
-            rebound_kwargs = {
-                key: self.fresh(value, required=True)
-                for key, value in normalized_kwargs.items()
-            }
-            try:
-                created = target(*rebound_args, **rebound_kwargs)
-            except Exception as exc:
-                if transport_name == name:
-                    label = name
-                else:
-                    label = f"{name} via {transport_name}"
-                raise RuntimeError(f"{label} failed: {exc}") from exc
-            if created is None:
-                return None
-            return self.fresh(created, required=True)
+            if transport_name == name:
+                label = name
+            else:
+                label = f"{name} via {transport_name}"
+            return self._direct_create(
+                transport_name,
+                args=args,
+                kwargs=normalized_kwargs,
+                label=label,
+            )
 
         return reload_safe_create
