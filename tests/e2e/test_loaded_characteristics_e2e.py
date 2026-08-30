@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import subprocess
 import sys
 import time
@@ -119,7 +118,8 @@ def test_loaded_characteristics_can_be_changed_and_added_without_parallel_model_
             ).to_be_visible(timeout=20_000)
             page.get_by_role(
                 "button",
-                name=re.compile(r"Operating condition: Day"),
+                name="Goal: Maintain service — Operating condition: Day",
+                exact=True,
             ).click()
 
             composer = page.locator("#messageInput")
@@ -157,7 +157,7 @@ def test_loaded_characteristics_can_be_changed_and_added_without_parallel_model_
             expect(
                 page.get_by_text("Which model item should receive the characteristic or limit?", exact=True)
             ).to_be_visible(timeout=20_000)
-            page.get_by_role("button", name=re.compile(r"Goal: Maintain service"), exact=False).click()
+            page.get_by_role("button", name="Goal: Maintain service", exact=True).click()
 
             expect(page.get_by_text("What is the characteristic name?", exact=True)).to_be_visible(
                 timeout=20_000
