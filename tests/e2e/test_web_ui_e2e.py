@@ -196,8 +196,25 @@ def test_load_saved_model_populates_preview_and_opens_continuation_menu(web_serv
             expect(page.locator("#modelTextual")).to_contain_text("Monitor perimeter")
             expect(page.locator("#modelFileName")).to_have_text("Loaded perimeter model")
             expect(
-                page.get_by_text("What would you like to change in the loaded model?", exact=True)
+                page.get_by_text("What would you like to do with the loaded model?", exact=True)
             ).to_be_visible(timeout=20_000)
+            expect(
+                page.get_by_role("button", name="Change something that already exists", exact=True)
+            ).to_be_visible()
+            expect(page.get_by_role("button", name="Add something new", exact=True)).to_be_visible()
+
+            page.get_by_role("button", name="Change something that already exists", exact=True).click()
+            expect(page.get_by_text("Which part of the model?", exact=True)).to_be_visible(timeout=20_000)
+            for label in [
+                "Goals",
+                "People, organizations, places, or systems involved",
+                "Activities",
+                "Information or material exchanged",
+                "Means of communication",
+                "Characteristics and limits",
+            ]:
+                expect(page.get_by_role("button", name=label, exact=True)).to_be_visible()
+
             expect(
                 page.get_by_text(
                     "The loaded model has no obvious mandatory gaps. Would you like to edit or refine something?",
