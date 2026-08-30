@@ -19,89 +19,94 @@ def test_operational_analysis_purpose_objective_and_key_question_are_visible():
     assert 'before defining the solution' in html
 
 
-def test_default_layout_is_completion_conversation_pseudocode_then_sysml():
+def test_default_layout_is_completion_conversation_then_single_output_sidebar():
     html = Path('templates/index.html').read_text(encoding='utf-8')
     completion_index = html.index('id="completionPanel"')
     chat_index = html.index('id="chatPanel"')
-    text_index = html.index('id="modelPanel"')
-    sysml_index = html.index('id="sysmlPanel"')
-    assert completion_index < chat_index < text_index < sysml_index
+    output_index = html.index('id="modelPanel"')
+    assert completion_index < chat_index < output_index
     assert 'id="completionPercent"' in html
     assert 'id="completionList"' in html
-    assert 'data-panel-toggle="text">Pseudo-code</button>' in html
-    assert 'data-panel-toggle="sysml">SysML V2</button>' in html
+    assert 'data-panel-toggle="output">Model output</button>' in html
+    assert 'id="sysmlPanel"' not in html
 
 
-def test_pseudocode_and_sysml_are_independent_workspace_panels():
+def test_docked_output_sidebar_has_four_primary_views():
     html = Path('templates/index.html').read_text(encoding='utf-8')
-    assert 'data-panel="text" data-output-panel="text"' in html
-    assert 'data-panel="sysml" data-output-panel="sysml"' in html
-    assert '<h2>Pseudo-code</h2>' in html
-    assert '<h2>SysML V2</h2>' in html
-    assert 'id="utilityTextView"' in html
-    assert 'id="utilitySysmlView"' in html
-    assert 'data-utility-tab="text"' not in html
-    assert 'data-utility-tab="sysml"' not in html
+    for view in ['text', 'sysml', 'diagram', 'details']:
+        assert f'data-output-tab="{view}"' in html
+        assert f'data-output-view="{view}"' in html
+    assert '>Pseudo-code</button>' in html
+    assert '>SysML V2</button>' in html
+    assert '>Diagram</button>' in html
+    assert '>Details</button>' in html
     assert 'SysML V2 textual output' in html
     assert 'intentionally text-based, not a block diagram' in html
     assert 'Generated SysML V2 text will appear here' in html
 
 
-def test_existing_model_views_remain_available_inside_pseudocode_panel():
+def test_existing_render_targets_remain_available_in_unified_sidebar():
     html = Path('templates/index.html').read_text(encoding='utf-8')
-    assert 'data-tab="textual"' in html
-    assert 'data-tab="diagram"' in html
-    assert 'data-tab="details"' in html
     assert 'id="modelTextual"' in html
     assert 'id="modelDiagram"' in html
     assert 'id="modelDetails"' in html
+    assert 'id="diagramTab"' in html
+    assert 'data-tab="diagram"' in html
 
 
-def test_all_four_panels_keep_dock_minimize_maximize_and_hide_controls():
+def test_three_docked_panels_keep_window_controls_and_single_output_toggle():
     html = Path('templates/index.html').read_text(encoding='utf-8')
-    assert html.count('data-panel-action="dock"') == 4
-    assert html.count('data-panel-action="minimize"') == 4
-    assert html.count('data-panel-action="maximize"') == 4
-    assert html.count('data-panel-action="close"') == 4
-    assert html.count('data-panel-toggle=') == 4
+    assert html.count('data-panel-action="dock"') == 3
+    assert html.count('data-panel-action="minimize"') == 3
+    assert html.count('data-panel-action="maximize"') == 3
+    assert html.count('data-panel-action="close"') == 3
+    assert html.count('data-panel-toggle=') == 3
 
 
-def test_output_panels_support_independent_browser_windows_and_redocking():
+def test_output_views_split_into_independent_browser_windows_only_when_undocked():
     script = Path('static/workspace_layout.js').read_text(encoding='utf-8')
     css = Path('static/workspace_layout.css').read_text(encoding='utf-8')
-    assert "new Set(['text', 'sysml'])" in script
+    assert "const outputViewNames = ['text', 'sysml', 'diagram', 'details']" in script
     assert 'outputPopups = new Map()' in script
     assert 'outputPopupMonitors = new Map()' in script
     assert 'openOutputBrowserWindow' in script
-    assert 'redockOutputPanel' in script
+    assert 'redockOutputView' in script
     assert "url.searchParams.set('detachedPanel', name)" in script
     assert 'window.open' in script
-    assert 'mbse-redock-output' in script
+    assert 'mbse-redock-output-view' in script
     assert 'mbse-output-window-closed' in script
     assert 'requestFullscreen' in script
     assert 'body.detached-output-window' in css
-    assert '.detached-target' in css
+    assert '.output-tab-button.is-detached-view' in css
 
 
-def test_separate_output_panels_have_independent_resize_widths():
+def test_output_sidebar_can_be_hidden_without_closing_detached_views():
+    script = Path('static/workspace_layout.js').read_text(encoding='utf-8')
+    assert "function setPanelVisible(name, visible)" in script
+    assert "panel.hidden = !visible" in script
+    set_visible = script.split('function setPanelVisible(name, visible)', 1)[1].split('function requestRedockFromDetachedWindow', 1)[0]
+    assert 'popup.close()' not in set_visible
+    assert 'outputPopups.clear' not in set_visible
+    assert 'All output views are undocked.' in Path('templates/index.html').read_text(encoding='utf-8')
+
+
+def test_single_right_output_splitter_resizes_combined_sidebar():
+    html = Path('templates/index.html').read_text(encoding='utf-8')
     script = Path('static/workspace_layout.js').read_text(encoding='utf-8')
     css = Path('static/workspace_layout.css').read_text(encoding='utf-8')
-    assert "data-splitter=\"text\"" in Path('templates/index.html').read_text(encoding='utf-8')
-    assert "data-splitter=\"sysml\"" in Path('templates/index.html').read_text(encoding='utf-8')
-    assert "--text-width" in script
-    assert "--sysml-width" in script
-    assert "--text-width" in css
-    assert "--sysml-width" in css
-    assert "installSplitter(splitters.text" in script
-    assert "installSplitter(splitters.sysml" in script
+    assert 'data-splitter="output"' in html
+    assert 'data-splitter="text"' not in html
+    assert 'data-splitter="sysml"' not in html
+    assert "--output-width" in script
+    assert "--output-width" in css
+    assert "installSplitter(splitters.output, '--output-width', 'output', 300, 820, 'right')" in script
 
 
-def test_splitter_directions_match_left_completion_and_right_output_panels():
+def test_splitter_directions_match_left_completion_and_right_output_sidebar():
     script = Path('static/workspace_layout.js').read_text(encoding='utf-8')
     assert "direction === 'left' ? startWidth + delta : startWidth - delta" in script
     assert "installSplitter(splitters.completion, '--completion-width', 'completion', 190, 520, 'left')" in script
-    assert "installSplitter(splitters.text, '--text-width', 'text', 280, 760, 'right')" in script
-    assert "installSplitter(splitters.sysml, '--sysml-width', 'sysml', 260, 700, 'right')" in script
+    assert "installSplitter(splitters.output, '--output-width', 'output', 300, 820, 'right')" in script
 
 
 def test_completion_coverage_tracks_expected_operational_analysis_blocks():
