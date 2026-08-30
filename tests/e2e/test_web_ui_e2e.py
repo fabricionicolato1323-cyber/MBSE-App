@@ -206,3 +206,49 @@ def test_load_saved_model_populates_preview_and_opens_continuation_menu(web_serv
             ).to_have_count(0)
         finally:
             browser.close()
+
+
+@pytest.mark.skipif(
+    os.getenv("RUN_E2E") != "1",
+    reason="Playwright E2E tests run in the dedicated CI job.",
+)
+def test_pseudocode_and_sysml_can_be_undocked_independently(web_server):
+    from playwright.sync_api import expect, sync_playwright
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 1600, "height": 1000})
+        try:
+            page.goto(BASE_URL, wait_until="domcontentloaded")
+            expect(page.locator("#statusLine")).to_have_text("Ready", timeout=20_000)
+            expect(page.locator("#modelPanel")).to_be_visible()
+            expect(page.locator("#sysmlPanel")).to_be_visible()
+
+            with page.expect_popup() as text_popup_info:
+                page.locator("#modelPanel [data-panel-action='dock']").click()
+            text_popup = text_popup_info.value
+            text_popup.wait_for_load_state("domcontentloaded")
+            expect(text_popup).to_have_url("**detachedPanel=text**")
+            expect(text_popup.locator("#modelPanel")).to_be_visible()
+            expect(text_popup.locator("#sysmlPanel")).to_be_hidden()
+            expect(page.locator("#modelPanel")).to_be_hidden()
+            expect(page.locator("#sysmlPanel")).to_be_visible()
+
+            with page.expect_popup() as sysml_popup_info:
+                page.locator("#sysmlPanel [data-panel-action='dock']").click()
+            sysml_popup = sysml_popup_info.value
+            sysml_popup.wait_for_load_state("domcontentloaded")
+            expect(sysml_popup).to_have_url("**detachedPanel=sysml**")
+            expect(sysml_popup.locator("#sysmlPanel")).to_be_visible()
+            expect(sysml_popup.locator("#modelPanel")).to_be_hidden()
+            expect(page.locator("#modelPanel")).to_be_hidden()
+            expect(page.locator("#sysmlPanel")).to_be_hidden()
+
+            text_popup.close()
+            expect(page.locator("#modelPanel")).to_be_visible(timeout=5_000)
+            expect(page.locator("#sysmlPanel")).to_be_hidden()
+
+            sysml_popup.locator("#sysmlPanel [data-panel-action='dock']").click()
+            expect(page.locator("#sysmlPanel")).to_be_visible(timeout=5_000)
+        finally:
+            browser.close()
