@@ -13,10 +13,12 @@
     const participants = nodes.filter(node =>
       ['OperationalActor', 'OperationalEntity'].includes(node.type)
     );
+    const activeParticipants = participants.filter(node => node.expects_activity !== false);
     const actions = nodes.filter(node => node.type === 'OperationalActivity');
 
     const goalIds = new Set(goals.map(node => node.id));
     const participantIds = new Set(participants.map(node => node.id));
+    const activeParticipantIds = new Set(activeParticipants.map(node => node.id));
     const actionIds = new Set(actions.map(node => node.id));
 
     const performs = edges.filter(edge =>
@@ -25,7 +27,11 @@
       actionIds.has(edge.target)
     );
     const ownedActions = new Set(performs.map(edge => edge.target));
-    const activeOwners = new Set(performs.map(edge => edge.source));
+    const activeOwners = new Set(
+      performs
+        .map(edge => edge.source)
+        .filter(participantId => activeParticipantIds.has(participantId))
+    );
 
     const supportsGoal = edges.filter(edge =>
       edge.type === 'SUPPORTS_CAPABILITY' &&
@@ -39,11 +45,12 @@
     const characteristicCount = countCharacteristics(nodes);
 
     let ownershipRatio = 0;
-    if (actions.length && participants.length) {
-      ownershipRatio = Math.min(
-        1,
-        ((ownedActions.size / actions.length) + (activeOwners.size / participants.length)) / 2
-      );
+    if (actions.length) {
+      const actionOwnership = ownedActions.size / actions.length;
+      const activeParticipantOwnership = activeParticipants.length
+        ? activeOwners.size / activeParticipants.length
+        : 1;
+      ownershipRatio = Math.min(1, (actionOwnership + activeParticipantOwnership) / 2);
     }
 
     // The old conversational Check model required every activity to contribute
@@ -57,6 +64,14 @@
       activityDetail = goals.length
         ? `${actions.length} defined · ${goalLinkedActions.size}/${actions.length} connected to an operational goal`
         : `${actions.length} defined · add an operational goal and connect the activities to it`;
+    }
+
+    let ownershipDetail = 'Add activities before ownership can be checked.';
+    if (actions.length) {
+      const participantDetail = activeParticipants.length
+        ? `${activeOwners.size}/${activeParticipants.length} active participants with activities`
+        : 'no active participant requires an activity';
+      ownershipDetail = `${ownedActions.size}/${actions.length} activities assigned · ${participantDetail}`;
     }
 
     return [
@@ -82,9 +97,7 @@
         label: 'Activity ownership',
         weight: 15,
         ratio: ownershipRatio,
-        detail: !actions.length || !participants.length
-          ? 'Activities and participants are needed before ownership can be checked.'
-          : `${ownedActions.size}/${actions.length} activities assigned · ${activeOwners.size}/${participants.length} participants with activities`
+        detail: ownershipDetail
       },
       {
         label: 'Operational interactions',
