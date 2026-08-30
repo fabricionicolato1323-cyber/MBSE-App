@@ -10,7 +10,7 @@
   },
   "loaded_model": {
     "intent_question": "What would you like to do with the loaded model?",
-    "intent_explanation": "Choose whether you want to work with something already in the model or add something new.",
+    "intent_explanation": "Choose whether you want to change existing content, add something new, or delete something. Deletions always show a visual impact preview and require confirmation before the model changes.",
     "intents": [
       {
         "id": "modify",
@@ -19,6 +19,10 @@
       {
         "id": "add",
         "label": "Add something new"
+      },
+      {
+        "id": "delete",
+        "label": "Delete something"
       }
     ],
     "category_question": "Which part of the model?",
