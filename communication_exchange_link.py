@@ -85,6 +85,41 @@ class CommunicationExchangeLinkFlowMixin:
             for item in refs
         )
 
+    def _unlink_exchange_from_communications(
+        self,
+        source_action: str,
+        target_action: str,
+        exchange_name: str,
+        *,
+        keep_edge: tuple[str, str, Any] | None = None,
+    ) -> bool:
+        """Remove stale medium references for one exchange.
+
+        The guided flow asks for one communication decision for an exchange at
+        a time. Changing that decision must therefore remove the old explicit
+        reference instead of leaving contradictory ``exchange_refs`` behind.
+        """
+        reference = _exchange_ref(source_action, target_action, exchange_name)
+        changed = False
+        for source, target, key, data in self.model.graph.edges(keys=True, data=True):
+            if data.get("type") != "COMMUNICATION_MEAN":
+                continue
+            if keep_edge is not None and (source, target, key) == keep_edge:
+                continue
+            existing = data.get("exchange_refs")
+            if not isinstance(existing, list) or not existing:
+                continue
+            refs = [
+                dict(item)
+                for item in existing
+                if isinstance(item, dict) and not _same_exchange_ref(item, reference)
+            ]
+            if len(refs) == len(existing):
+                continue
+            self.model.graph[source][target][key]["exchange_refs"] = refs
+            changed = True
+        return changed
+
     def _legacy_exchange_refs_for_communication(
         self,
         edge: tuple[str, str, Any, dict[str, Any]],
@@ -159,17 +194,28 @@ class CommunicationExchangeLinkFlowMixin:
         source, target, key, data = edge
         reference = _exchange_ref(source_action, target_action, exchange_name)
         existing = data.get("exchange_refs")
-        refs = [dict(item) for item in existing] if isinstance(existing, list) else []
-        if not refs:
-            refs.extend(self._legacy_exchange_refs_for_communication(edge))
-        already_linked = any(_same_exchange_ref(item, reference) for item in refs)
+        refs_before = [dict(item) for item in existing] if isinstance(existing, list) else []
+        legacy_refs = self._legacy_exchange_refs_for_communication(edge) if not refs_before else []
+        already_linked = any(_same_exchange_ref(item, reference) for item in refs_before)
 
-        # Keep Undo semantics consistent with other graph mutations. The medium
-        # ref and the exchange assignment marker are one user decision.
+        # Keep Undo semantics consistent with other graph mutations. Replacing
+        # an old medium reference and assigning the selected one are one user
+        # decision and therefore share one checkpoint.
         checkpoint = getattr(self.model, "_checkpoint", None)
         if callable(checkpoint):
             checkpoint()
-        if not already_linked:
+        self._unlink_exchange_from_communications(
+            source_action,
+            target_action,
+            exchange_name,
+            keep_edge=(source, target, key),
+        )
+
+        current = self.model.graph[source][target][key].get("exchange_refs")
+        refs = [dict(item) for item in current] if isinstance(current, list) else []
+        if not refs and legacy_refs:
+            refs.extend(legacy_refs)
+        if not any(_same_exchange_ref(item, reference) for item in refs):
             refs.append(reference)
         self.model.graph[source][target][key]["exchange_refs"] = refs
         self._set_exchange_communication_assignment(
@@ -222,6 +268,23 @@ class CommunicationExchangeLinkFlowMixin:
             exchange_refs=[reference],
         )
         if ok:
+            created_edges = [
+                edge
+                for edge in self._communication_edges_between(source_participant, target_participant)
+                if str(edge[3].get("name") or "").strip().casefold() == medium.strip().casefold()
+                and self._edge_has_exchange_ref(edge, source_action, target_action, exchange_name)
+            ]
+            keep_edge = (
+                (created_edges[-1][0], created_edges[-1][1], created_edges[-1][2])
+                if created_edges
+                else None
+            )
+            self._unlink_exchange_from_communications(
+                source_action,
+                target_action,
+                exchange_name,
+                keep_edge=keep_edge,
+            )
             # add_relation already checkpointed the user decision; keep the
             # Operational Exchange marker consistent without adding another one.
             self._set_exchange_communication_assignment(
@@ -283,12 +346,20 @@ class CommunicationExchangeLinkFlowMixin:
         )
 
         if selected == "__no_communication__":
+            checkpoint = getattr(self.model, "_checkpoint", None)
+            if callable(checkpoint):
+                checkpoint()
+            self._unlink_exchange_from_communications(
+                source_action,
+                target_action,
+                exchange_name,
+            )
             self._set_exchange_communication_assignment(
                 source_action,
                 target_action,
                 exchange_name,
                 "none",
-                checkpoint=True,
+                checkpoint=False,
                 persist=True,
             )
             return
