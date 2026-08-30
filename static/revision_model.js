@@ -59,6 +59,16 @@ function revisionAppendCharacteristics(container, node) {
   });
 }
 
+function revisionExchangeTreeItem(edge, target) {
+  const exchange = edge.name || 'Exchange';
+  const tree = revisionTreeItem(`${exchange} → ${target?.name || edge.target}`);
+  tree.item.classList.add('operational-exchange-tree-item');
+  tree.item.dataset.exchangeSource = String(edge.source || '');
+  tree.item.dataset.exchangeTarget = String(edge.target || '');
+  tree.item.dataset.exchangeName = String(edge.name || '');
+  return tree;
+}
+
 function renderRevisionTextualModel(model) {
   const textualRoot = document.getElementById('modelTextual');
   if (!textualRoot) return;
@@ -148,10 +158,8 @@ function renderRevisionTextualModel(model) {
           .filter(edge => edge.type === 'OPERATIONAL_EXCHANGE' && edge.source === actionId)
           .forEach(edge => {
             const target = byId.get(edge.target);
-            const exchange = edge.name || 'Exchange';
-            actionItem.children.appendChild(
-              revisionTreeLine(`${exchange} → ${target?.name || edge.target}`)
-            );
+            const exchangeItem = revisionExchangeTreeItem(edge, target);
+            actionItem.children.appendChild(exchangeItem.item);
           });
 
         children.appendChild(actionItem.item);
