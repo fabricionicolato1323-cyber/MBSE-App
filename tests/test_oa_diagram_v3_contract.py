@@ -40,6 +40,15 @@ def test_repeated_api_polling_does_not_rebuild_unchanged_layout():
     assert "requestAnimationFrame" in INTERACTION
 
 
+def test_model_signature_tracks_every_model_element_attribute_without_a_domain_allow_list():
+    assert "function canonicalModelValue(value)" in STATE
+    assert "Object.keys(value).sort()" in STATE
+    assert "nodes: canonicalModelCollection(model?.nodes)" in STATE
+    assert "drafts: canonicalModelCollection(model?.drafts)" in STATE
+    assert "edges: canonicalModelCollection(model?.edges)" in STATE
+    assert ".map(node => [node.id, node.type, node.name, node.status])" not in STATE
+
+
 def test_capability_visibility_toggle_is_available_and_filters_support_edges():
     assert "oaDiagramCapabilitiesToggle" in RENDER
     assert "Capabilities: ${state.showCapabilities ? 'On' : 'Off'}" in RENDER
