@@ -80,9 +80,20 @@ def test_sysml_view_is_generated_from_arcadiaoa_contract_and_updates_after_load(
         },
         "nodes": [
             {
+                "id": "cap:respond",
+                "type": "OperationalCapability",
+                "name": "Respond to threat",
+            },
+            {
                 "id": "entity:center",
                 "type": "OperationalEntity",
                 "name": "Control Center",
+                "nature": "infrastructure_or_facility",
+            },
+            {
+                "id": "entity:building",
+                "type": "OperationalEntity",
+                "name": "Operations Building",
                 "nature": "infrastructure_or_facility",
             },
             {
@@ -135,6 +146,18 @@ def test_sysml_view_is_generated_from_arcadiaoa_contract_and_updates_after_load(
                 "type": "COMMUNICATION_MEAN",
                 "name": "Radio",
             },
+            {
+                "source": "activity:detect",
+                "target": "cap:respond",
+                "key": 0,
+                "type": "SUPPORTS_CAPABILITY",
+            },
+            {
+                "source": "actor:operator",
+                "target": "entity:building",
+                "key": 0,
+                "type": "LOCATED_IN",
+            },
         ],
     }
     model_file = tmp_path / "sysml-contract-e2e.json"
@@ -160,12 +183,23 @@ def test_sysml_view_is_generated_from_arcadiaoa_contract_and_updates_after_load(
             code = page.locator("#utilitySysmlView code")
             expect(code).to_contain_text("flow def OperationalExchange;", timeout=20_000)
             expect(code).to_contain_text("connection def CommunicationMean;")
+            expect(code).to_contain_text("requirement def OperationalCapability;")
             expect(code).to_contain_text(
                 "flow oa_exchange_Threat_Information : OperationalExchange"
             )
             expect(code).to_contain_text(
                 "connection oa_communication_Radio : CommunicationMean connect"
             )
+            expect(code).to_contain_text(
+                "allocate oa_capability_Respond_to_threat "
+                "to oa_operationalBehavior.oa_activity_Detect_Threat;"
+            )
+            expect(code).to_contain_text(
+                "ref part oa_locatedIn_Operations_Building : OperationalEntity = "
+                "oa_operationalContext.oa_entity_Operations_Building;"
+            )
+            expect(code).not_to_contain_text("UNMAPPED Arcadia relation SUPPORTS_CAPABILITY")
+            expect(code).not_to_contain_text("UNMAPPED Arcadia relation LOCATED_IN")
             expect(code).not_to_contain_text("port oa_communication_Radio")
 
             export_button = page.get_by_role(
@@ -183,5 +217,7 @@ def test_sysml_view_is_generated_from_arcadiaoa_contract_and_updates_after_load(
             assert "package ArcadiaOA" in exported_text
             assert "flow def OperationalExchange;" in exported_text
             assert "connection def CommunicationMean;" in exported_text
+            assert "allocate oa_capability_Respond_to_threat" in exported_text
+            assert "ref part oa_locatedIn_Operations_Building" in exported_text
         finally:
             browser.close()
