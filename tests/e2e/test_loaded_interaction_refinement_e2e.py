@@ -172,12 +172,9 @@ def test_loaded_interaction_refinement_requires_target_and_explicit_communicatio
 
             # Existing interaction: concept -> Modify existing -> explicit exchange.
             page.get_by_role("button", name="Operational Exchange", exact=True).click()
-            expect(
-                page.get_by_text(
-                    "What would you like to do with Operational Exchange?",
-                    exact=True,
-                )
-            ).to_be_visible(timeout=20_000)
+            expect(page.get_by_text("What would you like to do?", exact=True)).to_be_visible(
+                timeout=20_000
+            )
             page.get_by_role("button", name="Modify existing", exact=True).click()
             expect(
                 page.get_by_text("Which Operational Exchange would you like to work on?", exact=True)
@@ -227,6 +224,9 @@ def test_loaded_interaction_refinement_requires_target_and_explicit_communicatio
 
             # New interaction: concept -> Add new, then normal source/target flow.
             page.get_by_role("button", name="Operational Exchange", exact=True).click()
+            expect(page.get_by_text("What would you like to do?", exact=True)).to_be_visible(
+                timeout=20_000
+            )
             page.get_by_role("button", name="Add new", exact=True).click()
             expect(
                 page.get_by_text("Which action should the interaction start from?", exact=True)
