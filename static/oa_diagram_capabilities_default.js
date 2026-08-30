@@ -16,11 +16,12 @@
     }
 
     if (saved.version !== LAYOUT_VERSION) saved = {version: LAYOUT_VERSION};
-    if (typeof saved.showCapabilities === 'boolean') return;
+    if (typeof saved.showCapabilities === 'boolean') return false;
 
     saved.showCapabilities = false;
     try { localStorage.setItem(key, JSON.stringify(saved)); }
     catch (_error) { /* local persistence is optional */ }
+    return true;
   }
 
   const baseApplyState = window.applyState;
@@ -35,7 +36,10 @@
   // by the applyState wrapper above. Existing explicit user preferences are
   // preserved; only missing preferences are initialized to Off.
   try {
-    if (typeof activeSessionId !== 'undefined') ensureCapabilitiesPreference(activeSessionId);
+    if (typeof activeSessionId !== 'undefined') {
+      const seeded = ensureCapabilitiesPreference(activeSessionId);
+      if (seeded) window.oaDiagram?.setCapabilitiesVisible?.(false);
+    }
   } catch (_error) {
     ensureCapabilitiesPreference('default');
   }
