@@ -215,9 +215,14 @@
   });
 })();
 
-// Operational Scenario is loaded as an isolated diagram extension. Dynamic import
-// keeps the existing classic-script pipeline intact while enabling the ES-module
-// diagram implementation and its scenario authoring state machine.
-import('./oa_scenario.js').catch(error => {
-  console.error('Operational Scenario UI could not be loaded.', error);
-});
+// Normalize projected edge identities before the Operational Scenario module is
+// evaluated. This prevents unrelated NetworkX edges that share key=0 (or any
+// other per-pair key) from sharing one diagram selection identity.
+import('./oa_scenario_projection_fix.js')
+  .catch(error => {
+    console.error('Operational Scenario projection fixes could not be loaded.', error);
+  })
+  .then(() => import('./oa_scenario.js'))
+  .catch(error => {
+    console.error('Operational Scenario UI could not be loaded.', error);
+  });
