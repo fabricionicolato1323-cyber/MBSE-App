@@ -198,9 +198,11 @@
       : 'Waiting for confirmed model content';
     let samText = 'SAM not written';
     if (currentSyncMatches(level1)) {
+      const container = latestSamSync?.target?.root_package_name;
+      const location = container ? ` · under ${container}` : '';
       samText = latestSamSync.status === 'already_synced'
-        ? `Already in SAM · ${latestSamSync.package_name}`
-        : `SAM synced · ${latestSamSync.package_name}`;
+        ? `Already in SAM · ${latestSamSync.package_name}${location}`
+        : `SAM synced · ${latestSamSync.package_name}${location}`;
     }
     controls.summary.textContent =
       `${statusText} · ${Number(counts.elements || 0)} elements · ${Number(counts.relationships || 0)} relationships · ${Number(counts.scenarios || 0)} scenarios · ${samText}`;
@@ -220,14 +222,14 @@
     button.className = 'ghost-button model-file-button';
     button.type = 'button';
     button.textContent = 'Send Level 1 to SAM';
-    button.title = 'Review a dry-run plan, then create this Level 1 snapshot in the configured SAM project';
+    button.title = 'Review a live SAM preflight, then create this Level 1 snapshot in the configured SAM project';
     button.setAttribute('aria-label', 'Send Level 1 model to SAM');
 
     button.addEventListener('click', async () => {
       if (!latestLevel1 || latestLevel1.status !== 'ready') return;
       const normalLabel = 'Send Level 1 to SAM';
       button.disabled = true;
-      button.textContent = 'Preparing SAM plan…';
+      button.textContent = 'Checking SAM target…';
       try {
         const planResponse = await fetch('/api/sam/level1/plan', {cache: 'no-store'});
         const planData = await readJson(planResponse);
@@ -253,11 +255,18 @@
         }
 
         const counts = plan.counts || {};
+        const target = plan.target || {};
+        const projectLabel = target.project_name
+          ? `${target.project_name} (${target.project_id || plan.target_project_id})`
+          : (target.project_id || plan.target_project_id);
+        const rootLabel = target.root_package_name || '(project root)';
         const approved = window.confirm(
           `Send this Level 1 snapshot to SAM?\n\n` +
-          `Project: ${plan.target_project_id}\n` +
+          `Project: ${projectLabel}\n` +
+          `Target container: ${rootLabel}\n` +
           `Package: ${plan.package_name}\n` +
           `${Number(counts.elements || 0)} elements · ${Number(counts.relationships || 0)} relationships · ${Number(counts.scenarios || 0)} scenarios\n\n` +
+          `SAM preflight: connected successfully. No write has occurred yet.\n` +
           `The transfer is transactional. The same snapshot will not be duplicated if sent again.`
         );
         if (!approved) {
@@ -291,17 +300,16 @@
         }, 1400);
       } catch (error) {
         console.error('Level 1B SAM transfer failed.', error);
+        const message = error?.message || 'SAM transfer failed.';
         button.textContent = 'SAM transfer failed';
         const controls = ensureLevelControls(ui);
         if (controls?.summary) {
-          controls.summary.textContent = error?.message || 'SAM transfer failed.';
+          controls.summary.textContent = `SAM transfer failed · ${message}`;
         }
+        window.alert(`SAM Level 1 transfer failed\n\n${message}`);
         window.setTimeout(() => {
-          if (button.isConnected) {
-            button.textContent = normalLabel;
-            updateLevel1Summary(ui, latestLevel1);
-          }
-        }, 3500);
+          if (button.isConnected) button.textContent = normalLabel;
+        }, 2500);
       } finally {
         button.disabled = latestLevel1?.status !== 'ready';
       }
@@ -321,7 +329,7 @@
     if (ui.heading) ui.heading.textContent = 'SysML V2 · Level 1 — Model';
     if (ui.note) {
       ui.note.textContent =
-        'Generated live from the complete confirmed Operational Analysis model. Level 1A previews/exports it; Level 1B writes only after an explicit reviewed confirmation.';
+        'Generated live from the complete confirmed Operational Analysis model. Level 1A previews/exports it; Level 1B writes only after a live SAM preflight and explicit confirmation.';
     }
 
     updateLevel1Summary(ui, level1);
@@ -335,7 +343,9 @@
     if (samButton) {
       samButton.disabled = level1?.status !== 'ready';
       if (currentSyncMatches(level1)) samButton.textContent = 'Level 1 in SAM';
-      else if (!samButton.textContent.includes('…')) samButton.textContent = 'Send Level 1 to SAM';
+      else if (!samButton.textContent.includes('…') && samButton.textContent !== 'SAM transfer failed') {
+        samButton.textContent = 'Send Level 1 to SAM';
+      }
     }
   }
 
