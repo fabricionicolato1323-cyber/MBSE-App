@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import unittest
 
 from sam_connection import SamSettings
@@ -32,6 +33,12 @@ class FakeProject:
     def get_root_package(self):
         return self.root
 
+    def find_element_by_id(self, element_id):
+        return next(
+            (element for element in self.elements if element.id == element_id),
+            None,
+        )
+
     def find_elements_by_name(self, name):
         return [element for element in self.elements if getattr(element, "name", None) == name]
 
@@ -40,6 +47,12 @@ class FakeProject:
 
     def stop_transactional_mode(self):
         self.transaction_stopped += 1
+
+    def replace_all_instances(self):
+        """Mimic PySAM project.reload() replacing every scripting object."""
+        root_id = self.root.id
+        self.elements = [copy.copy(element) for element in self.elements]
+        self.root = self.find_element_by_id(root_id)
 
 
 class FakeConnector:
@@ -75,6 +88,37 @@ class FakeFactory:
             return element
 
         return create
+
+
+class ReloadingFakeFactory(FakeFactory):
+    """Reject stale element references and reload after every direct create."""
+
+    def _assert_current(self, value):
+        if isinstance(value, (list, tuple, set)):
+            for item in value:
+                self._assert_current(item)
+            return
+        if isinstance(value, dict):
+            for item in value.values():
+                self._assert_current(item)
+            return
+        if not isinstance(value, FakeElement):
+            return
+        current = self.project.find_element_by_id(value.id)
+        if current is not value:
+            raise RuntimeError(f"stale element reference: {value.id}")
+
+    def __getattr__(self, name):
+        create = super().__getattr__(name)
+
+        def create_and_reload(**kwargs):
+            for value in kwargs.values():
+                self._assert_current(value)
+            created = create(**kwargs)
+            self.project.replace_all_instances()
+            return created
+
+        return create_and_reload
 
 
 class DocumentationRejectingFactory(FakeFactory):
@@ -142,6 +186,13 @@ class SamLevel1DirectTests(unittest.TestCase):
             )
         )
         self.assertEqual(result["cleanup"]["removed_incomplete_staging_packages"], 0)
+
+    def test_writer_rebinds_every_reference_after_direct_create_reload(self):
+        result = self._sync(ReloadingFakeFactory)
+        self.assertEqual(result["status"], "synced")
+        self.assertTrue(
+            FakeProjectManager.project.find_elements_by_name(result["package_name"])
+        )
 
     def test_completed_snapshot_is_idempotent(self):
         first = self._sync()
