@@ -96,7 +96,7 @@ def test_loaded_model_new_action_continues_to_relationship_question(web_server, 
             page.locator("#loadModelInput").set_input_files(str(model_file))
 
             expect(
-                page.get_by_text("What would you like to change in the loaded model?", exact=True)
+                page.get_by_text("What would you like to do with the loaded model?", exact=True)
             ).to_be_visible(timeout=20_000)
             expect(
                 page.get_by_text(
@@ -105,11 +105,9 @@ def test_loaded_model_new_action_continues_to_relationship_question(web_server, 
                 )
             ).to_have_count(0)
 
-            page.get_by_role("button", name="Operational Activity", exact=True).click()
-            expect(page.get_by_text("What would you like to do?", exact=True)).to_be_visible(
-                timeout=20_000
-            )
-            page.get_by_role("button", name="Add new", exact=True).click()
+            page.get_by_role("button", name="Add something new", exact=True).click()
+            expect(page.get_by_text("Which part of the model?", exact=True)).to_be_visible(timeout=20_000)
+            page.get_by_role("button", name="Activities", exact=True).click()
 
             expect(page.get_by_text("What is the new action?", exact=True)).to_be_visible(timeout=20_000)
             composer = page.locator("#messageInput")
@@ -185,16 +183,21 @@ def test_loaded_participant_can_be_placed_in_existing_operational_area(web_serve
             page.locator("#loadModelInput").set_input_files(str(model_file))
 
             expect(
-                page.get_by_text("What would you like to change in the loaded model?", exact=True)
+                page.get_by_text("What would you like to do with the loaded model?", exact=True)
             ).to_be_visible(timeout=20_000)
-            page.get_by_role("button", name="Operational Actor", exact=True).click()
-            expect(page.get_by_text("What would you like to do?", exact=True)).to_be_visible(
-                timeout=20_000
-            )
-            page.get_by_role("button", name="Modify existing", exact=True).click()
+            page.get_by_role("button", name="Change something that already exists", exact=True).click()
+            expect(page.get_by_text("Which part of the model?", exact=True)).to_be_visible(timeout=20_000)
+            page.get_by_role(
+                "button",
+                name="People, organizations, places, or systems involved",
+                exact=True,
+            ).click()
 
             expect(
-                page.get_by_text("Which person / role would you like to modify?", exact=True)
+                page.get_by_text(
+                    "Which person, organization, place, system, or other participant would you like to modify?",
+                    exact=True,
+                )
             ).to_be_visible(timeout=20_000)
             page.get_by_role("button", name="Soldier", exact=True).click()
 
