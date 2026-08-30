@@ -427,7 +427,7 @@ def ensure_arcadia_oa_library(
     """Create the reusable library once, using one PySAM transaction."""
     total_started = perf_counter()
     connect_started = perf_counter()
-    connector, manager, project, resolved_factory = _load_project(
+    connector, _, project, resolved_factory = _load_project(
         settings,
         connector_class=connector_class,
         project_manager_class=project_manager_class,
@@ -477,15 +477,22 @@ def ensure_arcadia_oa_library(
         raise SamLevel1SyncError(f"SAM ArcadiaOA library transaction failed: {exc}") from exc
 
     verify_started = perf_counter()
-    reloaded = manager.get_scripting_project(settings.project_id)
-    if reloaded is None:
-        raise SamLevel1SyncError("SAM could not reload the project after library creation.")
+    # SysML2ProjectManager caches ScriptingProject instances by project_id. Calling
+    # get_scripting_project() on the manager used before the commit therefore is not
+    # an independent server verification. Build a new connector + manager so the
+    # project metadata, branch head, and elements are read again from SAM.
+    _, _, reloaded, _ = _load_project(
+        settings,
+        connector_class=connector_class,
+        project_manager_class=project_manager_class,
+        factory_class=resolved_factory,
+    )
     verified = _library_status_from_project(reloaded)
     if not verified["loaded"]:
         raise SamLevel1SyncError(
-            "SAM accepted the ArcadiaOA library transaction, but fresh verification did "
-            "not find a complete managed library. MBSE-App will reuse the committed "
-            "package on the next attempt rather than creating a duplicate. "
+            "SAM accepted the ArcadiaOA library transaction, but an uncached server "
+            "verification did not find a complete managed library. MBSE-App will not "
+            "create a duplicate on this transfer. "
             f"Diagnostic: {_library_diagnostic(verified)}"
         )
     verify_seconds = perf_counter() - verify_started
