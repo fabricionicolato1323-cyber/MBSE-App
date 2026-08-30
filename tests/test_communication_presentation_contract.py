@@ -13,12 +13,16 @@ def test_communication_presentation_assets_are_loaded():
 
 def test_textual_communication_is_a_hierarchy_with_explicit_carried_exchanges():
     script = (ROOT / "static" / "communication_presentation.js").read_text(encoding="utf-8")
+    style = (ROOT / "static" / "communication_presentation.css").read_text(encoding="utf-8")
     assert "COMMUNICATION_MEAN" in script
     assert "exchange_refs" in script
     assert "revisionTreeItem(clean(edge.name) || 'Communication method')" in script
     assert "↔" in script
     assert "exchangeLine(ref, byId)" in script
     assert "No interaction explicitly assigned" in script
+    assert ".tree-line.communication-carried-exchange" in style
+    assert "margin-left: 18px" in style
+    assert "border-left: 1px solid" in style
 
 
 def test_diagram_communication_label_shows_mean_endpoints_and_exchange_names():
