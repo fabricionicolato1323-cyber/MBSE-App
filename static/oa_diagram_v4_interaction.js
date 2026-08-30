@@ -343,7 +343,7 @@ function setModel(model, session) {
 
   if (sessionChanged) {
     state.session = nextSession; state.view = {x: 28, y: 28, zoom: 1}; state.selected.clear(); state.modelSignature = '';
-    const saved = loadSaved(); state.showCapabilities = typeof saved.showCapabilities === 'boolean' ? saved.showCapabilities : true; updateCapabilityButton();
+    const saved = loadSaved(); state.showCapabilities = typeof saved.showCapabilities === 'boolean' ? saved.showCapabilities : false; updateCapabilityButton();
   }
   state.model = nextModel; state.modelSignature = nextSignature; buildModel(state.model); autoLayout(); render(); persist();
   publishDiagramModel(nextModel);
