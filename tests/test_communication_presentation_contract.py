@@ -26,6 +26,14 @@ def test_generic_projection_sync_uses_complete_model_content_not_field_allow_lis
     assert "projectionSynchronizedApplyState" in script
 
 
+def test_generic_projection_sync_is_the_single_owner_after_it_loads():
+    interaction = (ROOT / "static" / "revision_interaction.js").read_text(encoding="utf-8")
+    assert "if (!window.mbseModelProjectionSync)" in interaction
+    guarded_block = interaction.split("if (!window.mbseModelProjectionSync)", 1)[1]
+    assert "renderRevisionTextualModel(state.model || {})" in guarded_block
+    assert "renderRevisionDetails(state.model || {})" in guarded_block
+
+
 def test_textual_communication_is_a_hierarchy_with_explicit_carried_exchanges():
     script = (ROOT / "static" / "communication_presentation.js").read_text(encoding="utf-8")
     style = (ROOT / "static" / "communication_presentation.css").read_text(encoding="utf-8")
