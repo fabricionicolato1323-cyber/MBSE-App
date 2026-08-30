@@ -1,4 +1,7 @@
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
 import web_app
 
@@ -6,6 +9,20 @@ import web_app
 class FakeWorker:
     def __init__(self, name):
         self.name = name
+        self.runtime_dir = Path(tempfile.mkdtemp(prefix="mbse-test-session-"))
+        self.model_path = self.runtime_dir / "model.json"
+        self.model_path.write_text(
+            json.dumps(
+                {
+                    "directed": True,
+                    "multigraph": True,
+                    "graph": {"model": "Arcadia Operational Analysis"},
+                    "nodes": [],
+                    "edges": [],
+                }
+            ),
+            encoding="utf-8",
+        )
 
     def state(self):
         return {
