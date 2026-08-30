@@ -91,6 +91,20 @@ class ModelFileSession(TerminalProcessSession):
         snapshot = super().model_snapshot()
         if self.model_name:
             snapshot["name"] = self.model_name
+
+        # Change/impact highlighting is presentation metadata, deliberately kept
+        # outside semantic node/edge attributes. This means red/orange UI state
+        # cannot change the Level 1 digest or become a SysML/SAM property.
+        presentation: dict[str, Any] = {}
+        try:
+            payload = json.loads(self.model_path.read_text(encoding="utf-8"))
+            graph_meta = payload.get("graph") if isinstance(payload, dict) else None
+            candidate = graph_meta.get("_revision_presentation") if isinstance(graph_meta, dict) else None
+            if isinstance(candidate, dict):
+                presentation = candidate
+        except (OSError, json.JSONDecodeError):
+            presentation = {}
+        snapshot["presentation"] = presentation
         return snapshot
 
 
