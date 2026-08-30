@@ -24,7 +24,7 @@ from operational_scenario import (
     scenarios_from_payload,
     write_runtime_scenarios,
 )
-from sysml_v2 import generate_sysml_v2
+from sysml_level1 import build_sysml_level1_preview
 from ui_guidance import configured_section
 from web_ai import LocalAIServiceError, list_installed_models, load_web_ai_config
 from web_model_session import ModelFileSessionRegistry
@@ -84,6 +84,21 @@ def _session_scenarios(current, payload: dict | None = None) -> list[dict]:
     return scenarios_from_payload(model_payload)
 
 
+def _attach_level1_preview(
+    model_state: dict,
+    payload: dict,
+    scenarios: list[dict],
+) -> None:
+    preview = build_sysml_level1_preview(
+        payload,
+        scenarios=scenarios,
+        drafts=model_state.get("drafts", []),
+    )
+    model_state["sysml_v2_level1"] = preview
+    # Backward compatibility for existing UI/tests that consume the text directly.
+    model_state["sysml_v2"] = preview["text"]
+
+
 @app.get("/")
 def index():
     current_session()
@@ -108,18 +123,10 @@ def api_state():
         scenarios = _session_scenarios(current, payload)
         scenario_views = scenario_snapshots(payload, scenarios)
         model_state["scenarios"] = scenario_views
-        model_state["sysml_v2"] = generate_sysml_v2(
-            payload,
-            scenarios=scenario_views,
-            drafts=model_state.get("drafts", []),
-        )
+        _attach_level1_preview(model_state, payload, scenario_views)
     except RuntimeError:
         model_state["scenarios"] = []
-        model_state["sysml_v2"] = generate_sysml_v2(
-            model_state,
-            scenarios=[],
-            drafts=model_state.get("drafts", []),
-        )
+        _attach_level1_preview(model_state, model_state, [])
     state["session_id"] = session_id
     return jsonify(state)
 
