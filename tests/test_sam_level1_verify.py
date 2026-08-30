@@ -53,11 +53,12 @@ class SamLevel1VerificationTests(unittest.TestCase):
                 self.settings,
                 "MBSE_Instance_Test_12345678",
                 snapshot_digest="12345678",
+                require_completion_marker=False,
                 connector_class=FakeConnector,
                 project_manager_class=FakeManager,
             )
 
-    def test_verify_requires_completion_marker(self):
+    def test_legacy_verification_can_still_require_completion_marker(self):
         package_name = "MBSE_Instance_Test_12345678"
         FakeManager.project = FakeProject(
             {package_name: [FakeElement("sam-package-1")]}
@@ -67,29 +68,44 @@ class SamLevel1VerificationTests(unittest.TestCase):
                 self.settings,
                 package_name,
                 snapshot_digest="12345678",
+                require_completion_marker=True,
                 connector_class=FakeConnector,
                 project_manager_class=FakeManager,
             )
 
-    def test_verified_sync_adds_fresh_package_and_marker_evidence(self):
+    def test_managed_instance_uses_final_name_as_completion_proof(self):
         package_name = "MBSE_Instance_Test_12345678"
-        marker_name = "MBSE_Instance_Complete_12345678"
         FakeManager.project = FakeProject(
-            {
-                package_name: [FakeElement("sam-package-1")],
-                marker_name: [FakeElement("sam-marker-1")],
-            }
+            {package_name: [FakeElement("sam-package-1")]}
+        )
+        result = verify_level1_package(
+            self.settings,
+            package_name,
+            snapshot_digest="12345678",
+            require_completion_marker=False,
+            connector_class=FakeConnector,
+            project_manager_class=FakeManager,
+        )
+        self.assertTrue(result["verified_in_sam"])
+        self.assertEqual(result["verified_package_id"], "sam-package-1")
+        self.assertIsNone(result["verified_completion_marker_id"])
+
+    def test_verified_sync_adds_fresh_package_evidence_without_visible_marker(self):
+        package_name = "MBSE_Instance_Test_12345678"
+        FakeManager.project = FakeProject(
+            {package_name: [FakeElement("sam-package-1")]}
         )
         upstream = {
             "status": "synced",
             "package_name": package_name,
             "snapshot_digest": "12345678",
-            "completion_marker_name": marker_name,
+            "completion_marker_required": False,
+            "completion_marker_name": None,
             "sam_write_performed": True,
-            "timings": {"commit_seconds": 1.0},
+            "timings": {"write_seconds": 1.0},
         }
         with patch(
-            "sam_level1_verify.sync_level1_to_sam_transactional",
+            "sam_level1_verify.sync_level1_to_sam_managed_direct",
             return_value=upstream.copy(),
         ):
             result = sync_level1_to_sam_verified(
@@ -104,9 +120,9 @@ class SamLevel1VerificationTests(unittest.TestCase):
 
         self.assertTrue(result["verified_in_sam"])
         self.assertEqual(result["verified_package_id"], "sam-package-1")
-        self.assertEqual(result["verified_completion_marker_id"], "sam-marker-1")
+        self.assertIsNone(result["verified_completion_marker_id"])
         self.assertEqual(result["sam_package_id"], "sam-package-1")
-        self.assertIn("verification_seconds", result["timings"])
+        self.assertIn("final_verification_seconds", result["timings"])
         self.assertIn("total_with_verification_seconds", result["timings"])
 
 
