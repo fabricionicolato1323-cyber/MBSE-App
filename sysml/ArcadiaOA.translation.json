@@ -58,6 +58,10 @@
         {
           "source_node_type": "OperationalEntity",
           "target_node_type": "OperationalActor"
+        },
+        {
+          "source_node_type": "OperationalActor",
+          "target_node_type": "OperationalActor"
         }
       ]
     },
