@@ -14,9 +14,10 @@ def test_corrected_fit_uses_renderer_canvas_origin_and_is_camera_only():
     assert "state.view =" in fit_source
     assert "applyView();" in fit_source
     assert "autoLayout(" not in fit_source
-    assert "2.5" in fit_source
+    assert "MAX_FIT_ZOOM = 1.0" in fit_source
     assert "availableWidth / modelWidth" in fit_source
     assert "availableHeight / modelHeight" in fit_source
+    assert "FIT_PADDING" in fit_source
 
 
 def test_fit_override_prevents_original_listener_from_running_twice():
@@ -24,6 +25,17 @@ def test_fit_override_prevents_original_listener_from_running_twice():
     assert "stopImmediatePropagation" in source
     assert "correctedFitInstalled" in source
     assert "}, true);" in source
+
+
+def test_fit_hides_native_scrollbars_until_manual_camera_interaction():
+    source = (ROOT / "static" / "oa_diagram_fit_patch.js").read_text(encoding="utf-8")
+    css = (ROOT / "static" / "oa_diagram_v4.css").read_text(encoding="utf-8")
+    assert "classList.add('is-fit-view')" in source
+    assert "releaseFittedCamera" in source
+    assert "pointerdown" in source
+    assert "wheel" in source
+    assert ".oa-diagram-viewport.is-fit-view" in css
+    assert "overflow: hidden !important;" in css
 
 
 def test_reset_override_rebuilds_geometry_resets_ports_and_uses_corrected_fit():
@@ -36,6 +48,15 @@ def test_reset_override_rebuilds_geometry_resets_ports_and_uses_corrected_fit():
     assert "scheduleCorrectedFit" in source
     assert "correctedResetInstalled" in source
     assert "window.oaCorrectedDiagramReset" in source
+
+
+def test_detached_reset_preserves_main_window_camera_while_sharing_geometry():
+    source = (ROOT / "static" / "oa_diagram_fit_patch.js").read_text(encoding="utf-8")
+    assert "loadSaved" in source
+    assert "previouslySaved" in source
+    assert "detachedUtilityWindow && previouslySaved?.view" in source
+    assert "state.view = previouslySaved.view" in source
+    assert "state.view = resetCamera" in source
 
 
 def test_detached_fit_uses_detached_viewport_without_overwriting_main_camera():
