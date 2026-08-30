@@ -1,0 +1,100 @@
+import unittest
+
+from sam_connection import (
+    SamConfigurationError,
+    SamSettings,
+    run_connection_test,
+    settings_from_env,
+)
+
+
+class FakeConnector:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+
+
+class FakeProjectManager:
+    last_connector = None
+    last_project_id = None
+
+    def __init__(self, connector):
+        type(self).last_connector = connector
+
+    def get_scripting_project(self, project_id):
+        type(self).last_project_id = project_id
+        return {"id": project_id}
+
+
+class SamConnectionTests(unittest.TestCase):
+    def test_missing_required_configuration_is_rejected(self):
+        with self.assertRaises(SamConfigurationError) as ctx:
+            settings_from_env({}, load_dotenv=False)
+        self.assertIn("SAM_SERVER_URL", str(ctx.exception))
+        self.assertIn("SAM_ACCESS_TOKEN", str(ctx.exception))
+
+    def test_settings_are_loaded_and_server_url_is_normalized(self):
+        settings = settings_from_env(
+            {
+                "SAM_SERVER_URL": "https://sam.example.test/",
+                "SAM_ORGANIZATION_ID": "org-1",
+                "SAM_PROJECT_ID": "project-1",
+                "SAM_ACCESS_TOKEN": "secret",
+                "SAM_USE_SSL": "true",
+            },
+            load_dotenv=False,
+        )
+        self.assertEqual(settings.server_url, "https://sam.example.test")
+        self.assertTrue(settings.use_ssl)
+
+    def test_invalid_ssl_flag_is_rejected(self):
+        with self.assertRaises(SamConfigurationError):
+            settings_from_env(
+                {
+                    "SAM_SERVER_URL": "https://sam.example.test",
+                    "SAM_ORGANIZATION_ID": "org-1",
+                    "SAM_PROJECT_ID": "project-1",
+                    "SAM_ACCESS_TOKEN": "secret",
+                    "SAM_USE_SSL": "sometimes",
+                },
+                load_dotenv=False,
+            )
+
+    def test_connection_test_loads_project_read_only(self):
+        settings = SamSettings(
+            server_url="https://sam.example.test",
+            organization_id="org-1",
+            project_id="project-1",
+            access_token="secret",
+            use_ssl=True,
+        )
+        result = run_connection_test(
+            settings,
+            connector_class=FakeConnector,
+            project_manager_class=FakeProjectManager,
+        )
+        connector = FakeProjectManager.last_connector
+        self.assertEqual(connector.kwargs["server_url"], settings.server_url)
+        self.assertEqual(connector.kwargs["organization_id"], settings.organization_id)
+        self.assertEqual(connector.kwargs["token"], settings.access_token)
+        self.assertTrue(connector.kwargs["use_ssl"])
+        self.assertEqual(FakeProjectManager.last_project_id, settings.project_id)
+        self.assertTrue(result["project_loaded"])
+
+    def test_result_never_contains_access_token(self):
+        settings = SamSettings(
+            server_url="https://sam.example.test",
+            organization_id="org-1",
+            project_id="project-1",
+            access_token="super-secret-token",
+        )
+        result = run_connection_test(
+            settings,
+            connector_class=FakeConnector,
+            project_manager_class=FakeProjectManager,
+        )
+        self.assertNotIn("access_token", result)
+        self.assertNotIn("super-secret-token", repr(result))
+
+
+if __name__ == "__main__":
+    unittest.main()
