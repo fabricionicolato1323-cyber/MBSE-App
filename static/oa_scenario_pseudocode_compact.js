@@ -1,3 +1,5 @@
+import './oa_scenario_ui_fixes.js';
+
 (() => {
   if (window.__oaCompactScenarioPseudoCodeInstalled) return;
   window.__oaCompactScenarioPseudoCodeInstalled = true;
