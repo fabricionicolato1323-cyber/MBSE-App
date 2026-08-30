@@ -1,10 +1,18 @@
-import {state, visibleLayoutEntries, persist} from './oa_diagram_v2_state.js';
+import {
+  state,
+  visibleLayoutEntries,
+  persist,
+  autoLayout,
+  storageKey,
+} from './oa_diagram_v2_state.js';
 import {
   el,
   updateBounds,
   applyView,
   getCanvasOrigin,
   renderEdges,
+  render,
+  resetPortOffsets,
 } from './oa_diagram_v2_render.js';
 
 const query = new URLSearchParams(window.location.search);
@@ -41,12 +49,14 @@ function correctedFitView({persistView = true} = {}) {
   const modelWidth = Math.max(1, maxX - minX);
   const modelHeight = Math.max(1, maxY - minY);
   const pad = 38;
+  const availableWidth = Math.max(1, viewportWidth - pad * 2);
+  const availableHeight = Math.max(1, viewportHeight - pad * 2);
   const zoom = Math.max(
     .25,
     Math.min(
-      1.25,
-      Math.max(1, viewportWidth - pad * 2) / modelWidth,
-      Math.max(1, viewportHeight - pad * 2) / modelHeight,
+      2.5,
+      availableWidth / modelWidth,
+      availableHeight / modelHeight,
     ),
   );
 
@@ -77,6 +87,36 @@ function scheduleCorrectedFit(options = {}) {
   });
 }
 
+function correctedResetLayout() {
+  if (!el.viewport) return false;
+
+  // Reset means geometry reset, not merely camera reset. Clear the persisted
+  // node geometry and communication-port offsets, rebuild the authoritative
+  // automatic layout, then fit that fresh layout to the *current* viewport.
+  try {
+    localStorage.removeItem(storageKey());
+  } catch (_error) {
+    // Local persistence is optional.
+  }
+  resetPortOffsets();
+
+  const keepCapabilities = state.showCapabilities;
+  state.selected.clear();
+  state.view = {x: 28, y: 28, zoom: 1};
+  autoLayout();
+  state.showCapabilities = keepCapabilities;
+  el.viewport.scrollLeft = 0;
+  el.viewport.scrollTop = 0;
+  render();
+
+  // Persist the rebuilt geometry before fitting. In a detached window, the
+  // camera itself remains local to that window while the reset node geometry is
+  // still the shared model layout.
+  persist();
+  scheduleCorrectedFit({persistView: !detachedUtilityWindow});
+  return true;
+}
+
 function diagramIsVisible() {
   return Boolean(el.tab && el.tab.classList.contains('active') && !el.tab.hidden);
 }
@@ -92,6 +132,20 @@ function installFitButtonOverride() {
     event.preventDefault();
     event.stopImmediatePropagation();
     correctedFitView({persistView: !detachedUtilityWindow});
+  }, true);
+}
+
+function installResetButtonOverride() {
+  const resetButton = document.getElementById('oaDiagramReset');
+  if (!resetButton || resetButton.dataset.correctedResetInstalled === 'true') return;
+  resetButton.dataset.correctedResetInstalled = 'true';
+
+  // The original Reset layout uses the old internal Fit implementation. Stop it
+  // before it runs so reset and fit use one consistent viewport-aware path.
+  resetButton.addEventListener('click', event => {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    correctedResetLayout();
   }, true);
 }
 
@@ -121,9 +175,11 @@ function installFullscreenCorrection() {
 
 function install() {
   installFitButtonOverride();
+  installResetButtonOverride();
   installDetachedWindowFit();
   installFullscreenCorrection();
   window.oaCorrectedDiagramFit = correctedFitView;
+  window.oaCorrectedDiagramReset = correctedResetLayout;
 }
 
 if (document.readyState === 'loading') {
