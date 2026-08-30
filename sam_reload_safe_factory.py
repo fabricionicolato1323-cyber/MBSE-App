@@ -1,6 +1,6 @@
 """Reload-safe adapter for PySAM direct element creation.
 
-PySAM 0.3.1 reloads the scripting project after each direct ``Factory.create_*``
+PySAM 0.3.1 reloads a scripting project after each direct ``Factory.create_*``
 call. The reload replaces the in-memory scripting element instances, so callers
 must not reuse an element object returned by an earlier direct create as an owner
 or relationship endpoint without resolving it again from the current project.
@@ -10,10 +10,13 @@ argument by stable element ID immediately before a create call and returning the
 fresh post-reload element afterwards.
 
 SAM also validates some relationship payloads more strictly than the generated
-PySAM metamodel classes imply. In particular, ``Subclassification`` defines its
-semantic ends through ``subclassifier`` and ``superclassifier``; inherited
-``source`` and ``target`` are derived/redefined views of those ends and must not
-be redundantly submitted on direct creation.
+PySAM metamodel classes imply. ``Subclassification`` is therefore reduced to its
+native writable classifier ends. ``AllocationUsage`` connector endpoints are
+derived in the SAM metamodel and cannot be populated directly; for the ArcadiaOA
+SUPPORTS_CAPABILITY mapping, the transport adapter persists the same intent as a
+``SatisfyRequirementUsage`` whose satisfied requirement is the Operational
+Capability and whose satisfying feature is the Operational Activity. The Level 1A
+textual model remains the normative translation artifact.
 """
 
 from __future__ import annotations
@@ -38,9 +41,19 @@ def element_id(value: Any) -> str | None:
     return None
 
 
-def _normalize_create_kwargs(name: str, kwargs: dict[str, Any]) -> dict[str, Any]:
-    """Return the minimal server-valid payload for known strict SAM relationships."""
+def _first(value: Any) -> Any:
+    if isinstance(value, (list, tuple)):
+        return value[0] if value else None
+    return value
+
+
+def _normalize_create_call(
+    name: str,
+    kwargs: dict[str, Any],
+) -> tuple[str, dict[str, Any]]:
+    """Return the server-valid Factory method and payload for a create call."""
     normalized = dict(kwargs)
+
     if name == "create_subclassification":
         # SysML v2 Subclassification owns the semantic classifier ends directly.
         # Relationship.source/target are inherited/redefined projections and SAM
@@ -48,7 +61,38 @@ def _normalize_create_kwargs(name: str, kwargs: dict[str, Any]) -> dict[str, Any
         # subclassifier/superclassifier.
         normalized.pop("source", None)
         normalized.pop("target", None)
-    return normalized
+        return name, normalized
+
+    if name == "create_allocation_usage":
+        # ArcadiaOA SUPPORTS_CAPABILITY is emitted textually as:
+        #     allocate <capability> to <activity>;
+        # In the SAM metamodel, AllocationUsage inherits Connector endpoint views
+        # whose source/target/relatedFeature collections are derived and immutable.
+        # OperationalCapability is already a RequirementUsage, so the equivalent
+        # native SAM relation is SatisfyRequirementUsage(capability, activity).
+        satisfied_requirement = normalized.get("source_feature") or _first(
+            normalized.get("source")
+        )
+        satisfying_feature = _first(normalized.get("target_feature")) or _first(
+            normalized.get("target")
+        )
+        if satisfied_requirement is None or satisfying_feature is None:
+            raise ReloadSafeReferenceError(
+                "Capability-support transport requires both an Operational Capability "
+                "and an Operational Activity."
+            )
+        transport_kwargs = {
+            "name": normalized.get("name"),
+            "owner": normalized.get("owner"),
+            "satisfied_requirement": satisfied_requirement,
+            "satisfying_feature": satisfying_feature,
+        }
+        return (
+            "create_satisfy_requirement_usage",
+            {key: value for key, value in transport_kwargs.items() if value is not None},
+        )
+
+    return name, normalized
 
 
 class ReloadSafeFactory:
@@ -89,13 +133,14 @@ class ReloadSafeFactory:
         return value
 
     def __getattr__(self, name: str) -> Any:
-        target = getattr(self.delegate, name)
-        if not name.startswith("create_") or not callable(target):
-            return target
+        original_target = getattr(self.delegate, name)
+        if not name.startswith("create_") or not callable(original_target):
+            return original_target
 
-        @wraps(target)
+        @wraps(original_target)
         def reload_safe_create(*args, **kwargs):
-            normalized_kwargs = _normalize_create_kwargs(name, kwargs)
+            transport_name, normalized_kwargs = _normalize_create_call(name, kwargs)
+            target = getattr(self.delegate, transport_name)
             rebound_args = tuple(self.fresh(arg, required=True) for arg in args)
             rebound_kwargs = {
                 key: self.fresh(value, required=True)
@@ -104,7 +149,11 @@ class ReloadSafeFactory:
             try:
                 created = target(*rebound_args, **rebound_kwargs)
             except Exception as exc:
-                raise RuntimeError(f"{name} failed: {exc}") from exc
+                if transport_name == name:
+                    label = name
+                else:
+                    label = f"{name} via {transport_name}"
+                raise RuntimeError(f"{label} failed: {exc}") from exc
             if created is None:
                 return None
             return self.fresh(created, required=True)
