@@ -1,4 +1,7 @@
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
 import web_app
 
@@ -28,6 +31,12 @@ class FakeFileWorker:
     def __init__(self, model=None, model_name=""):
         self.model = model or SAMPLE_MODEL
         self.model_name = model_name
+        self.runtime_dir = Path(tempfile.mkdtemp(prefix="mbse-test-model-file-"))
+        self.model_path = self.runtime_dir / "model.json"
+        self.model_path.write_text(
+            json.dumps(self.model),
+            encoding="utf-8",
+        )
 
     def state(self):
         return {
@@ -36,13 +45,23 @@ class FakeFileWorker:
             "closed": False,
             "buttons": [],
             "interaction": {"mode": "free_text", "choices": []},
-            "model": {"nodes": [], "edges": [], "counts": {"nodes": 0, "edges": 0}},
-            "ai": {"status": "off", "model": None, "message": "AI assistance is off."},
+            "model": {
+                "nodes": [],
+                "edges": [],
+                "counts": {"nodes": 0, "edges": 0},
+                "drafts": [],
+            },
+            "ai": {
+                "status": "off",
+                "model": None,
+                "message": "AI assistance is off.",
+            },
             "can_undo": False,
         }
 
     def export_model(self, model_name):
         from model_io import prepare_model_export
+
         self.model_name = model_name
         return prepare_model_export(self.model, model_name)
 
@@ -94,7 +113,10 @@ class WebModelFileTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
         self.assertEqual(payload["model_name"], "Perimeter protection")
-        self.assertEqual(payload["model"]["graph"]["model_name"], "Perimeter protection")
+        self.assertEqual(
+            payload["model"]["graph"]["model_name"],
+            "Perimeter protection",
+        )
 
     def test_load_replaces_session_and_uses_filename_when_name_is_missing(self):
         first_id = self.client.get("/api/state").get_json()["session_id"]
