@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "library": {
+    "package": "ArcadiaOA",
+    "sysml_file": "ArcadiaOA.sysml"
+  },
+  "policy": {
+    "unknown_mapping": "comment_only",
+    "temporary_content": "comment_only",
+    "semantic_fallback": "forbidden"
+  },
+  "projection": {
+    "behavior_container": {
+      "usage_keyword": "action",
+      "identifier": "oa_operationalBehavior"
+    },
+    "structure_container": {
+      "usage_keyword": "part",
+      "identifier": "oa_operationalContext"
+    }
+  },
+  "node_types": {
+    "OperationalCapability": {
+      "usage_keyword": "requirement",
+      "definition": "OperationalCapability",
+      "identifier_prefix": "oa_capability",
+      "placement": "top_level"
+    },
+    "OperationalEntity": {
+      "usage_keyword": "part",
+      "definition": "OperationalEntity",
+      "identifier_prefix": "oa_entity",
+      "placement": "structure"
+    },
+    "OperationalActor": {
+      "usage_keyword": "part",
+      "definition": "OperationalActor",
+      "identifier_prefix": "oa_actor",
+      "placement": "structure"
+    },
+    "OperationalActivity": {
+      "usage_keyword": "action",
+      "definition": "OperationalActivity",
+      "identifier_prefix": "oa_activity",
+      "placement": "behavior"
+    }
+  },
+  "relationships": {
+    "CONTAINS": {
+      "strategy": "containment",
+      "source_node_types": [
+        "OperationalEntity"
+      ],
+      "target_node_types": [
+        "OperationalEntity",
+        "OperationalActor"
+      ]
+    },
+    "PERFORMS": {
+      "strategy": "perform",
+      "source_node_types": [
+        "OperationalEntity",
+        "OperationalActor"
+      ],
+      "target_node_types": [
+        "OperationalActivity"
+      ]
+    },
+    "OPERATIONAL_EXCHANGE": {
+      "strategy": "flow",
+      "definition": "OperationalExchange",
+      "payload_definition": "OperationalInformation",
+      "identifier_prefix": "oa_exchange",
+      "source_node_types": [
+        "OperationalActivity"
+      ],
+      "target_node_types": [
+        "OperationalActivity"
+      ]
+    },
+    "COMMUNICATION_MEAN": {
+      "strategy": "connection",
+      "definition": "CommunicationMean",
+      "identifier_prefix": "oa_communication",
+      "source_node_types": [
+        "OperationalEntity",
+        "OperationalActor"
+      ],
+      "target_node_types": [
+        "OperationalEntity",
+        "OperationalActor"
+      ]
+    },
+    "SUPPORTS_CAPABILITY": {
+      "strategy": "unmapped"
+    },
+    "LOCATED_IN": {
+      "strategy": "unmapped"
+    },
+    "DECOMPOSES": {
+      "strategy": "unmapped"
+    }
+  },
+  "operational_scenario": {
+    "usage_keyword": "action",
+    "definition": "OperationalScenario",
+    "identifier_prefix": "oa_scenario",
+    "activity_usage_keyword": "action",
+    "activity_definition": "OperationalActivity",
+    "activity_identifier_prefix": "oa_step",
+    "interaction_relation": "OPERATIONAL_EXCHANGE",
+    "sequence_strategy": "first_then",
+    "communication_reference_strategy": "comment_only"
+  },
+  "characteristics": {
+    "strategy": "attributes",
+    "identifier_prefix": "oa_attr",
+    "scalar_types": {
+      "integer": "ScalarValues::Integer",
+      "real": "ScalarValues::Real",
+      "string": "ScalarValues::String"
+    },
+    "range_strategy": "lower_upper_attributes",
+    "unit_strategy": "comment_only"
+  }
+}
