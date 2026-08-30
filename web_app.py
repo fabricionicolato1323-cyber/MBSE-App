@@ -24,6 +24,7 @@ from operational_scenario import (
     scenarios_from_payload,
     write_runtime_scenarios,
 )
+from sysml_v2 import generate_sysml_v2
 from ui_guidance import configured_section
 from web_ai import LocalAIServiceError, list_installed_models, load_web_ai_config
 from web_model_session import ModelFileSessionRegistry
@@ -101,12 +102,24 @@ def api_state():
     if current is None:
         return jsonify({"ok": False, "stale_session": True, "session_id": session_id}), 409
     state = current.state()
+    model_state = state.setdefault("model", {})
     try:
         payload = _current_model_payload(current)
         scenarios = _session_scenarios(current, payload)
-        state.setdefault("model", {})["scenarios"] = scenario_snapshots(payload, scenarios)
+        scenario_views = scenario_snapshots(payload, scenarios)
+        model_state["scenarios"] = scenario_views
+        model_state["sysml_v2"] = generate_sysml_v2(
+            payload,
+            scenarios=scenario_views,
+            drafts=model_state.get("drafts", []),
+        )
     except RuntimeError:
-        state.setdefault("model", {})["scenarios"] = []
+        model_state["scenarios"] = []
+        model_state["sysml_v2"] = generate_sysml_v2(
+            model_state,
+            scenarios=[],
+            drafts=model_state.get("drafts", []),
+        )
     state["session_id"] = session_id
     return jsonify(state)
 
