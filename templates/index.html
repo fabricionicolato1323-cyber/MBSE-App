@@ -44,8 +44,7 @@
           <span>Panels</span>
           <button type="button" class="panel-toggle active" data-panel-toggle="chat">Conversation</button>
           <button type="button" class="panel-toggle active" data-panel-toggle="completion">Completion</button>
-          <button type="button" class="panel-toggle active" data-panel-toggle="text">Pseudo-code</button>
-          <button type="button" class="panel-toggle active" data-panel-toggle="sysml">SysML V2</button>
+          <button type="button" class="panel-toggle active" data-panel-toggle="output">Model output</button>
         </div>
       </div>
 
@@ -132,19 +131,19 @@
         <div id="statusLine" class="status-line">Starting the guided model…</div>
       </section>
 
-      <div class="panel-splitter" data-splitter="text" role="separator" aria-orientation="vertical" aria-label="Resize pseudo-code panel"></div>
+      <div class="panel-splitter" data-splitter="output" role="separator" aria-orientation="vertical" aria-label="Resize model output panel"></div>
 
-      <aside id="modelPanel" class="workspace-panel model-panel text-panel" data-panel="text" data-output-panel="text">
+      <aside id="modelPanel" class="workspace-panel model-panel output-panel" data-panel="output">
         <header class="model-header panel-drag-handle">
           <div class="panel-heading-copy">
             <div class="eyebrow">Live Operational Analysis model</div>
-            <h2>Pseudo-code</h2>
+            <h2 id="outputPanelTitle">Model output</h2>
             <div id="modelFileName" class="model-file-name" hidden></div>
           </div>
           <div class="model-header-actions">
             <div id="modelCount" class="model-count">0 · 0</div>
-            <div class="panel-controls" aria-label="Pseudo-code panel controls">
-              <button type="button" class="panel-control" data-panel-action="dock" title="Open pseudo-code in a new browser window" aria-label="Open pseudo-code in a new browser window">↗</button>
+            <div class="panel-controls" aria-label="Model output panel controls">
+              <button type="button" class="panel-control" data-panel-action="dock" title="Open active output view in a new browser window" aria-label="Open active output view in a new browser window">↗</button>
               <button type="button" class="panel-control" data-panel-action="minimize" title="Minimize panel" aria-label="Minimize panel">−</button>
               <button type="button" class="panel-control" data-panel-action="maximize" title="Full screen panel" aria-label="Full screen panel">□</button>
               <button type="button" class="panel-control" data-panel-action="close" title="Hide panel" aria-label="Hide panel">×</button>
@@ -152,62 +151,50 @@
           </div>
         </header>
 
-        <div id="utilityTextView" class="utility-tab-content active standalone-output-content" data-output-content="text" role="region" aria-label="Pseudo-code model output">
+        <div class="output-tabs" role="tablist" aria-label="Model output views">
+          <button class="output-tab-button active" type="button" data-output-tab="text" data-tab="textual" role="tab" aria-selected="true" aria-controls="utilityTextView">Pseudo-code</button>
+          <button class="output-tab-button" type="button" data-output-tab="sysml" role="tab" aria-selected="false" aria-controls="utilitySysmlView">SysML V2</button>
+          <button class="output-tab-button" type="button" data-output-tab="diagram" data-tab="diagram" role="tab" aria-selected="false" aria-controls="diagramTab">Diagram</button>
+          <button class="output-tab-button" type="button" data-output-tab="details" data-tab="details" role="tab" aria-selected="false" aria-controls="detailsTab">Details</button>
+        </div>
+
+        <div id="utilityTextView" class="output-view-content active" data-output-view="text" role="tabpanel">
           <div class="legend">
             <span><i class="legend-dot confirmed"></i>Confirmed</span>
             <span><i class="legend-dot temporary"></i>Temporary</span>
           </div>
-
-          <div class="model-tabs" role="tablist" aria-label="Existing model views">
-            <button class="tab-button active" data-tab="textual" role="tab" aria-selected="true">Pseudo-code</button>
-            <button class="tab-button" data-tab="diagram" role="tab" aria-selected="false">Diagram</button>
-            <button class="tab-button" data-tab="details" role="tab" aria-selected="false">Details</button>
-          </div>
-
           <div id="textualTab" class="tab-content active" role="tabpanel">
             <div id="modelTextual" class="model-textual"></div>
           </div>
-          <div id="diagramTab" class="tab-content" role="tabpanel">
-            <div class="diagram-placeholder">
-              <strong>Diagram view</strong>
-              <span>This existing view remains available inside the pseudo-code output window.</span>
-            </div>
-            <div class="legacy-diagram-layer" aria-hidden="true">
-              <svg id="modelDiagram" viewBox="0 0 420 720"></svg>
-              <div id="emptyModel"></div>
-            </div>
-          </div>
-          <div id="detailsTab" class="tab-content" role="tabpanel">
-            <div id="modelDetails" class="model-details"></div>
-          </div>
         </div>
-      </aside>
 
-      <div class="panel-splitter" data-splitter="sysml" role="separator" aria-orientation="vertical" aria-label="Resize SysML V2 panel"></div>
-
-      <aside id="sysmlPanel" class="workspace-panel model-panel sysml-panel" data-panel="sysml" data-output-panel="sysml">
-        <header class="model-header panel-drag-handle">
-          <div class="panel-heading-copy">
-            <div class="eyebrow">Live Operational Analysis model</div>
-            <h2>SysML V2</h2>
-          </div>
-          <div class="model-header-actions">
-            <div class="panel-controls" aria-label="SysML V2 panel controls">
-              <button type="button" class="panel-control" data-panel-action="dock" title="Open SysML V2 in a new browser window" aria-label="Open SysML V2 in a new browser window">↗</button>
-              <button type="button" class="panel-control" data-panel-action="minimize" title="Minimize panel" aria-label="Minimize panel">−</button>
-              <button type="button" class="panel-control" data-panel-action="maximize" title="Full screen panel" aria-label="Full screen panel">□</button>
-              <button type="button" class="panel-control" data-panel-action="close" title="Hide panel" aria-label="Hide panel">×</button>
-            </div>
-          </div>
-        </header>
-
-        <div id="utilitySysmlView" class="utility-tab-content active standalone-output-content" data-output-content="sysml" role="region" aria-label="SysML V2 textual output">
+        <div id="utilitySysmlView" class="output-view-content" data-output-view="sysml" role="tabpanel" hidden>
           <div class="sysml-text-placeholder">
             <div class="sysml-placeholder-heading">SysML V2 textual output</div>
             <p>SysML V2 generation is not implemented yet. This view is intentionally text-based, not a block diagram.</p>
             <pre class="sysml-code-placeholder" aria-label="SysML V2 text placeholder"><code>// Generated SysML V2 text will appear here.
 // The existing model remains unchanged until generation is implemented.</code></pre>
           </div>
+        </div>
+
+        <div id="diagramTab" class="output-view-content tab-content" data-output-view="diagram" role="tabpanel" hidden>
+          <div class="diagram-placeholder">
+            <strong>Diagram view</strong>
+            <span>The interactive Operational Analysis diagram remains available as its own output view.</span>
+          </div>
+          <div class="legacy-diagram-layer" aria-hidden="true">
+            <svg id="modelDiagram" viewBox="0 0 420 720"></svg>
+            <div id="emptyModel"></div>
+          </div>
+        </div>
+
+        <div id="detailsTab" class="output-view-content tab-content" data-output-view="details" role="tabpanel" hidden>
+          <div id="modelDetails" class="model-details"></div>
+        </div>
+
+        <div id="outputDetachedEmpty" class="output-detached-empty" hidden>
+          <strong>All output views are undocked.</strong>
+          <span>You can hide this sidebar and continue working in Conversation while the separate browser windows remain open.</span>
         </div>
       </aside>
     </main>
