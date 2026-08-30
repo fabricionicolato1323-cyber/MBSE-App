@@ -228,7 +228,7 @@ def test_pseudocode_and_sysml_can_be_undocked_independently(web_server):
                 page.locator("#modelPanel [data-panel-action='dock']").click()
             text_popup = text_popup_info.value
             text_popup.wait_for_load_state("domcontentloaded")
-            expect(text_popup).to_have_url("**detachedPanel=text**")
+            assert "detachedPanel=text" in text_popup.url
             expect(text_popup.locator("#modelPanel")).to_be_visible()
             expect(text_popup.locator("#sysmlPanel")).to_be_hidden()
             expect(page.locator("#modelPanel")).to_be_hidden()
@@ -238,7 +238,7 @@ def test_pseudocode_and_sysml_can_be_undocked_independently(web_server):
                 page.locator("#sysmlPanel [data-panel-action='dock']").click()
             sysml_popup = sysml_popup_info.value
             sysml_popup.wait_for_load_state("domcontentloaded")
-            expect(sysml_popup).to_have_url("**detachedPanel=sysml**")
+            assert "detachedPanel=sysml" in sysml_popup.url
             expect(sysml_popup.locator("#sysmlPanel")).to_be_visible()
             expect(sysml_popup.locator("#modelPanel")).to_be_hidden()
             expect(page.locator("#modelPanel")).to_be_hidden()
