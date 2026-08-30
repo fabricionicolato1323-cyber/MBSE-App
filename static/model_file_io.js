@@ -223,6 +223,7 @@ import('./oa_scenario_projection_fix.js')
     console.error('Operational Scenario projection fixes could not be loaded.', error);
   })
   .then(() => import('./oa_scenario.js'))
+  .then(() => import('./oa_scenario_pseudocode_compact.js'))
   .catch(error => {
     console.error('Operational Scenario UI could not be loaded.', error);
   });
