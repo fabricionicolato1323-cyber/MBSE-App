@@ -158,14 +158,17 @@ def test_nested_containment_drag_capability_toggle_and_communication_routing(dia
             expect(page.locator(".oa-diagram-port")).to_have_count(2)
 
             toggle = page.locator("#oaDiagramCapabilitiesToggle")
-            expect(toggle).to_have_attribute("aria-pressed", "true")
-            expect(page.locator('[data-node-id="capability"]')).to_have_count(1)
-            toggle.click()
             expect(toggle).to_have_attribute("aria-pressed", "false")
             expect(page.locator('[data-node-id="capability"]')).to_have_count(0)
             expect(page.locator('.oa-diagram-edge[data-edge-type="SUPPORTS_CAPABILITY"]')).to_have_count(0)
+
             toggle.click()
+            expect(toggle).to_have_attribute("aria-pressed", "true")
             expect(page.locator('[data-node-id="capability"]')).to_have_count(1)
+
+            toggle.click()
+            expect(toggle).to_have_attribute("aria-pressed", "false")
+            expect(page.locator('[data-node-id="capability"]')).to_have_count(0)
 
             soldier_before = box("soldier")
             report_before = box("report")
