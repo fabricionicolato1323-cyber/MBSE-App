@@ -87,10 +87,23 @@ class ModelFileSession(TerminalProcessSession):
         self.model_name = str(exported["graph"]["model_name"])
         return exported
 
+    def _deletion_preview_snapshot(self) -> dict[str, Any] | None:
+        path = self.runtime_dir / "deletion_preview.json"
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        if not isinstance(payload, dict) or not payload.get("active"):
+            return None
+        return payload
+
     def model_snapshot(self) -> dict[str, Any]:
         snapshot = super().model_snapshot()
         if self.model_name:
             snapshot["name"] = self.model_name
+        preview = self._deletion_preview_snapshot()
+        if preview is not None:
+            snapshot["deletion_preview"] = preview
         return snapshot
 
 
