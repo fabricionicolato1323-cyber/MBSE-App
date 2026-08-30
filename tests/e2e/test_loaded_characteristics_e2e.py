@@ -136,9 +136,11 @@ def test_loaded_characteristics_can_be_changed_and_added_without_parallel_model_
             composer.fill("Night")
             composer.press("Enter")
 
-            expect(
-                page.get_by_text("What would you like to do with the loaded model?", exact=True)
-            ).to_be_visible(timeout=20_000)
+            intent_prompts = page.get_by_text(
+                "What would you like to do with the loaded model?",
+                exact=True,
+            )
+            expect(intent_prompts.last).to_be_visible(timeout=20_000)
 
             changed = page.evaluate(
                 """async () => {
@@ -159,19 +161,17 @@ def test_loaded_characteristics_can_be_changed_and_added_without_parallel_model_
             ).to_be_visible(timeout=20_000)
             page.get_by_role("button", name="Goal: Maintain service", exact=True).click()
 
-            expect(page.get_by_text("What is the characteristic name?", exact=True)).to_be_visible(
+            expect(page.get_by_text("What is the characteristic name?", exact=True).last).to_be_visible(
                 timeout=20_000
             )
             composer.fill("Priority")
             composer.press("Enter")
             page.get_by_role("button", name="Text value", exact=True).click()
-            expect(page.get_by_text("What is the text value?", exact=True)).to_be_visible(timeout=20_000)
+            expect(page.get_by_text("What is the text value?", exact=True).last).to_be_visible(timeout=20_000)
             composer.fill("High")
             composer.press("Enter")
 
-            expect(
-                page.get_by_text("What would you like to do with the loaded model?", exact=True)
-            ).to_be_visible(timeout=20_000)
+            expect(intent_prompts.last).to_be_visible(timeout=20_000)
             updated = page.evaluate(
                 """async () => {
                     const state = await fetch('/api/state').then(response => response.json());
