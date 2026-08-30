@@ -24,6 +24,12 @@ from operational_scenario import (
     scenarios_from_payload,
     write_runtime_scenarios,
 )
+from sam_connection import SamConfigurationError, settings_from_env
+from sam_level1_sync import (
+    SamLevel1SyncError,
+    build_level1_sync_plan,
+    sync_level1_to_sam,
+)
 from sysml_level1 import build_sysml_level1_preview
 from ui_guidance import configured_section
 from web_ai import LocalAIServiceError, list_installed_models, load_web_ai_config
@@ -84,6 +90,10 @@ def _session_scenarios(current, payload: dict | None = None) -> list[dict]:
     return scenarios_from_payload(model_payload)
 
 
+def _scenario_views(current, payload: dict) -> list[dict]:
+    return scenario_snapshots(payload, _session_scenarios(current, payload))
+
+
 def _attach_level1_preview(
     model_state: dict,
     payload: dict,
@@ -97,6 +107,13 @@ def _attach_level1_preview(
     model_state["sysml_v2_level1"] = preview
     # Backward compatibility for existing UI/tests that consume the text directly.
     model_state["sysml_v2"] = preview["text"]
+
+
+def _safe_sam_error(exc: Exception, access_token: str | None = None) -> str:
+    message = str(exc)
+    if access_token:
+        message = message.replace(access_token, "***")
+    return message
 
 
 @app.get("/")
@@ -120,8 +137,7 @@ def api_state():
     model_state = state.setdefault("model", {})
     try:
         payload = _current_model_payload(current)
-        scenarios = _session_scenarios(current, payload)
-        scenario_views = scenario_snapshots(payload, scenarios)
+        scenario_views = _scenario_views(current, payload)
         model_state["scenarios"] = scenario_views
         _attach_level1_preview(model_state, payload, scenario_views)
     except RuntimeError:
@@ -268,6 +284,73 @@ def api_model_load():
             "scenarios": len(scenarios),
         }
     )
+
+
+@app.get("/api/sam/level1/plan")
+def api_sam_level1_plan():
+    """Return a no-write Level 1B transfer plan for explicit user review."""
+    _, current = current_session(create_if_missing=False)
+    if current is None:
+        return jsonify({"ok": False, "error": "The modeling session is no longer active."}), 409
+    try:
+        settings = settings_from_env()
+        model = _current_model_payload(current)
+        scenarios = _scenario_views(current, model)
+        plan = build_level1_sync_plan(
+            model,
+            scenarios=scenarios,
+            project_id=settings.project_id,
+        )
+    except SamConfigurationError as exc:
+        return jsonify({"ok": False, "error": str(exc), "sam_configured": False}), 503
+    except RuntimeError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 409
+    return jsonify({"ok": True, "sam_configured": True, "plan": plan})
+
+
+@app.post("/api/sam/level1/send")
+def api_sam_level1_send():
+    """Write the reviewed Level 1 snapshot to SAM in one PySAM transaction."""
+    _, current = current_session(create_if_missing=False)
+    if current is None:
+        return jsonify({"ok": False, "error": "The modeling session is no longer active."}), 409
+
+    body = request.get_json(silent=True) or {}
+    if body.get("confirm") is not True:
+        return jsonify({"ok": False, "error": "Explicit confirmation is required."}), 400
+    expected_digest = str(body.get("snapshot_digest") or "").strip()
+    if not expected_digest:
+        return jsonify({"ok": False, "error": "A reviewed snapshot digest is required."}), 400
+
+    settings = None
+    try:
+        settings = settings_from_env()
+        with current._lock:  # noqa: SLF001 - freeze the local snapshot during transfer
+            if not current._waiting:  # noqa: SLF001
+                raise RuntimeError(
+                    "Wait until the current modeling question is ready before sending to SAM."
+                )
+            model = _current_model_payload(current)
+            scenarios = _scenario_views(current, model)
+            result = sync_level1_to_sam(
+                model,
+                scenarios=scenarios,
+                settings=settings,
+                expected_digest=expected_digest,
+            )
+    except SamConfigurationError as exc:
+        return jsonify({"ok": False, "error": str(exc), "sam_configured": False}), 503
+    except SamLevel1SyncError as exc:
+        return jsonify(
+            {
+                "ok": False,
+                "error": _safe_sam_error(exc, settings.access_token if settings else None),
+            }
+        ), 409
+    except RuntimeError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 409
+
+    return jsonify({"ok": True, "result": result})
 
 
 @app.get("/api/ai/models")
