@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import secrets
 from pathlib import Path
@@ -13,6 +14,15 @@ from model_io import (
     normalize_model_name,
     prepare_model_export,
     validate_model_payload,
+)
+from operational_scenario import (
+    ScenarioError,
+    create_scenario_record,
+    load_runtime_scenarios,
+    merge_scenarios_into_payload,
+    scenario_snapshots,
+    scenarios_from_payload,
+    write_runtime_scenarios,
 )
 from ui_guidance import configured_section
 from web_ai import LocalAIServiceError, list_installed_models, load_web_ai_config
@@ -57,6 +67,22 @@ def discover_local_ai_models() -> list[str]:
     )
 
 
+def _current_model_payload(current) -> dict:
+    try:
+        payload = json.loads(current.model_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError("The current model is not available yet.") from exc
+    return payload if isinstance(payload, dict) else {}
+
+
+def _session_scenarios(current, payload: dict | None = None) -> list[dict]:
+    runtime = load_runtime_scenarios(current.runtime_dir)
+    if runtime is not None:
+        return runtime
+    model_payload = payload if payload is not None else _current_model_payload(current)
+    return scenarios_from_payload(model_payload)
+
+
 @app.get("/")
 def index():
     current_session()
@@ -75,6 +101,12 @@ def api_state():
     if current is None:
         return jsonify({"ok": False, "stale_session": True, "session_id": session_id}), 409
     state = current.state()
+    try:
+        payload = _current_model_payload(current)
+        scenarios = _session_scenarios(current, payload)
+        state.setdefault("model", {})["scenarios"] = scenario_snapshots(payload, scenarios)
+    except RuntimeError:
+        state.setdefault("model", {})["scenarios"] = []
     state["session_id"] = session_id
     return jsonify(state)
 
@@ -128,6 +160,37 @@ def api_command():
     return jsonify({"ok": True})
 
 
+@app.post("/api/scenario/create")
+def api_scenario_create():
+    _, current = current_session(create_if_missing=False)
+    if current is None:
+        return jsonify({"ok": False, "error": "The modeling session is no longer active."}), 409
+
+    body = request.get_json(silent=True) or {}
+    try:
+        with current._lock:  # noqa: SLF001 - local web adapter boundary
+            if not current._waiting:  # noqa: SLF001 - keep model writes away from worker mutations
+                raise RuntimeError(
+                    "Wait until the current modeling question is ready before creating a scenario."
+                )
+            model_payload = _current_model_payload(current)
+            scenarios = _session_scenarios(current, model_payload)
+            scenario = create_scenario_record(
+                model_payload,
+                scenarios,
+                name=body.get("name"),
+                steps=body.get("steps"),
+            )
+            scenarios.append(scenario)
+            write_runtime_scenarios(current.runtime_dir, scenarios)
+    except ScenarioError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except RuntimeError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 409
+
+    return jsonify({"ok": True, "scenario": scenario}), 201
+
+
 @app.post("/api/model/export")
 def api_model_export():
     _, current = current_session(create_if_missing=False)
@@ -138,6 +201,8 @@ def api_model_export():
     try:
         model_name = normalize_model_name(str(payload.get("model_name", "")))
         model = current.export_model(model_name)
+        scenarios = _session_scenarios(current, model)
+        model = merge_scenarios_into_payload(model, scenarios)
     except ModelFileError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
     except RuntimeError as exc:
@@ -160,11 +225,13 @@ def api_model_load():
         )
         model_name = normalize_model_name(proposed_name)
         normalized = prepare_model_export(normalized, model_name)
+        scenarios = scenarios_from_payload(normalized)
     except ModelFileError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
 
     try:
-        new_session_id, _ = registry.load(session_id, normalized, model_name)
+        new_session_id, new_current = registry.load(session_id, normalized, model_name)
+        write_runtime_scenarios(new_current.runtime_dir, scenarios)
     except RuntimeError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 409
 
@@ -178,6 +245,7 @@ def api_model_load():
                 "nodes": len(normalized.get("nodes", [])),
                 "edges": len(normalized.get("edges", [])),
             },
+            "scenarios": len(scenarios),
         }
     )
 

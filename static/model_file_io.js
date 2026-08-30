@@ -214,3 +214,10 @@
     if (event.key === 'Escape' && !saveModal.hidden) closeSaveModal();
   });
 })();
+
+// Operational Scenario is loaded as an isolated diagram extension. Dynamic import
+// keeps the existing classic-script pipeline intact while enabling the ES-module
+// diagram implementation and its scenario authoring state machine.
+import('./oa_scenario.js').catch(error => {
+  console.error('Operational Scenario UI could not be loaded.', error);
+});
