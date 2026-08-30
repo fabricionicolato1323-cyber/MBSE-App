@@ -8,6 +8,7 @@ import app_base
 from action_first_inline_flow import ActionFirstInlineCreationMixin
 from action_goal_linking import ActionGoalLinkingMixin
 from focused_refinement import FocusedRefinementMixin
+from loaded_model_deletion import LoadedModelDeletionMixin
 from loaded_model_direct_resume import DirectLoadedModelResumeMixin
 from loaded_model_flow import LoadedModelFlowMixin
 from model_io import graph_from_model_payload
@@ -46,6 +47,7 @@ def main() -> None:
         ActionFirstInlineCreationMixin,
         ActionGoalLinkingMixin,
         FocusedRefinementMixin,
+        LoadedModelDeletionMixin,
         DirectLoadedModelResumeMixin,
         LoadedModelFlowMixin,
         WebGuidedFlowMixin,
