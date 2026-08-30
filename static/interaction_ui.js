@@ -3,6 +3,24 @@
   const composer = document.getElementById('composer');
   const input = document.getElementById('messageInput');
 
+  function installChangeImpactPresentation() {
+    if (!document.querySelector('link[data-mbse-change-impact]')) {
+      const style = document.createElement('link');
+      style.rel = 'stylesheet';
+      style.href = '/static/change_impact_presentation.css';
+      style.dataset.mbseChangeImpact = 'true';
+      document.head.appendChild(style);
+    }
+    if (!document.querySelector('script[data-mbse-change-impact]')) {
+      const script = document.createElement('script');
+      script.src = '/static/change_impact_presentation.js';
+      script.dataset.mbseChangeImpact = 'true';
+      document.head.appendChild(script);
+    }
+  }
+
+  installChangeImpactPresentation();
+
   if (!quickActions || !composer) return;
 
   quickActions.setAttribute('aria-label', 'Answer options');
