@@ -46,7 +46,7 @@ class ReloadSafeFactory:
         if isinstance(value, list):
             return [self.fresh(item, required=required) for item in value]
         if isinstance(value, tuple):
-            return tuple(self.fresh(item, required=required) for item in value]
+            return tuple(self.fresh(item, required=required) for item in value)
         if isinstance(value, set):
             return {self.fresh(item, required=required) for item in value}
         if isinstance(value, dict):
