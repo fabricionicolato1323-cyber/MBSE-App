@@ -143,6 +143,10 @@ def test_sysml_view_is_generated_from_arcadiaoa_contract_and_updates_after_load(
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
         page = browser.new_page(viewport={"width": 1500, "height": 1050})
+        page.add_init_script(
+            "Object.defineProperty(window, 'showSaveFilePicker', "
+            "{value: undefined, configurable: true});"
+        )
         try:
             page.goto(BASE_URL, wait_until="domcontentloaded")
             expect(page.locator("#statusLine")).to_have_text("Ready", timeout=20_000)
@@ -163,5 +167,21 @@ def test_sysml_view_is_generated_from_arcadiaoa_contract_and_updates_after_load(
                 "connection oa_communication_Radio : CommunicationMean connect"
             )
             expect(code).not_to_contain_text("port oa_communication_Radio")
+
+            export_button = page.get_by_role(
+                "button",
+                name="Export SysML V2 model as .sysml file",
+            )
+            expect(export_button).to_be_visible(timeout=20_000)
+            rendered_text = code.inner_text().rstrip()
+            with page.expect_download() as download_info:
+                export_button.click()
+            download = download_info.value
+            assert download.suggested_filename == "SysML contract E2E.sysml"
+            exported_text = Path(download.path()).read_text(encoding="utf-8").rstrip()
+            assert exported_text == rendered_text
+            assert "package ArcadiaOA" in exported_text
+            assert "flow def OperationalExchange;" in exported_text
+            assert "connection def CommunicationMean;" in exported_text
         finally:
             browser.close()
