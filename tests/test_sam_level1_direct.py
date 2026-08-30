@@ -174,16 +174,12 @@ class SamLevel1DirectTests(unittest.TestCase):
         project = FakeProjectManager.project
         self.assertEqual(result["status"], "synced")
         self.assertEqual(result["mode"], "verified_direct_create_snapshot")
+        self.assertEqual(result["retry_policy"], "unique_staging_no_delete")
         self.assertEqual(project.transaction_started, 0)
         self.assertEqual(project.transaction_stopped, 0)
         self.assertTrue(project.find_elements_by_name(result["package_name"]))
         self.assertTrue(
             project.find_elements_by_name(level1_completion_marker_name(digest))
-        )
-        self.assertFalse(
-            project.find_elements_by_name(
-                level1_staging_package_name(result["package_name"])
-            )
         )
         self.assertEqual(result["cleanup"]["removed_incomplete_staging_packages"], 0)
 
@@ -201,7 +197,7 @@ class SamLevel1DirectTests(unittest.TestCase):
         self.assertEqual(second["status"], "already_synced")
         self.assertFalse(second["sam_write_performed"])
 
-    def test_incomplete_staging_package_is_removed_before_retry(self):
+    def test_incomplete_staging_does_not_block_retry_or_require_delete(self):
         digest = level1_snapshot_digest(self.model, [])
         from sam_level1_sync import build_level1_sync_plan
 
@@ -210,15 +206,26 @@ class SamLevel1DirectTests(unittest.TestCase):
             scenarios=[],
             project_id=self.settings.project_id,
         )
-        staging_name = level1_staging_package_name(plan["package_name"])
-        FakeProjectManager.project.elements.append(
-            FakeElement("Package", name=staging_name)
-        )
+        stale_name = level1_staging_package_name(plan["package_name"], "oldretry")
+
+        class DeleteRejectingElement(FakeElement):
+            def delete(self):
+                raise RuntimeError("Bad Request")
+
+        stale = DeleteRejectingElement("Package", name=stale_name)
+        FakeProjectManager.project.elements.append(stale)
 
         result = self._sync()
         self.assertEqual(result["status"], "synced")
-        self.assertEqual(result["cleanup"]["removed_incomplete_staging_packages"], 1)
-        self.assertFalse(FakeProjectManager.project.find_elements_by_name(staging_name))
+        self.assertEqual(result["retry_policy"], "unique_staging_no_delete")
+        self.assertEqual(result["cleanup"]["removed_incomplete_staging_packages"], 0)
+        self.assertIn(stale, FakeProjectManager.project.elements)
+        self.assertNotEqual(result["staging_package_name"], stale_name)
+        self.assertTrue(
+            result["staging_package_name"].startswith(
+                level1_staging_package_name(plan["package_name"]) + "_"
+            )
+        )
         self.assertTrue(
             FakeProjectManager.project.find_elements_by_name(
                 level1_completion_marker_name(digest)
