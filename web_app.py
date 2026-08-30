@@ -25,11 +25,8 @@ from operational_scenario import (
     write_runtime_scenarios,
 )
 from sam_connection import SamConfigurationError, run_connection_test, settings_from_env
-from sam_level1_sync import (
-    SamLevel1SyncError,
-    build_level1_sync_plan,
-    sync_level1_to_sam,
-)
+from sam_level1_sync import SamLevel1SyncError, build_level1_sync_plan
+from sam_level1_verify import sync_level1_to_sam_verified
 from sam_pysam_compat import PySamCompatibilityError, install_transactional_factory_fix
 from sysml_level1 import build_sysml_level1_preview
 from ui_guidance import configured_section
@@ -322,7 +319,7 @@ def api_sam_level1_plan():
 
 @app.post("/api/sam/level1/send")
 def api_sam_level1_send():
-    """Write the reviewed Level 1 snapshot to SAM in one PySAM transaction."""
+    """Write and independently verify the reviewed Level 1 snapshot in SAM."""
     _, current = current_session(create_if_missing=False)
     if current is None:
         return jsonify({"ok": False, "error": "The modeling session is no longer active."}), 409
@@ -347,14 +344,14 @@ def api_sam_level1_send():
                 )
             model = _current_model_payload(current)
             scenarios = _scenario_views(current, model)
-            result = sync_level1_to_sam(
+            result = sync_level1_to_sam_verified(
                 model,
                 scenarios=scenarios,
                 settings=settings,
                 expected_digest=expected_digest,
             )
-        # Re-read target metadata after the transaction so the UI can show the
-        # actual project/root package where the snapshot was written.
+        # Re-read target metadata after verification so the UI can show the
+        # actual project/root package where the snapshot exists.
         result["target"] = run_connection_test(settings)
         result["pysam_compatibility"] = compatibility
     except SamConfigurationError as exc:
