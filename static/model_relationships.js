@@ -112,7 +112,41 @@ renderRevisionDetails = function relationshipAwareDetailsRenderer(model) {
     document.head.appendChild(style);
   }
 
+  const ensureCompletionPatch = () => {
+    if (document.querySelector('script[data-oa-continuous-completion-script]')) return;
+    const completion = document.createElement('script');
+    completion.src = `${base}completion_continuous_check.js`;
+    completion.dataset.oaContinuousCompletionScript = 'true';
+    completion.async = false;
+    document.body.appendChild(completion);
+  };
+
+  const ensureFitPatch = () => {
+    if (document.querySelector('script[data-oa-diagram-fit-patch]')) return;
+    const fitPatch = document.createElement('script');
+    fitPatch.type = 'module';
+    fitPatch.src = `${base}oa_diagram_fit_patch.js`;
+    fitPatch.dataset.oaDiagramFitPatch = 'true';
+    document.body.appendChild(fitPatch);
+  };
+
+  const afterDiagramLoaded = () => {
+    if (!document.querySelector('script[data-oa-port-drag-script]')) {
+      const portDrag = document.createElement('script');
+      portDrag.type = 'module';
+      portDrag.src = `${base}oa_diagram_port_drag.js`;
+      portDrag.dataset.oaPortDragScript = 'true';
+      document.body.appendChild(portDrag);
+    }
+    ensureFitPatch();
+    if (typeof pollState === 'function') pollState({force: true});
+  };
+
   const load = () => {
+    // workspace_layout.js has executed before window.load, so this patch wraps
+    // the final applyState chain and makes Completion the continuous checker.
+    ensureCompletionPatch();
+
     if (!document.querySelector('script[data-oa-communication-presentation-script]')) {
       const presentation = document.createElement('script');
       presentation.src = `${base}communication_presentation.js`;
@@ -121,21 +155,18 @@ renderRevisionDetails = function relationshipAwareDetailsRenderer(model) {
       document.body.appendChild(presentation);
     }
 
-    if (document.querySelector('script[data-oa-diagram-script]')) return;
+    const existingDiagram = document.querySelector('script[data-oa-diagram-script]');
+    if (existingDiagram) {
+      if (window.oaDiagram) afterDiagramLoaded();
+      else existingDiagram.addEventListener('load', afterDiagramLoaded, {once: true});
+      return;
+    }
+
     const script = document.createElement('script');
     script.type = 'module';
     script.src = `${base}oa_diagram_v4_interaction.js`;
     script.dataset.oaDiagramScript = 'true';
-    script.addEventListener('load', () => {
-      if (!document.querySelector('script[data-oa-port-drag-script]')) {
-        const portDrag = document.createElement('script');
-        portDrag.type = 'module';
-        portDrag.src = `${base}oa_diagram_port_drag.js`;
-        portDrag.dataset.oaPortDragScript = 'true';
-        document.body.appendChild(portDrag);
-      }
-      if (typeof pollState === 'function') pollState({force: true});
-    });
+    script.addEventListener('load', afterDiagramLoaded, {once: true});
     document.body.appendChild(script);
   };
 
