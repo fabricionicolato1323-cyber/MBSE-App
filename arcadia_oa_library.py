@@ -59,6 +59,15 @@ def _require_definition(text: str, keyword: str, definition: str, context: str) 
         )
 
 
+def _endpoint(mapping: dict[str, Any], key: str, relation: str) -> str:
+    value = str(mapping.get(key) or "")
+    if value not in {"source", "target"}:
+        raise ArcadiaOALibraryError(
+            f"Relationship {relation!r} must declare {key} as 'source' or 'target'."
+        )
+    return value
+
+
 def validate_arcadia_oa_library(library: ArcadiaOALibrary) -> ArcadiaOALibrary:
     contract = library.contract
     if int(contract.get("schema_version", 0)) != 1:
@@ -101,10 +110,12 @@ def validate_arcadia_oa_library(library: ArcadiaOALibrary) -> ArcadiaOALibrary:
             "ArcadiaOA translation contract relationships must be an object."
         )
     allowed_strategies = {
-        "containment",
+        "nested_usage",
         "perform",
         "flow",
         "connection",
+        "allocation",
+        "reference",
         "unmapped",
     }
     for relation, mapping in relations.items():
@@ -133,6 +144,58 @@ def validate_arcadia_oa_library(library: ArcadiaOALibrary) -> ArcadiaOALibrary:
                 payload,
                 f"payload for relationship {relation!r}",
             )
+        elif strategy == "nested_usage":
+            parent = _endpoint(mapping, "parent_endpoint", relation)
+            child = _endpoint(mapping, "child_endpoint", relation)
+            if parent == child:
+                raise ArcadiaOALibraryError(
+                    f"Relationship {relation!r} nested_usage endpoints must differ."
+                )
+            variants = mapping.get("variants")
+            if not isinstance(variants, list) or not variants:
+                raise ArcadiaOALibraryError(
+                    f"Relationship {relation!r} nested_usage must declare variants."
+                )
+            for variant in variants:
+                if not isinstance(variant, dict):
+                    raise ArcadiaOALibraryError(
+                        f"Relationship {relation!r} has an invalid nested_usage variant."
+                    )
+                source_type = str(variant.get("source_node_type") or "")
+                target_type = str(variant.get("target_node_type") or "")
+                if source_type not in node_mappings or target_type not in node_mappings:
+                    raise ArcadiaOALibraryError(
+                        f"Relationship {relation!r} nested_usage variant references "
+                        "a node type not declared by ArcadiaOA."
+                    )
+        elif strategy == "allocation":
+            from_endpoint = _endpoint(mapping, "from_endpoint", relation)
+            to_endpoint = _endpoint(mapping, "to_endpoint", relation)
+            if from_endpoint == to_endpoint:
+                raise ArcadiaOALibraryError(
+                    f"Relationship {relation!r} allocation endpoints must differ."
+                )
+        elif strategy == "reference":
+            owner = _endpoint(mapping, "owner_endpoint", relation)
+            referenced = _endpoint(mapping, "referenced_endpoint", relation)
+            if owner == referenced:
+                raise ArcadiaOALibraryError(
+                    f"Relationship {relation!r} reference endpoints must differ."
+                )
+            _require_definition(
+                library.sysml_text,
+                str(mapping.get("usage_keyword") or ""),
+                str(mapping.get("definition") or ""),
+                f"reference relationship {relation!r}",
+            )
+            if mapping.get("value_strategy") != "feature_value":
+                raise ArcadiaOALibraryError(
+                    f"Relationship {relation!r} reference must use feature_value."
+                )
+            if not str(mapping.get("identifier_prefix") or "").strip():
+                raise ArcadiaOALibraryError(
+                    f"Relationship {relation!r} reference needs identifier_prefix."
+                )
 
     scenario = contract.get("operational_scenario", {})
     if scenario:
