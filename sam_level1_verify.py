@@ -1,4 +1,4 @@
-"""Post-write verification for transactional SAM Level 1 instantiations."""
+"""Post-write verification for SAM Level 1 transfers."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from time import perf_counter
 from typing import Any
 
 from sam_connection import SamSettings
+from sam_level1_direct import sync_level1_to_sam_direct
 from sam_level1_sync import SamLevel1SyncError
 from sam_level1_transactional import (
     level1_completion_marker_name,
@@ -101,6 +102,25 @@ def verify_level1_package(
     }
 
 
+def _transactional_new_elements_were_not_materialized(exc: Exception) -> bool:
+    """Detect the live-SAM case where an HTTP-200 transaction creates no elements.
+
+    PySAM 0.3.1 uses client-generated identities for elements created while a
+    ScriptingProject is in transaction mode. Some SAM deployments accept that commit
+    request but do not materialize those new identities in ``commits/head/elements``.
+    Only fall back when an independent reload proves that no managed library artifact
+    exists at all; a partial transaction must never be hidden by a second writer.
+    """
+    message = str(exc)
+    required = (
+        "uncached server verification did not find a complete managed library",
+        "package=no",
+        "marker=no",
+        "namespace=no",
+    )
+    return all(fragment in message for fragment in required)
+
+
 def sync_level1_to_sam_verified(
     payload: Any,
     *,
@@ -111,17 +131,42 @@ def sync_level1_to_sam_verified(
     project_manager_class: type[Any] | None = None,
     factory_class: type[Any] | None = None,
 ) -> dict[str, Any]:
-    """Load/reuse the library, commit the instantiation, then verify by fresh read."""
+    """Write Level 1 using the fast path, fall back safely, then verify by fresh read."""
     total_started = perf_counter()
-    result = sync_level1_to_sam_transactional(
-        payload,
-        scenarios=scenarios,
-        settings=settings,
-        expected_digest=expected_digest,
-        connector_class=connector_class,
-        project_manager_class=project_manager_class,
-        factory_class=factory_class,
-    )
+    fallback: dict[str, Any] | None = None
+    try:
+        result = sync_level1_to_sam_transactional(
+            payload,
+            scenarios=scenarios,
+            settings=settings,
+            expected_digest=expected_digest,
+            connector_class=connector_class,
+            project_manager_class=project_manager_class,
+            factory_class=factory_class,
+        )
+    except SamLevel1SyncError as exc:
+        if not _transactional_new_elements_were_not_materialized(exc):
+            raise
+        result = sync_level1_to_sam_direct(
+            payload,
+            scenarios=scenarios,
+            settings=settings,
+            expected_digest=expected_digest,
+            connector_class=connector_class,
+            project_manager_class=project_manager_class,
+            factory_class=factory_class,
+        )
+        fallback = {
+            "used": True,
+            "from": "transactional_new_element_create",
+            "to": str(result.get("mode") or "verified_direct_create_snapshot"),
+            "reason": (
+                "A fresh SAM head read showed that the transactional new-element "
+                "commit created no managed library artifacts. The transfer was retried "
+                "with PySAM direct create calls and server-generated element IDs."
+            ),
+        }
+
     if result.get("status") not in {"synced", "already_synced"}:
         return result
 
@@ -138,6 +183,8 @@ def sync_level1_to_sam_verified(
     result.update(verification)
     if verification.get("verified_package_id"):
         result["sam_package_id"] = verification["verified_package_id"]
+    if fallback is not None:
+        result["transport_fallback"] = fallback
 
     timings = dict(result.get("timings") or {})
     timings["verification_seconds"] = round(verification_seconds, 3)
