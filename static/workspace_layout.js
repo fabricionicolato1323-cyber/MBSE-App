@@ -3,8 +3,13 @@
   if (!workspaceRoot) return;
 
   const query = new URLSearchParams(window.location.search);
-  const detachedUtilityWindow = query.get('detachedPanel') === 'utility';
-  const requestedUtilityView = query.get('utilityView') === 'sysml' ? 'sysml' : 'text';
+  const rawDetachedPanel = query.get('detachedPanel');
+  const legacyUtilityView = query.get('utilityView') === 'sysml' ? 'sysml' : 'text';
+  const detachedPanelName = rawDetachedPanel === 'utility'
+    ? legacyUtilityView
+    : ['text', 'sysml'].includes(rawDetachedPanel) ? rawDetachedPanel : null;
+  const detachedOutputWindow = Boolean(detachedPanelName);
+  const outputPanelNames = new Set(['text', 'sysml']);
 
   const panels = new Map(
     [...workspaceRoot.querySelectorAll('.workspace-panel[data-panel]')]
@@ -18,39 +23,16 @@
 
   const splitters = {
     completion: workspaceRoot.querySelector('[data-splitter="completion"]'),
-    model: workspaceRoot.querySelector('[data-splitter="model"]'),
+    text: workspaceRoot.querySelector('[data-splitter="text"]'),
+    sysml: workspaceRoot.querySelector('[data-splitter="sysml"]'),
   };
 
-  const utilityButtons = [...document.querySelectorAll('[data-utility-tab]')];
-  const utilityViews = [...document.querySelectorAll('[data-utility-view]')];
-  let activeUtilityView = 'text';
-  let utilityPopup = null;
-  let utilityPopupMonitor = null;
+  const outputPopups = new Map();
+  const outputPopupMonitors = new Map();
 
   function clamp(value, min, max) {
     return Math.min(Math.max(value, min), max);
   }
-
-  function setUtilityView(name) {
-    const next = name === 'sysml' ? 'sysml' : 'text';
-    activeUtilityView = next;
-    utilityButtons.forEach(button => {
-      const active = button.dataset.utilityTab === next;
-      button.classList.toggle('active', active);
-      button.setAttribute('aria-selected', active ? 'true' : 'false');
-    });
-    utilityViews.forEach(view => {
-      const active = view.dataset.utilityView === next;
-      view.classList.toggle('active', active);
-      view.hidden = !active;
-    });
-  }
-
-  utilityButtons.forEach(button => {
-    button.addEventListener('click', () => setUtilityView(button.dataset.utilityTab));
-  });
-
-  setUtilityView(detachedUtilityWindow ? requestedUtilityView : 'text');
 
   function panelIsDockedUsable(name) {
     const panel = panels.get(name);
@@ -67,18 +49,28 @@
   function refreshSplitters() {
     if (splitters.completion) {
       splitters.completion.hidden = !(
-        panelIsDockedUsable('completion') && panelIsDockedUsable('chat')
+        panelIsDockedUsable('completion') &&
+        (panelIsDockedUsable('chat') || panelIsDockedUsable('text') || panelIsDockedUsable('sysml'))
       );
     }
-    if (splitters.model) {
-      splitters.model.hidden = !(
-        panelIsDockedUsable('chat') && panelIsDockedUsable('model')
+    if (splitters.text) {
+      splitters.text.hidden = !(
+        panelIsDockedUsable('text') &&
+        (panelIsDockedUsable('chat') || panelIsDockedUsable('completion'))
+      );
+    }
+    if (splitters.sysml) {
+      splitters.sysml.hidden = !(
+        panelIsDockedUsable('sysml') &&
+        (panelIsDockedUsable('text') || panelIsDockedUsable('chat') || panelIsDockedUsable('completion'))
       );
     }
   }
 
   function panelIsExternallyVisible(name) {
-    return name === 'model' && Boolean(utilityPopup && !utilityPopup.closed);
+    if (!outputPanelNames.has(name)) return false;
+    const popup = outputPopups.get(name);
+    return Boolean(popup && !popup.closed);
   }
 
   function refreshPanelToggle(name) {
@@ -90,7 +82,12 @@
     button.setAttribute('aria-pressed', visible ? 'true' : 'false');
   }
 
+  function outputPanelLabel(name) {
+    return name === 'sysml' ? 'SysML V2' : 'pseudo-code';
+  }
+
   function refreshPanelControls(panel) {
+    const name = panel.dataset.panel;
     const floating = panel.classList.contains('is-floating');
     const minimized = panel.classList.contains('is-minimized');
     const maximized = panel.classList.contains('is-maximized');
@@ -99,13 +96,13 @@
     const maximizeButton = panel.querySelector('[data-panel-action="maximize"]');
 
     if (dockButton) {
-      if (detachedUtilityWindow && panel.dataset.panel === 'model') {
+      if (detachedOutputWindow && name === detachedPanelName) {
         dockButton.textContent = '↙';
-        dockButton.title = 'Dock view in the main browser window';
+        dockButton.title = `Dock ${outputPanelLabel(name)} in the main browser window`;
       } else {
         dockButton.textContent = floating ? '↙' : '↗';
-        dockButton.title = panel.dataset.panel === 'model' && !floating
-          ? 'Open active view in a new browser window'
+        dockButton.title = outputPanelNames.has(name) && !floating
+          ? `Open ${outputPanelLabel(name)} in a new browser window`
           : floating ? 'Dock panel' : 'Undock panel';
       }
       dockButton.setAttribute('aria-label', dockButton.title);
@@ -116,10 +113,11 @@
       minimizeButton.setAttribute('aria-label', minimizeButton.title);
     }
     if (maximizeButton) {
-      maximizeButton.textContent = maximized || document.fullscreenElement ? '❐' : '□';
-      maximizeButton.title = maximized || document.fullscreenElement
+      const fullscreenForThisPanel = document.fullscreenElement && detachedOutputWindow && name === detachedPanelName;
+      maximizeButton.textContent = maximized || fullscreenForThisPanel ? '❐' : '□';
+      maximizeButton.title = maximized || fullscreenForThisPanel
         ? 'Restore panel size'
-        : panel.dataset.panel === 'model' ? 'Full screen panel' : 'Maximize panel';
+        : outputPanelNames.has(name) ? 'Full screen panel' : 'Maximize panel';
       maximizeButton.setAttribute('aria-label', maximizeButton.title);
     }
   }
@@ -152,71 +150,71 @@
     refreshSplitters();
   }
 
-  function stopUtilityPopupMonitor() {
-    if (utilityPopupMonitor) {
-      window.clearInterval(utilityPopupMonitor);
-      utilityPopupMonitor = null;
-    }
+  function stopOutputPopupMonitor(name) {
+    const monitor = outputPopupMonitors.get(name);
+    if (monitor) window.clearInterval(monitor);
+    outputPopupMonitors.delete(name);
   }
 
-  function redockUtilityPanel({closePopup = false} = {}) {
-    if (detachedUtilityWindow) return;
-    const panel = panels.get('model');
+  function redockOutputPanel(name, {closePopup = false} = {}) {
+    if (detachedOutputWindow || !outputPanelNames.has(name)) return;
+    const panel = panels.get(name);
     if (!panel) return;
+    const popup = outputPopups.get(name);
 
-    if (closePopup && utilityPopup && !utilityPopup.closed) {
-      utilityPopup.close();
-    }
-    stopUtilityPopupMonitor();
-    utilityPopup = null;
+    if (closePopup && popup && !popup.closed) popup.close();
+    stopOutputPopupMonitor(name);
+    outputPopups.delete(name);
     panel.classList.remove('is-detached');
     panel.hidden = false;
-    refreshPanelToggle('model');
+    refreshPanelToggle(name);
     refreshPanelControls(panel);
     refreshSplitters();
   }
 
-  function openUtilityBrowserWindow(panel) {
-    if (detachedUtilityWindow) return;
-    if (utilityPopup && !utilityPopup.closed) {
-      utilityPopup.focus();
+  function openOutputBrowserWindow(name) {
+    if (detachedOutputWindow || !outputPanelNames.has(name)) return;
+    const panel = panels.get(name);
+    if (!panel) return;
+
+    const existing = outputPopups.get(name);
+    if (existing && !existing.closed) {
+      existing.focus();
       return;
     }
 
     const url = new URL(window.location.href);
-    url.searchParams.set('detachedPanel', 'utility');
-    url.searchParams.set('utilityView', activeUtilityView);
-    const popupName = `mbse-${activeUtilityView}-output`;
-    utilityPopup = window.open(
+    url.searchParams.delete('utilityView');
+    url.searchParams.set('detachedPanel', name);
+    const popupName = `mbse-${name}-output`;
+    const popup = window.open(
       url.toString(),
       popupName,
       'popup=yes,width=760,height=900,resizable=yes,scrollbars=yes'
     );
 
-    if (!utilityPopup) {
+    if (!popup) {
       const status = document.getElementById('statusLine');
       if (status) status.textContent = 'The browser blocked the new panel window. Allow pop-ups for this local app and try again.';
       return;
     }
 
+    outputPopups.set(name, popup);
     panel.classList.remove('is-minimized', 'is-maximized');
     panel.classList.add('is-detached');
     panel.hidden = true;
-    refreshPanelToggle('model');
+    refreshPanelToggle(name);
     refreshSplitters();
 
-    stopUtilityPopupMonitor();
-    utilityPopupMonitor = window.setInterval(() => {
-      if (!utilityPopup || utilityPopup.closed) {
-        redockUtilityPanel();
-      }
-    }, 500);
+    stopOutputPopupMonitor(name);
+    outputPopupMonitors.set(name, window.setInterval(() => {
+      const current = outputPopups.get(name);
+      if (!current || current.closed) redockOutputPanel(name);
+    }, 500));
   }
 
   function toggleMinimize(panel) {
-    if (panel.classList.contains('is-maximized')) {
-      panel.classList.remove('is-maximized');
-    }
+    if (panel.classList.contains('is-maximized')) panel.classList.remove('is-maximized');
     panel.classList.toggle('is-minimized');
     refreshPanelControls(panel);
     refreshSplitters();
@@ -224,11 +222,8 @@
 
   async function toggleDetachedFullscreen(panel) {
     try {
-      if (document.fullscreenElement) {
-        await document.exitFullscreen();
-      } else {
-        await document.documentElement.requestFullscreen();
-      }
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await document.documentElement.requestFullscreen();
     } catch (_error) {
       panel.classList.toggle('is-maximized');
     }
@@ -236,13 +231,12 @@
   }
 
   function toggleMaximize(panel) {
-    if (detachedUtilityWindow && panel.dataset.panel === 'model') {
+    const name = panel.dataset.panel;
+    if (detachedOutputWindow && name === detachedPanelName) {
       void toggleDetachedFullscreen(panel);
       return;
     }
-    if (panel.classList.contains('is-minimized')) {
-      panel.classList.remove('is-minimized');
-    }
+    if (panel.classList.contains('is-minimized')) panel.classList.remove('is-minimized');
     panel.classList.toggle('is-maximized');
     refreshPanelControls(panel);
     refreshSplitters();
@@ -252,13 +246,14 @@
     const panel = panels.get(name);
     if (!panel) return;
 
-    if (name === 'model' && panelIsExternallyVisible(name)) {
+    if (outputPanelNames.has(name) && panelIsExternallyVisible(name)) {
       if (visible) {
-        redockUtilityPanel({closePopup: true});
+        redockOutputPanel(name, {closePopup: true});
       } else {
-        if (utilityPopup && !utilityPopup.closed) utilityPopup.close();
-        stopUtilityPopupMonitor();
-        utilityPopup = null;
+        const popup = outputPopups.get(name);
+        if (popup && !popup.closed) popup.close();
+        stopOutputPopupMonitor(name);
+        outputPopups.delete(name);
         panel.classList.remove('is-detached');
         panel.hidden = true;
       }
@@ -275,9 +270,12 @@
   }
 
   function requestRedockFromDetachedWindow() {
-    if (!detachedUtilityWindow) return;
+    if (!detachedOutputWindow || !detachedPanelName) return;
     if (window.opener && !window.opener.closed) {
-      window.opener.postMessage({type: 'mbse-redock-utility'}, window.location.origin);
+      window.opener.postMessage(
+        {type: 'mbse-redock-output', panel: detachedPanelName},
+        window.location.origin
+      );
     }
     window.close();
   }
@@ -291,9 +289,9 @@
         event.stopPropagation();
         const action = button.dataset.panelAction;
         if (action === 'dock') {
-          if (name === 'model') {
-            if (detachedUtilityWindow) requestRedockFromDetachedWindow();
-            else openUtilityBrowserWindow(panel);
+          if (outputPanelNames.has(name)) {
+            if (detachedOutputWindow && name === detachedPanelName) requestRedockFromDetachedWindow();
+            else openOutputBrowserWindow(name);
           } else if (panel.classList.contains('is-floating')) {
             dockPanel(panel);
           } else {
@@ -304,11 +302,8 @@
         } else if (action === 'maximize') {
           toggleMaximize(panel);
         } else if (action === 'close') {
-          if (detachedUtilityWindow && name === 'model') {
-            requestRedockFromDetachedWindow();
-          } else {
-            setPanelVisible(name, false);
-          }
+          if (detachedOutputWindow && name === detachedPanelName) requestRedockFromDetachedWindow();
+          else setPanelVisible(name, false);
         }
       });
     });
@@ -349,15 +344,15 @@
     button.addEventListener('click', () => {
       const panel = panels.get(name);
       if (!panel) return;
-      if (name === 'model' && panelIsExternallyVisible(name)) {
-        redockUtilityPanel({closePopup: true});
+      if (outputPanelNames.has(name) && panelIsExternallyVisible(name)) {
+        redockOutputPanel(name, {closePopup: true});
         return;
       }
       setPanelVisible(name, panel.hidden);
     });
   });
 
-  function installSplitter(splitter, cssVariable, panelName, minWidth, maxWidth) {
+  function installSplitter(splitter, cssVariable, panelName, minWidth, maxWidth, direction = 'right') {
     if (!splitter) return;
     splitter.addEventListener('pointerdown', event => {
       if (!panelIsDockedUsable(panelName)) return;
@@ -370,9 +365,7 @@
 
       const onMove = moveEvent => {
         const delta = moveEvent.clientX - startX;
-        const next = panelName === 'completion'
-          ? startWidth + delta
-          : startWidth - delta;
+        const next = direction === 'left' ? startWidth + delta : startWidth - delta;
         document.documentElement.style.setProperty(
           cssVariable,
           `${clamp(next, minWidth, Math.min(maxWidth, window.innerWidth * .55))}px`
@@ -390,8 +383,9 @@
     });
   }
 
-  installSplitter(splitters.completion, '--completion-width', 'completion', 190, 520);
-  installSplitter(splitters.model, '--model-width', 'model', 300, 760);
+  installSplitter(splitters.completion, '--completion-width', 'completion', 190, 520, 'left');
+  installSplitter(splitters.text, '--text-width', 'text', 280, 760, 'right');
+  installSplitter(splitters.sysml, '--sysml-width', 'sysml', 260, 700, 'right');
 
   function countCharacteristics(nodes) {
     return nodes.reduce(
@@ -534,32 +528,39 @@
     button.addEventListener('click', event => event.preventDefault());
   });
 
-  if (detachedUtilityWindow) {
-    document.body.classList.add('detached-utility-window');
-    const modelPanel = panels.get('model');
-    if (modelPanel) {
-      modelPanel.hidden = false;
-      modelPanel.classList.remove('is-detached', 'is-floating', 'is-minimized', 'is-maximized');
-      refreshPanelControls(modelPanel);
-    }
+  if (detachedOutputWindow && detachedPanelName) {
+    document.body.classList.add('detached-output-window');
+    panels.forEach((panel, name) => {
+      const target = name === detachedPanelName;
+      panel.hidden = !target;
+      panel.classList.toggle('detached-target', target);
+      if (target) {
+        panel.classList.remove('is-detached', 'is-floating', 'is-minimized', 'is-maximized');
+        refreshPanelControls(panel);
+      }
+    });
     window.addEventListener('beforeunload', () => {
       if (window.opener && !window.opener.closed) {
-        window.opener.postMessage({type: 'mbse-utility-window-closed'}, window.location.origin);
+        window.opener.postMessage(
+          {type: 'mbse-output-window-closed', panel: detachedPanelName},
+          window.location.origin
+        );
       }
     });
   } else {
     window.addEventListener('message', event => {
       if (event.origin !== window.location.origin) return;
       if (!event.data || typeof event.data !== 'object') return;
-      if (event.data.type === 'mbse-redock-utility' || event.data.type === 'mbse-utility-window-closed') {
-        redockUtilityPanel();
+      const name = event.data.panel;
+      if (!outputPanelNames.has(name)) return;
+      if (event.data.type === 'mbse-redock-output' || event.data.type === 'mbse-output-window-closed') {
+        redockOutputPanel(name);
       }
     });
   }
 
   document.addEventListener('fullscreenchange', () => {
-    const modelPanel = panels.get('model');
-    if (modelPanel) refreshPanelControls(modelPanel);
+    panels.forEach(panel => refreshPanelControls(panel));
   });
 
   window.addEventListener('resize', refreshSplitters);
