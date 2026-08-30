@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import app_base as _base
 from app_base import *  # noqa: F401,F403 - preserve the public surface of app.py
+from change_impact_refinement import install_change_impact_refinement_support
 from characteristic_edit import install_characteristic_edit_support
 from characteristic_operators import install_characteristic_operator_support
 from characteristics_flow import CharacteristicsFlowMixin
@@ -16,11 +17,12 @@ from participant_flow import ParticipantFlowMixin
 
 
 # Extend the central graph before any OAApp instance is created. The installers
-# patch the shared graph class in place, which also keeps the web autosave
-# subclass aligned with the terminal model without replacing its graph factory.
+# patch the shared graph/refinement classes in place, which also keeps the web
+# autosave subclass aligned with the terminal model without replacing its graph factory.
 install_operational_actor_composition_support()
 install_characteristic_operator_support()
 install_characteristic_edit_support()
+install_change_impact_refinement_support()
 
 
 class OAApp(
