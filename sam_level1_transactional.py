@@ -173,38 +173,113 @@ def _project_elements(project: Any) -> list[Any]:
     return []
 
 
-def _owner(value: Any) -> Any:
-    for attr in ("owner", "_owner"):
+def _attribute_values(value: Any, attrs: tuple[str, ...]) -> list[Any]:
+    """Collect mapped values without assuming PySAM's JSON naming convention.
+
+    PySAM's scripting mapper stores server JSON keys verbatim behind an underscore
+    (for example ``owningNamespace`` becomes ``_owningNamespace``), while test
+    doubles and some native classes expose snake_case properties. Fresh SAM reloads
+    can therefore differ from the objects created in the active transaction.
+    """
+    result: list[Any] = []
+    for attr in attrs:
         try:
             candidate = getattr(value, attr, None)
         except Exception:
             candidate = None
-        if candidate is not None:
-            return candidate
-    return None
+        if candidate is None:
+            continue
+        if isinstance(candidate, (list, tuple, set)):
+            result.extend(item for item in candidate if item is not None)
+        else:
+            result.append(candidate)
+    return result
+
+
+def _owner_candidates(value: Any) -> list[Any]:
+    return _attribute_values(
+        value,
+        (
+            "owner",
+            "_owner",
+            "owning_namespace",
+            "_owning_namespace",
+            "owningNamespace",
+            "_owningNamespace",
+            "owning_type",
+            "_owning_type",
+            "owningType",
+            "_owningType",
+        ),
+    )
 
 
 def _is_owned_by(value: Any, owner: Any) -> bool:
-    owner_value = _owner(value)
     owner_id = _element_id(owner)
-    if owner_value is owner:
-        return True
-    if owner_id and _element_id(owner_value) == owner_id:
-        return True
-    if owner_id and isinstance(owner_value, str) and owner_value == owner_id:
-        return True
+    for owner_value in _owner_candidates(value):
+        if owner_value is owner:
+            return True
+        if owner_id and _element_id(owner_value) == owner_id:
+            return True
+        if owner_id and isinstance(owner_value, str) and owner_value == owner_id:
+            return True
     return False
 
 
-def _children(project: Any, owner: Any) -> list[Any]:
-    for attr in ("_ownedElement", "owned_element", "ownedElement", "_owned_element"):
+def _resolve_project_value(project: Any, value: Any) -> Any:
+    """Resolve ID-only values emitted by the scripting mapper when possible."""
+    if not isinstance(value, str):
+        return value
+    finder = getattr(project, "find_element_by_id", None)
+    if callable(finder):
         try:
-            value = getattr(owner, attr, None)
+            resolved = finder(value)
         except Exception:
-            value = None
-        if isinstance(value, (list, tuple)):
-            return list(value)
-    return [item for item in _project_elements(project) if _is_owned_by(item, owner)]
+            resolved = None
+        if resolved is not None:
+            return resolved
+    for item in _project_elements(project):
+        if _element_id(item) == value:
+            return item
+    return value
+
+
+def _children(project: Any, owner: Any) -> list[Any]:
+    """Return children across transactional and freshly reloaded PySAM shapes.
+
+    Never return early just because an ``ownedElement`` collection exists: SAM can
+    reload that derived collection as empty while each child still carries an
+    ``owningNamespace`` reference. We therefore merge both directions.
+    """
+    candidates = _attribute_values(
+        owner,
+        (
+            "owned_element",
+            "_owned_element",
+            "ownedElement",
+            "_ownedElement",
+            "owned_member",
+            "_owned_member",
+            "ownedMember",
+            "_ownedMember",
+        ),
+    )
+    candidates.extend(item for item in _project_elements(project) if _is_owned_by(item, owner))
+
+    result: list[Any] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        resolved = _resolve_project_value(project, candidate)
+        identity = _element_id(resolved)
+        if identity is None and isinstance(resolved, str):
+            identity = f"id:{resolved}"
+        if identity is None:
+            identity = f"object:{id(resolved)}"
+        if identity in seen:
+            continue
+        seen.add(identity)
+        result.append(resolved)
+    return result
 
 
 def _element_name(value: Any) -> str:
@@ -274,26 +349,49 @@ def _library_status_from_project(project: Any) -> dict[str, Any]:
     marker = _unique_match(project, ARCADIA_OA_LIBRARY_MARKER)
     definitions: dict[str, Any] = {}
     namespace = None
+    marker_in_package = None
     if package is not None:
+        marker_in_package = _descendant_named(project, package, ARCADIA_OA_LIBRARY_MARKER)
         namespace = _descendant_named(project, package, ARCADIA_OA_NAMESPACE)
         if namespace is not None:
             for name in _REQUIRED_DEFINITIONS:
                 definitions[name] = _descendant_named(project, namespace, name)
 
     missing = [name for name in _REQUIRED_DEFINITIONS if definitions.get(name) is None]
-    loaded = package is not None and marker is not None and namespace is not None and not missing
+    loaded = (
+        package is not None
+        and marker is not None
+        and marker_in_package is not None
+        and namespace is not None
+        and not missing
+    )
     return {
         "loaded": loaded,
         "package_name": ARCADIA_OA_LIBRARY_PACKAGE,
         "package_id": _element_id(package) if package is not None else None,
         "namespace_name": ARCADIA_OA_NAMESPACE,
+        "namespace_id": _element_id(namespace) if namespace is not None else None,
         "completion_marker_name": ARCADIA_OA_LIBRARY_MARKER,
         "completion_marker_id": _element_id(marker) if marker is not None else None,
+        "completion_marker_scoped": marker_in_package is not None,
         "missing_definitions": missing,
         "definitions": definitions,
         "package": package,
         "namespace": namespace,
     }
+
+
+def _library_diagnostic(status: dict[str, Any]) -> str:
+    missing = status.get("missing_definitions") or []
+    parts = [
+        f"package={'yes' if status.get('package_id') else 'no'}",
+        f"marker={'yes' if status.get('completion_marker_id') else 'no'}",
+        f"marker_scoped={'yes' if status.get('completion_marker_scoped') else 'no'}",
+        f"namespace={'yes' if status.get('namespace_id') else 'no'}",
+    ]
+    if missing:
+        parts.append("missing=" + ",".join(str(item) for item in missing))
+    return "; ".join(parts)
 
 
 def get_arcadia_oa_library_status(
@@ -354,9 +452,9 @@ def ensure_arcadia_oa_library(
         }
     if current["package"] is not None or current["completion_marker_id"] is not None:
         raise SamLevel1SyncError(
-            "The managed ArcadiaOA library exists in SAM but is incomplete. Rename or "
-            "remove that managed library package before retrying; MBSE-App will not "
-            "create a duplicate library."
+            "The managed ArcadiaOA library is present in SAM but could not be verified "
+            "as complete after reload. MBSE-App will not create a duplicate. "
+            f"Diagnostic: {_library_diagnostic(current)}"
         )
 
     root = project.get_root_package()
@@ -386,7 +484,9 @@ def ensure_arcadia_oa_library(
     if not verified["loaded"]:
         raise SamLevel1SyncError(
             "SAM accepted the ArcadiaOA library transaction, but fresh verification did "
-            "not find a complete managed library."
+            "not find a complete managed library. MBSE-App will reuse the committed "
+            "package on the next attempt rather than creating a duplicate. "
+            f"Diagnostic: {_library_diagnostic(verified)}"
         )
     verify_seconds = perf_counter() - verify_started
     return {
@@ -419,7 +519,8 @@ def _resolved_library_definitions(project: Any) -> tuple[dict[str, Any], dict[st
     status = _library_status_from_project(project)
     if not status["loaded"]:
         raise SamLevel1SyncError(
-            "The ArcadiaOA library must be loaded and verified before model instantiation."
+            "The ArcadiaOA library must be loaded and verified before model instantiation. "
+            f"Diagnostic: {_library_diagnostic(status)}"
         )
     return status["definitions"], status
 
