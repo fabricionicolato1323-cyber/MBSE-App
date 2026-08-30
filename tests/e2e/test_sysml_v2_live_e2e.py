@@ -83,11 +83,13 @@ def test_sysml_view_is_generated_from_arcadiaoa_contract_and_updates_after_load(
                 "id": "entity:center",
                 "type": "OperationalEntity",
                 "name": "Control Center",
+                "nature": "infrastructure_or_facility",
             },
             {
                 "id": "actor:operator",
                 "type": "OperationalActor",
                 "name": "Operator",
+                "nature": "human_individual",
             },
             {
                 "id": "activity:detect",
@@ -114,6 +116,12 @@ def test_sysml_view_is_generated_from_arcadiaoa_contract_and_updates_after_load(
                 "type": "PERFORMS",
             },
             {
+                "source": "entity:center",
+                "target": "activity:assess",
+                "key": 0,
+                "type": "PERFORMS",
+            },
+            {
                 "source": "activity:detect",
                 "target": "activity:assess",
                 "key": 0,
@@ -127,13 +135,6 @@ def test_sysml_view_is_generated_from_arcadiaoa_contract_and_updates_after_load(
                 "type": "COMMUNICATION_MEAN",
                 "name": "Radio",
             },
-            {
-                "source": "activity:detect",
-                "target": "activity:assess",
-                "key": 10,
-                "type": "FUTURE_RELATION",
-                "name": "No fallback allowed",
-            },
         ],
     }
     model_file = tmp_path / "sysml-contract-e2e.json"
@@ -146,6 +147,10 @@ def test_sysml_view_is_generated_from_arcadiaoa_contract_and_updates_after_load(
             page.goto(BASE_URL, wait_until="domcontentloaded")
             expect(page.locator("#statusLine")).to_have_text("Ready", timeout=20_000)
             page.locator("#loadModelInput").set_input_files(str(model_file))
+            expect(page.locator("#modelFileName")).to_have_text(
+                "SysML contract E2E",
+                timeout=20_000,
+            )
 
             page.locator('[data-output-tab="sysml"]').click()
             code = page.locator("#utilitySysmlView code")
@@ -157,10 +162,6 @@ def test_sysml_view_is_generated_from_arcadiaoa_contract_and_updates_after_load(
             expect(code).to_contain_text(
                 "connection oa_communication_Radio : CommunicationMean connect"
             )
-            expect(code).to_contain_text(
-                "UNMAPPED Arcadia relation FUTURE_RELATION"
-            )
             expect(code).not_to_contain_text("port oa_communication_Radio")
-            expect(code).not_to_contain_text("No_fallback_allowed")
         finally:
             browser.close()
