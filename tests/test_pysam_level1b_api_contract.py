@@ -25,6 +25,7 @@ class PySAMLevel1BAPIContractTests(unittest.TestCase):
             "create_flow_connection_usage",
             "create_connection_usage",
             "create_allocation_usage",
+            "create_satisfy_requirement_usage",
             "create_reference_usage",
             "create_succession",
             "create_textual_representation",
