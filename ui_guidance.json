@@ -8,6 +8,48 @@
     "noun phrase — real-world communication method": "<real-world communication method>",
     "Short English phrase": "<short English phrase>"
   },
+  "loaded_model": {
+    "intent_question": "What would you like to do with the loaded model?",
+    "intent_explanation": "Choose whether you want to work with something already in the model or add something new.",
+    "intents": [
+      {
+        "id": "modify",
+        "label": "Change something that already exists"
+      },
+      {
+        "id": "add",
+        "label": "Add something new"
+      }
+    ],
+    "category_question": "Which part of the model?",
+    "category_explanation": "Choose the kind of model information you want to work with. The formal Arcadia concepts remain unchanged underneath this simpler wording.",
+    "categories": [
+      {
+        "id": "goal",
+        "label": "Goals"
+      },
+      {
+        "id": "participants",
+        "label": "People, organizations, places, or systems involved"
+      },
+      {
+        "id": "activity",
+        "label": "Activities"
+      },
+      {
+        "id": "exchange",
+        "label": "Information or material exchanged"
+      },
+      {
+        "id": "communication",
+        "label": "Means of communication"
+      },
+      {
+        "id": "characteristics",
+        "label": "Characteristics and limits"
+      }
+    ]
+  },
   "policy": {
     "allow_literal_domain_examples": false,
     "fallback": "none"
