@@ -173,6 +173,7 @@
   }
 
   window.addEventListener('oa:diagram-model-rendered', scheduleSeparation);
+  window.addEventListener('oa:interaction-anchors-updated', scheduleSeparation);
   window.addEventListener('pointerup', scheduleSeparation, {capture: true});
   window.addEventListener('resize', scheduleSeparation);
 
