@@ -52,16 +52,18 @@ class DirectLoadedModelResumeMixin:
         )
 
     def _loaded_change_mode(self, concept: str) -> str:
-        label = self._LOADED_CONCEPT_LABELS[concept]
+        # Keep the second step intentionally generic. The selected Arcadia concept
+        # remains visible as the preceding user choice, while the normal web UI is
+        # free to use its established beginner-friendly vocabulary afterward.
         return self.ask_choice(
-            f"What would you like to do with {label}?",
+            "What would you like to do?",
             [
                 ("modify", "Modify existing"),
                 ("add", "Add new"),
             ],
             (
                 "Modify existing continues with an element already in the model. "
-                "Add new enters the normal creation flow for this concept."
+                "Add new enters the normal creation flow for the selected concept."
             ),
         )
 
