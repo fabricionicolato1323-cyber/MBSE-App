@@ -1,4 +1,4 @@
-"""Post-write verification for SAM Level 1 transfers."""
+"""Post-write verification for managed SAM Level 1 transfers."""
 
 from __future__ import annotations
 
@@ -6,12 +6,9 @@ from time import perf_counter
 from typing import Any
 
 from sam_connection import SamSettings
-from sam_level1_direct import sync_level1_to_sam_direct
+from sam_level1_managed_direct import sync_level1_to_sam_managed_direct
 from sam_level1_sync import SamLevel1SyncError
-from sam_level1_transactional import (
-    level1_completion_marker_name,
-    sync_level1_to_sam_transactional,
-)
+from sam_level1_transactional import level1_completion_marker_name
 
 
 def _element_id(element: Any) -> str | None:
@@ -59,36 +56,36 @@ def verify_level1_package(
     *,
     snapshot_digest: str | None = None,
     completion_marker_name: str | None = None,
+    require_completion_marker: bool = True,
     connector_class: type[Any] | None = None,
     project_manager_class: type[Any] | None = None,
 ) -> dict[str, Any]:
-    """Reload SAM and prove that both instantiation and completion marker exist."""
+    """Reload SAM and prove that the final managed Level 1 instance exists."""
     project = _load_project(
         settings,
         connector_class=connector_class,
         project_manager_class=project_manager_class,
     )
     matches = list(project.find_elements_by_name(package_name) or [])
-    if not matches:
+    if len(matches) != 1:
         raise SamLevel1SyncError(
-            "SAM accepted the transfer call, but the Level 1 model instantiation was not "
-            "found after the project was reloaded. The transfer is therefore not marked "
-            "as synchronized."
+            "SAM accepted the transfer call, but a fresh project reload did not find "
+            "exactly one final Level 1 model instantiation."
         )
 
     marker_name = completion_marker_name
-    if not marker_name and snapshot_digest:
+    if require_completion_marker and not marker_name and snapshot_digest:
         marker_name = level1_completion_marker_name(snapshot_digest)
-    if marker_name:
+    if require_completion_marker and marker_name:
         marker_matches = list(project.find_elements_by_name(marker_name) or [])
         if not marker_matches:
             raise SamLevel1SyncError(
                 "The Level 1 model instantiation exists in SAM, but its completion marker "
-                "was not found after a fresh project reload. The instantiation is treated "
-                "as incomplete and is not marked as synchronized."
+                "was not found after a fresh project reload."
             )
     else:
         marker_matches = []
+        marker_name = None
 
     return {
         "verified_in_sam": True,
@@ -102,25 +99,6 @@ def verify_level1_package(
     }
 
 
-def _transactional_new_elements_were_not_materialized(exc: Exception) -> bool:
-    """Detect the live-SAM case where an HTTP-200 transaction creates no elements.
-
-    PySAM 0.3.1 uses client-generated identities for elements created while a
-    ScriptingProject is in transaction mode. Some SAM deployments accept that commit
-    request but do not materialize those new identities in ``commits/head/elements``.
-    Only fall back when an independent reload proves that no managed library artifact
-    exists at all; a partial transaction must never be hidden by a second writer.
-    """
-    message = str(exc)
-    required = (
-        "uncached server verification did not find a complete managed library",
-        "package=no",
-        "marker=no",
-        "namespace=no",
-    )
-    return all(fragment in message for fragment in required)
-
-
 def sync_level1_to_sam_verified(
     payload: Any,
     *,
@@ -131,51 +109,28 @@ def sync_level1_to_sam_verified(
     project_manager_class: type[Any] | None = None,
     factory_class: type[Any] | None = None,
 ) -> dict[str, Any]:
-    """Write Level 1 using the fast path, fall back safely, then verify by fresh read."""
+    """Create/reuse one shared library, publish one instance, then verify it fresh."""
     total_started = perf_counter()
-    fallback: dict[str, Any] | None = None
-    try:
-        result = sync_level1_to_sam_transactional(
-            payload,
-            scenarios=scenarios,
-            settings=settings,
-            expected_digest=expected_digest,
-            connector_class=connector_class,
-            project_manager_class=project_manager_class,
-            factory_class=factory_class,
-        )
-    except SamLevel1SyncError as exc:
-        if not _transactional_new_elements_were_not_materialized(exc):
-            raise
-        result = sync_level1_to_sam_direct(
-            payload,
-            scenarios=scenarios,
-            settings=settings,
-            expected_digest=expected_digest,
-            connector_class=connector_class,
-            project_manager_class=project_manager_class,
-            factory_class=factory_class,
-        )
-        fallback = {
-            "used": True,
-            "from": "transactional_new_element_create",
-            "to": str(result.get("mode") or "verified_direct_create_snapshot"),
-            "reason": (
-                "A fresh SAM head read showed that the transactional new-element "
-                "commit created no managed library artifacts. The transfer was retried "
-                "with PySAM direct create calls and server-generated element IDs."
-            ),
-        }
-
+    result = sync_level1_to_sam_managed_direct(
+        payload,
+        scenarios=scenarios,
+        settings=settings,
+        expected_digest=expected_digest,
+        connector_class=connector_class,
+        project_manager_class=project_manager_class,
+        factory_class=factory_class,
+    )
     if result.get("status") not in {"synced", "already_synced"}:
         return result
 
     verify_started = perf_counter()
+    require_marker = bool(result.get("completion_marker_required", True))
     verification = verify_level1_package(
         settings,
         str(result.get("package_name") or ""),
         snapshot_digest=str(result.get("snapshot_digest") or ""),
         completion_marker_name=str(result.get("completion_marker_name") or "") or None,
+        require_completion_marker=require_marker,
         connector_class=connector_class,
         project_manager_class=project_manager_class,
     )
@@ -183,11 +138,9 @@ def sync_level1_to_sam_verified(
     result.update(verification)
     if verification.get("verified_package_id"):
         result["sam_package_id"] = verification["verified_package_id"]
-    if fallback is not None:
-        result["transport_fallback"] = fallback
 
     timings = dict(result.get("timings") or {})
-    timings["verification_seconds"] = round(verification_seconds, 3)
+    timings["final_verification_seconds"] = round(verification_seconds, 3)
     timings["total_with_verification_seconds"] = round(perf_counter() - total_started, 3)
     result["timings"] = timings
     return result
