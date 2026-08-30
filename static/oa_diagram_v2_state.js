@@ -10,7 +10,7 @@ export const state = {
   session: 'default', model: {nodes: [], drafts: [], edges: []}, modelSignature: '',
   byId: new Map(), parent: new Map(), parentRelation: new Map(), children: new Map(), performersByActivity: new Map(),
   communicationMeans: [], layout: new Map(), invalidContainments: [], selected: new Set(),
-  mode: 'normal', showCapabilities: true, view: {x: 28, y: 28, zoom: 1},
+  mode: 'normal', showCapabilities: false, view: {x: 28, y: 28, zoom: 1},
   drag: null, suppressClickUntil: 0, ready: false,
 };
 
