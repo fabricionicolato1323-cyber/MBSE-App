@@ -90,13 +90,36 @@ def settings_from_env(
     )
 
 
+def _element_name(element: Any) -> str:
+    """Read a PySAM element name across dynamic/static representations."""
+    for attr in ("name", "_name"):
+        value = getattr(element, attr, None)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return ""
+
+
+def _element_id(element: Any) -> str | None:
+    for attr in ("id", "_id"):
+        value = getattr(element, attr, None)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return None
+
+
 def run_connection_test(
     settings: SamSettings,
     *,
     connector_class: type[Any] | None = None,
     project_manager_class: type[Any] | None = None,
 ) -> dict[str, Any]:
-    """Authenticate to SAM and load an existing project without modifying it."""
+    """Authenticate to SAM and load an existing project without modifying it.
+
+    The returned metadata is intentionally read-only and is also used by the
+    Level 1B preflight so the confirmation dialog names the project and root
+    package actually loaded from SAM rather than merely echoing environment
+    variables.
+    """
     if connector_class is None or project_manager_class is None:
         try:
             from ansys.sam.sysml2 import (  # type: ignore[import-not-found]
@@ -119,12 +142,31 @@ def run_connection_test(
     )
     manager = project_manager_class(connector=connector)
     project = manager.get_scripting_project(settings.project_id)
+    if project is None:
+        raise RuntimeError("The configured SAM project could not be loaded.")
+
+    root_package = project.get_root_package()
+    root_items = list(project.get_root() or [])
+    project_name = str(project.get_name() or "").strip()
+    actual_project_id = str(project.get_id() or settings.project_id).strip()
 
     return {
         "server_url": settings.server_url,
         "organization_id": settings.organization_id,
-        "project_id": settings.project_id,
-        "project_loaded": project is not None,
+        "project_id": actual_project_id,
+        "project_name": project_name,
+        "project_loaded": True,
+        "root_package_name": _element_name(root_package) or project_name,
+        "root_package_id": _element_id(root_package),
+        "top_level_items": [
+            {
+                "name": _element_name(item),
+                "id": _element_id(item),
+                "type": item.__class__.__name__,
+            }
+            for item in root_items
+        ],
+        "write_performed": False,
     }
 
 
@@ -133,7 +175,11 @@ def _print_success(result: Mapping[str, Any]) -> None:
     print(f"Server ............. {result['server_url']}")
     print("Authentication ..... OK")
     print(f"Organization ....... {result['organization_id']}")
-    print(f"Project ............ {result['project_id']}")
+    project_label = result.get("project_name") or result["project_id"]
+    print(f"Project ............ {project_label} ({result['project_id']})")
+    root_name = result.get("root_package_name")
+    if root_name:
+        print(f"Root package ....... {root_name}")
     print("Project load ....... OK")
     print()
     print("Connection test: PASSED")
