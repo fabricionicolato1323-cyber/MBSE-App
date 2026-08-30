@@ -14,6 +14,7 @@ from model_io import (
     prepare_model_export,
     validate_model_payload,
 )
+from ui_guidance import configured_section
 from web_ai import LocalAIServiceError, list_installed_models, load_web_ai_config
 from web_model_session import ModelFileSessionRegistry
 from web_ui_policy import should_track_temporary_input
@@ -60,6 +61,12 @@ def discover_local_ai_models() -> list[str]:
 def index():
     current_session()
     return render_template("index.html")
+
+
+@app.get("/api/ui-guidance/oa-help")
+def api_oa_help():
+    """Expose configurable, presentation-only Arcadia help to the web UI."""
+    return jsonify(configured_section("oa_help"))
 
 
 @app.get("/api/state")
