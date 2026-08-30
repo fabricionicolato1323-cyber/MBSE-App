@@ -10,6 +10,7 @@ on:
       - feature/model-file-save-load
       - feature/loaded-model-relational-resume
       - feature/oa-diagram-containment-routing
+      - feature/oa-window-layout-refactor
   pull_request:
     branches:
       - main
