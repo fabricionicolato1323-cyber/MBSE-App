@@ -162,7 +162,7 @@ def test_deletion_preview_is_red_orange_and_requires_confirmation(
             )
             _start_activity_delete(page)
 
-            expect(page.get_by_text("Delete 'Detect Threat'? (yes/no)", exact=True)).to_be_visible(
+            expect(page.get_by_text("Delete 'Detect Threat'?", exact=True)).to_be_visible(
                 timeout=20_000
             )
             expect(page.get_by_role("button", name="Yes", exact=True)).to_be_visible()
@@ -234,7 +234,7 @@ def test_deletion_preview_is_red_orange_and_requires_confirmation(
 
             # Repeat and confirm. Only now does the persisted model lose the activity.
             _start_activity_delete(page)
-            expect(page.get_by_text("Delete 'Detect Threat'? (yes/no)", exact=True)).to_be_visible(
+            expect(page.get_by_text("Delete 'Detect Threat'?", exact=True)).to_be_visible(
                 timeout=20_000
             )
             page.get_by_role("button", name="Yes", exact=True).click()
