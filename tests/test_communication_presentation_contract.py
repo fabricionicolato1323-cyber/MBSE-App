@@ -4,11 +4,26 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_communication_presentation_assets_are_loaded():
+def test_communication_presentation_assets_are_loaded_after_generic_projection_sync():
     loader = (ROOT / "static" / "model_relationships.js").read_text(encoding="utf-8")
+    assert "model_projection_sync.js" in loader
+    assert "data-model-projection-sync-script" in loader
+    assert "loadOutputRenderers" in loader
     assert "communication_presentation.js" in loader
     assert "communication_presentation.css" in loader
     assert "oaCommunicationPresentationScript" in loader
+
+
+def test_generic_projection_sync_uses_complete_model_content_not_field_allow_list():
+    script = (ROOT / "static" / "model_projection_sync.js").read_text(encoding="utf-8")
+    assert "canonicalValue" in script
+    assert "canonicalCollection(model?.nodes)" in script
+    assert "canonicalCollection(model?.drafts)" in script
+    assert "canonicalCollection(model?.edges)" in script
+    assert "mbse:model-projections-updated" in script
+    assert "register('pseudo-code'" in script
+    assert "register('details'" in script
+    assert "projectionSynchronizedApplyState" in script
 
 
 def test_textual_communication_is_a_hierarchy_with_explicit_carried_exchanges():
@@ -23,6 +38,20 @@ def test_textual_communication_is_a_hierarchy_with_explicit_carried_exchanges():
     assert ".tree-line.communication-carried-exchange" in style
     assert "margin-left: 18px" in style
     assert "border-left: 1px solid" in style
+
+
+def test_pseudo_code_exchanges_show_live_communication_assignment():
+    renderer = (ROOT / "static" / "revision_model.js").read_text(encoding="utf-8")
+    presentation = (ROOT / "static" / "communication_presentation.js").read_text(encoding="utf-8")
+    assert "operational-exchange-tree-item" in renderer
+    assert "dataset.exchangeSource" in renderer
+    assert "dataset.exchangeTarget" in renderer
+    assert "dataset.exchangeName" in renderer
+    assert "communicationAssignmentsByExchange" in presentation
+    assert "Communication: Unassigned" in presentation
+    assert "Communication: ${names.join(', ')}" in presentation
+    assert "exchange-communication-line" in presentation
+    assert "mbse:model-projections-updated" in presentation
 
 
 def test_diagram_communication_label_shows_mean_endpoints_and_exchange_names():
