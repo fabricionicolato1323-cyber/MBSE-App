@@ -1,20 +1,13 @@
 /* Interaction enhancements layered on top of the Capella-compatible OA diagram style. */
 
-/* The Text workspace is a vertical flex column. Its active sub-view must consume
-   the remaining height; otherwise Diagram sizes itself only to its minimum
-   content and leaves a large unused area below the status bar. */
-#utilityTextView.active {
-  overflow: hidden;
-}
-
-#utilityTextView > .tab-content.active {
+/* Diagram is now a first-class view in the single docked Model output sidebar.
+   When active it must consume the entire content row between the output tabs and
+   the bottom of the panel, both docked and in its detached browser window. */
+#diagramTab.active {
+  display: flex !important;
   flex: 1 1 0;
   min-height: 0;
   height: auto;
-}
-
-#utilityTextView > #diagramTab.active {
-  display: flex;
   flex-direction: column;
   overflow: hidden;
 }
