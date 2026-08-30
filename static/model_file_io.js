@@ -224,6 +224,7 @@ import('./oa_scenario_projection_fix.js')
   })
   .then(() => import('./oa_scenario.js'))
   .then(() => import('./oa_scenario_ui_fixes.js'))
+  .then(() => import('./oa_interaction_anchor_drag.js'))
   .then(() => import('./oa_interaction_overlap_routing.js'))
   .then(() => import('./oa_scenario_pseudocode_compact.js'))
   .catch(error => {
