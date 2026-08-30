@@ -104,7 +104,15 @@ def test_loaded_model_new_action_continues_to_relationship_question(web_server, 
                     exact=True,
                 )
             ).to_have_count(0)
-            page.get_by_role("button", name="Add new action", exact=True).click()
+
+            page.get_by_role("button", name="Operational Activity", exact=True).click()
+            expect(
+                page.get_by_text(
+                    "What would you like to do with Operational Activity?",
+                    exact=True,
+                )
+            ).to_be_visible(timeout=20_000)
+            page.get_by_role("button", name="Add new", exact=True).click()
 
             expect(page.get_by_text("What is the new action?", exact=True)).to_be_visible(timeout=20_000)
             composer = page.locator("#messageInput")
@@ -182,12 +190,19 @@ def test_loaded_participant_can_be_placed_in_existing_operational_area(web_serve
             expect(
                 page.get_by_text("What would you like to change in the loaded model?", exact=True)
             ).to_be_visible(timeout=20_000)
-            page.get_by_role("button", name="Refine existing participants and actions", exact=True).click()
+            page.get_by_role("button", name="Operational Actor", exact=True).click()
+            expect(
+                page.get_by_text(
+                    "What would you like to do with Operational Actor?",
+                    exact=True,
+                )
+            ).to_be_visible(timeout=20_000)
+            page.get_by_role("button", name="Modify existing", exact=True).click()
 
             expect(
-                page.get_by_text("Which participant or action would you like to work on?", exact=True)
+                page.get_by_text("Which Operational Actor would you like to modify?", exact=True)
             ).to_be_visible(timeout=20_000)
-            page.get_by_role("button", name="Participant: Soldier", exact=True).click()
+            page.get_by_role("button", name="Soldier", exact=True).click()
 
             expect(
                 page.get_by_text("What would you like to refine for 'Soldier'?", exact=True)
