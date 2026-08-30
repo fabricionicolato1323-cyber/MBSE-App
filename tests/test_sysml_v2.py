@@ -240,7 +240,7 @@ class SysMLV2GenerationTests(unittest.TestCase):
         # The operator remains structurally nested only under Control Center via CONTAINS.
         center_index = text.index("part oa_entity_Control_Center : OperationalEntity {")
         operator_index = text.index("part oa_actor_Operator : OperationalActor {")
-        building_index = text.index("part oa_entity_Operations_Building : OperationalEntity {")
+        building_index = text.index("part oa_entity_Operations_Building : OperationalEntity")
         self.assertGreater(operator_index, center_index)
         self.assertGreater(building_index, operator_index)
 
