@@ -1,25 +1,17 @@
 """Reliable direct-create writer for SAM Level 1B snapshots.
 
-PySAM 0.3.1 documents Factory direct creation for new elements. Its transactional
-creation path has known scripting-element inconsistencies and, against a live SAM
-server, can accept the aggregate commit without leaving the created package behind.
-This writer therefore uses the documented direct-create path and only publishes the
-final package name after all required semantic content has been created.
-
-PySAM reloads the scripting project after every direct create/update/delete commit.
-The reload replaces the in-memory scripting element instances. All owners and
-cross-element references are therefore rebound by stable element ID immediately
-before each Factory call.
-
-Auxiliary annotations are deliberately best-effort. A SAM/PySAM combination may
-reject ``Documentation`` or ``TextualRepresentation`` even while accepting the
-native SysML semantic elements. Such optional metadata must not make an otherwise
-valid Level 1 semantic transfer fail.
+PySAM 0.3.1 reloads a scripting project after each direct create/update/delete
+commit. References are therefore rebound by stable ID through ReloadSafeFactory.
+Incomplete attempts are intentionally never deleted automatically: the live SAM
+used during Gate 1B can reject deletion of a partially populated package. Every
+retry uses a unique staging package and only a final published package plus its
+completion marker is considered synchronized.
 """
 
 from __future__ import annotations
 
 from typing import Any
+from uuid import uuid4
 
 from sam_connection import SamSettings
 from sam_level1_sync import (
@@ -43,9 +35,13 @@ def level1_completion_marker_name(snapshot_digest: str) -> str:
     return f"MBSE_Level1_Complete_{digest[:8] or 'unknown'}"
 
 
-def level1_staging_package_name(package_name: str) -> str:
-    """Return a name that can never be mistaken for a completed snapshot."""
-    return f"{package_name}__INCOMPLETE"
+def level1_staging_package_name(
+    package_name: str,
+    attempt_id: str | None = None,
+) -> str:
+    """Return a staging name that can never be mistaken for a completed snapshot."""
+    suffix = f"_{attempt_id}" if attempt_id else ""
+    return f"{package_name}__INCOMPLETE{suffix}"
 
 
 def _element_id(element: Any) -> str | None:
@@ -74,22 +70,23 @@ def _fresh_element(project: Any, element: Any) -> Any:
 def _rename_scripting_element(project: Any, element: Any, name: str) -> Any:
     """Persist a rename through the current PySAM scripting element observer."""
     current = _fresh_element(project, element)
-    # The generated PySAM Element.name setter notifies the ModificationObserver,
-    # commits the change and reloads the project. Use the public property rather
-    # than mutating the backing field directly.
     current.name = name
     return _fresh_element(project, current)
 
 
-class _MetadataTolerantFactory:
-    """Delegate semantic creation while degrading unsupported metadata safely.
+def _new_staging_name(project: Any, package_name: str) -> str:
+    """Allocate a retry-safe staging name without deleting earlier attempts."""
+    for _ in range(20):
+        candidate = level1_staging_package_name(package_name, uuid4().hex[:8])
+        if not _matches(project, candidate):
+            return candidate
+    raise SamLevel1SyncError(
+        "Could not allocate a unique Level 1 staging package name after 20 attempts."
+    )
 
-    The live SAM used for Gate 1B proved that Package direct creation works while
-    the first Documentation direct creation returns HTTP 400. The PySAM 0.3.1
-    metamodel exposes Documentation, but server-side acceptance can differ. This
-    adapter probes a conservative Documentation payload once, then falls back to
-    Comment, and finally disables annotations for the remainder of the transfer.
-    """
+
+class _MetadataTolerantFactory:
+    """Delegate semantic creation while degrading unsupported metadata safely."""
 
     def __init__(self, delegate: Any):
         self._delegate = delegate
@@ -115,7 +112,6 @@ class _MetadataTolerantFactory:
         documentation_kwargs = {
             key: value for key, value in kwargs.items() if key != "locale"
         }
-
         if self._documentation_mode in {"probe", "documentation"}:
             try:
                 result = self._delegate.create_documentation(**documentation_kwargs)
@@ -147,57 +143,25 @@ class _MetadataTolerantFactory:
             return None
 
     def create_textual_representation(self, **kwargs):
-        """Best-effort textual copy; the native semantic model remains authoritative."""
+        """Best-effort textual copy; native SysML elements remain authoritative."""
         try:
             return self._delegate.create_textual_representation(**kwargs)
         except Exception as exc:
             if not self._text_warning_recorded:
                 self._text_warning_recorded = True
                 self.warnings.append(
-                    f"SAM rejected the optional TextualRepresentation; the native Level 1 semantic model was kept: {exc}"
+                    "SAM rejected the optional TextualRepresentation; the native "
+                    f"Level 1 semantic model was kept: {exc}"
                 )
             return None
 
 
-def _remove_incomplete_staging(project: Any, staging_name: str) -> int:
-    """Delete only MBSE-App staging packages for the exact snapshot being retried."""
-    removed = 0
-    while True:
-        matches = _matches(project, staging_name)
-        if not matches:
-            return removed
-        element = _fresh_element(project, matches[0])
-
-        delete = getattr(element, "delete", None)
-        if callable(delete):
-            # SysMLElement.delete() delegates to ModificationObserver.delete_element(),
-            # which commits and reloads the project in direct mode.
-            delete()
-        elif hasattr(project, "elements") and element in project.elements:
-            # Lightweight test-double path only.
-            project.elements.remove(element)
-        else:
-            raise SamLevel1SyncError(
-                f"SAM contains an incomplete Level 1 staging package named {staging_name!r}, "
-                "but MBSE-App could not safely remove it. Remove that staging package in SAM "
-                "before retrying."
-            )
-
-        removed += 1
-        if removed > 20:
-            raise SamLevel1SyncError(
-                "Too many duplicate incomplete Level 1 staging packages were found; clean them "
-                "manually in SAM before retrying."
-            )
-
-
-def _ensure_no_incomplete_snapshot(
+def _retry_state(
     project: Any,
-    *,
     package_name: str,
-    staging_name: str,
     marker_name: str,
 ) -> dict[str, Any] | None:
+    """Return idempotent success only for an already fully published snapshot."""
     completed = _matches(project, package_name)
     markers = _matches(project, marker_name)
     if completed and markers:
@@ -210,13 +174,8 @@ def _ensure_no_incomplete_snapshot(
     if completed:
         raise SamLevel1SyncError(
             f"SAM contains a Level 1 package named {package_name!r}, but its completion "
-            "marker is missing. Treat it as an incomplete previous transfer; remove that "
-            "package in SAM before retrying."
-        )
-    if _matches(project, staging_name):
-        raise SamLevel1SyncError(
-            f"SAM still contains an incomplete Level 1 staging package named {staging_name!r} "
-            "after automatic cleanup. Remove that staging package in SAM before retrying."
+            "marker is missing. Treat that final-name package as an incomplete previous "
+            "publish and remove or rename it in SAM before retrying."
         )
     return None
 
@@ -233,11 +192,10 @@ def sync_level1_to_sam_direct(
 ) -> dict[str, Any]:
     """Create one immutable Level 1 snapshot through PySAM direct-create calls.
 
-    The package is initially named ``__INCOMPLETE``. Only after every required
-    semantic element, relationship and scenario has been accepted is a completion
-    marker created and the package renamed to its final Level 1 name. Optional
-    annotations/text copies can be skipped when the server rejects those metadata
-    types. A separate fresh-project verification is performed by the caller.
+    Every attempt uses a unique ``__INCOMPLETE_<id>`` package. Earlier partial
+    attempts are ignored rather than deleted. Only after every required semantic
+    element, relationship and scenario has been accepted is a completion marker
+    created and the current staging package renamed to the final Level 1 name.
     """
     model = payload if isinstance(payload, dict) else {}
     scenario_rows = _rows(scenarios if scenarios is not None else model.get("scenarios"))
@@ -250,11 +208,13 @@ def sync_level1_to_sam_direct(
 
     if plan["status"] != "ready":
         raise SamLevel1SyncError(
-            "Level 1 transfer is blocked because the snapshot contains unsupported or missing semantic content."
+            "Level 1 transfer is blocked because the snapshot contains unsupported "
+            "or missing semantic content."
         )
     if expected_digest and expected_digest != plan["snapshot_digest"]:
         raise SamLevel1SyncError(
-            "The model changed after the transfer plan was prepared. Review the new plan before sending."
+            "The model changed after the transfer plan was prepared. Review the new "
+            "plan before sending."
         )
 
     if connector_class is None or project_manager_class is None or factory_class is None:
@@ -276,41 +236,21 @@ def sync_level1_to_sam_direct(
 
     package_name = str(plan["package_name"])
     marker_name = level1_completion_marker_name(plan["snapshot_digest"])
-    staging_name = level1_staging_package_name(package_name)
 
-    existing_completed = _matches(project, package_name)
-    existing_marker = _matches(project, marker_name)
-    if existing_completed and existing_marker:
-        return {
-            **plan,
-            "status": "already_synced",
-            "sam_write_performed": False,
-            "sam_package_id": _element_id(existing_completed[0]),
-            "completion_marker_name": marker_name,
-            "cleanup": {"removed_incomplete_staging_packages": 0},
-            "metadata_warnings": [],
-        }
-    if existing_completed:
-        raise SamLevel1SyncError(
-            f"SAM contains a Level 1 package named {package_name!r}, but its completion "
-            "marker is missing. Treat it as an incomplete previous transfer; remove that "
-            "package in SAM before retrying."
-        )
-
-    removed_staging = _remove_incomplete_staging(project, staging_name)
-    existing = _ensure_no_incomplete_snapshot(
-        project,
-        package_name=package_name,
-        staging_name=staging_name,
-        marker_name=marker_name,
-    )
+    existing = _retry_state(project, package_name, marker_name)
     if existing is not None:
         return {
             **plan,
             **existing,
-            "cleanup": {"removed_incomplete_staging_packages": removed_staging},
+            "retry_policy": "unique_staging_no_delete",
+            "cleanup": {"removed_incomplete_staging_packages": 0},
             "metadata_warnings": [],
         }
+
+    # Old __INCOMPLETE packages are deliberately ignored. The live SAM used for
+    # Gate 1B returns HTTP 400 when deleting a partially populated package, so a
+    # new transfer must not depend on cleanup of earlier attempts.
+    staging_name = _new_staging_name(project, package_name)
 
     root = project.get_root_package()
     raw_factory = factory_class(project, connector)
@@ -319,12 +259,13 @@ def sync_level1_to_sam_direct(
     model_package = None
     stage = "creating the Level 1 staging package"
     textual_representation_count = 0
+
     try:
         model_package = factory.create_package(name=staging_name, owner=root)
         if not _matches(project, staging_name):
             raise SamLevel1SyncError(
-                "PySAM returned from create_package(), but the staging package is not visible "
-                "in the reloaded project. No Level 1 content will be sent."
+                "PySAM returned from create_package(), but the new staging package is not "
+                "visible in the reloaded project. No Level 1 content will be sent."
             )
 
         stage = "creating optional Level 1 package metadata"
@@ -396,15 +337,16 @@ def sync_level1_to_sam_direct(
         completed_matches = _matches(project, package_name)
         if not completed_matches:
             raise SamLevel1SyncError(
-                "All Level 1 content was created, but the staging package could not be renamed "
-                "to its final package name."
+                "All Level 1 content was created, but the staging package could not be "
+                "renamed to its final package name."
             )
     except SamLevel1SyncError:
         raise
     except Exception as exc:
         suffix = (
             f" A partial staging package named {staging_name!r} may remain in SAM; "
-            "it is deliberately not considered synchronized."
+            "it is deliberately not considered synchronized. A retry will use a new "
+            "staging package and will not attempt to delete this one."
             if model_package is not None
             else ""
         )
@@ -419,7 +361,8 @@ def sync_level1_to_sam_direct(
         "sam_package_id": _element_id(completed_matches[0]),
         "completion_marker_name": marker_name,
         "staging_package_name": staging_name,
-        "cleanup": {"removed_incomplete_staging_packages": removed_staging},
+        "retry_policy": "unique_staging_no_delete",
+        "cleanup": {"removed_incomplete_staging_packages": 0},
         "metadata_warnings": list(factory.warnings),
         "created": {
             "source_elements": len(elements),
