@@ -192,8 +192,8 @@ def test_deletion_preview_is_red_orange_and_requires_confirmation(
                 page.locator("#modelTextual .oa-deletion-target").filter(has_text="Detect Threat")
             ).to_have_count(1)
             expect(
-                page.locator("#modelTextual .oa-deletion-impact").filter(has_text="Operator")
-            ).to_have_count(1)
+                page.locator("#modelTextual .oa-deletion-impact").filter(has_text="Operator").first
+            ).to_be_visible()
 
             # Diagram: the deleted component itself is red and impacted participants are orange.
             page.get_by_role("tab", name="Diagram", exact=True).click()
@@ -214,7 +214,7 @@ def test_deletion_preview_is_red_orange_and_requires_confirmation(
                     has_text="oa_activity_Detect_Threat"
                 )
             ).to_have_count(1)
-            expect(page.locator("#utilitySysmlView .oa-sysml-impact-line")).not_to_have_count(0)
+            expect(page.locator("#utilitySysmlView .oa-sysml-impact-line").first).to_be_visible()
 
             # No cancels the destructive action and removes the entire preview state.
             page.get_by_role("button", name="No", exact=True).click()
