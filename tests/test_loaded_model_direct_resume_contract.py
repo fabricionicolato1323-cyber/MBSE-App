@@ -26,7 +26,7 @@ def test_loaded_model_menu_contains_only_supported_oa_concepts():
 
 def test_loaded_model_asks_modify_existing_or_add_new_after_concept_choice():
     source = Path('loaded_model_direct_resume.py').read_text(encoding='utf-8')
-    assert 'What would you like to do with {label}?' in source
+    assert '"What would you like to do?"' in source
     assert '("modify", "Modify existing")' in source
     assert '("add", "Add new")' in source
     assert 'self._run_loaded_concept_action(concept, mode)' in source
