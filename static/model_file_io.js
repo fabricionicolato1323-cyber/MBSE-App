@@ -230,6 +230,7 @@ import('./oa_scenario_projection_fix.js')
   .then(() => import('./oa_scenario_pseudocode_compact.js'))
   .then(() => import('./oa_diagram_capabilities_default.js'))
   .then(() => import('./sysml_v2_render.js'))
+  .then(() => import('./deletion_preview_ui.js'))
   .catch(error => {
-    console.error('Operational Scenario / SysML V2 UI could not be loaded.', error);
+    console.error('Operational Scenario / SysML V2 / deletion preview UI could not be loaded.', error);
   });
