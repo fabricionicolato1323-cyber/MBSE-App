@@ -4,7 +4,12 @@ PySAM 0.3.1 documents Factory direct creation for new elements. Its transactiona
 creation path has known scripting-element inconsistencies and, against a live SAM
 server, can accept the aggregate commit without leaving the created package behind.
 This writer therefore uses the documented direct-create path and only publishes the
-final package name after all content has been created.
+final package name after all required semantic content has been created.
+
+Auxiliary annotations are deliberately best-effort. A SAM/PySAM combination may
+reject ``Documentation`` or ``TextualRepresentation`` even while accepting the
+native SysML semantic elements. Such optional metadata must not make an otherwise
+valid Level 1 semantic transfer fail.
 """
 
 from __future__ import annotations
@@ -57,6 +62,120 @@ def _rename_scripting_element(element: Any, name: str) -> None:
         element.name = name
 
 
+class _MetadataTolerantFactory:
+    """Delegate semantic creation while degrading unsupported metadata safely.
+
+    The live SAM used for Gate 1B proved that Package direct creation works while
+    the first Documentation direct creation returns HTTP 400. The PySAM 0.3.1
+    metamodel exposes Documentation, but server-side acceptance can differ. This
+    adapter probes a conservative Documentation payload once, then falls back to
+    Comment, and finally disables annotations for the remainder of the transfer.
+    """
+
+    def __init__(self, delegate: Any):
+        self._delegate = delegate
+        self.warnings: list[str] = []
+        self._documentation_mode = "probe"
+        self._annotation_warning_recorded = False
+        self._text_warning_recorded = False
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._delegate, name)
+
+    def _warn_annotation_once(self, message: str) -> None:
+        if self._annotation_warning_recorded:
+            return
+        self._annotation_warning_recorded = True
+        self.warnings.append(message)
+
+    def create_documentation(self, **kwargs):
+        """Create source annotation without allowing it to block semantics."""
+        if self._documentation_mode == "disabled":
+            return None
+
+        # Do not send locale during the compatibility probe. The live SAM rejected
+        # the original payload that included locale="en". documented_element and
+        # body are the semantically relevant fields exposed by PySAM's metamodel.
+        documentation_kwargs = {
+            key: value for key, value in kwargs.items() if key != "locale"
+        }
+
+        if self._documentation_mode in {"probe", "documentation"}:
+            try:
+                result = self._delegate.create_documentation(**documentation_kwargs)
+                self._documentation_mode = "documentation"
+                return result
+            except Exception as exc:
+                if self._documentation_mode == "documentation":
+                    self._warn_annotation_once(
+                        f"Some optional Documentation metadata was skipped by SAM: {exc}"
+                    )
+                    return None
+
+        # Generic Comment is a less constrained SysML annotation. If SAM accepts
+        # it, preserve the payload as text while continuing the semantic transfer.
+        comment_kwargs = {
+            "owner": kwargs.get("owner"),
+            "body": kwargs.get("body"),
+        }
+        try:
+            result = self._delegate.create_comment(**comment_kwargs)
+            self._documentation_mode = "comment"
+            self._warn_annotation_once(
+                "SAM rejected Documentation metadata; MBSE-App used Comment annotations instead."
+            )
+            return result
+        except Exception as exc:
+            self._documentation_mode = "disabled"
+            self._warn_annotation_once(
+                f"SAM rejected optional Documentation/Comment metadata; annotations were skipped: {exc}"
+            )
+            return None
+
+    def create_textual_representation(self, **kwargs):
+        """Best-effort textual copy; the native semantic model remains authoritative."""
+        try:
+            return self._delegate.create_textual_representation(**kwargs)
+        except Exception as exc:
+            if not self._text_warning_recorded:
+                self._text_warning_recorded = True
+                self.warnings.append(
+                    f"SAM rejected the optional TextualRepresentation; the native Level 1 semantic model was kept: {exc}"
+                )
+            return None
+
+
+def _remove_incomplete_staging(project: Any, staging_name: str) -> int:
+    """Delete only MBSE-App staging packages for the exact snapshot being retried."""
+    removed = 0
+    while True:
+        matches = _matches(project, staging_name)
+        if not matches:
+            return removed
+        element = matches[0]
+        element_id = _element_id(element)
+        observer = getattr(element, "_observer", None)
+
+        if element_id and observer is not None and hasattr(observer, "delete_element"):
+            observer.delete_element(element_id)
+        elif hasattr(project, "elements") and element in project.elements:
+            # Lightweight test-double path only.
+            project.elements.remove(element)
+        else:
+            raise SamLevel1SyncError(
+                f"SAM contains an incomplete Level 1 staging package named {staging_name!r}, "
+                "but MBSE-App could not safely remove it. Remove that staging package in SAM "
+                "before retrying."
+            )
+
+        removed += 1
+        if removed > 20:
+            raise SamLevel1SyncError(
+                "Too many duplicate incomplete Level 1 staging packages were found; clean them "
+                "manually in SAM before retrying."
+            )
+
+
 def _ensure_no_incomplete_snapshot(
     project: Any,
     *,
@@ -81,9 +200,8 @@ def _ensure_no_incomplete_snapshot(
         )
     if _matches(project, staging_name):
         raise SamLevel1SyncError(
-            f"SAM contains an incomplete Level 1 staging package named {staging_name!r}. "
-            "Remove that staging package in SAM before retrying so no partial model is "
-            "mistaken for a new transfer."
+            f"SAM still contains an incomplete Level 1 staging package named {staging_name!r} "
+            "after automatic cleanup. Remove that staging package in SAM before retrying."
         )
     return None
 
@@ -100,10 +218,11 @@ def sync_level1_to_sam_direct(
 ) -> dict[str, Any]:
     """Create one immutable Level 1 snapshot through PySAM direct-create calls.
 
-    The package is initially named ``__INCOMPLETE``. Only after every semantic
-    element, relationship, scenario and textual representation has been accepted
-    is a completion marker created and the package renamed to its final Level 1
-    name. A separate fresh-project verification is performed by the caller.
+    The package is initially named ``__INCOMPLETE``. Only after every required
+    semantic element, relationship and scenario has been accepted is a completion
+    marker created and the package renamed to its final Level 1 name. Optional
+    annotations/text copies can be skipped when the server rejects those metadata
+    types. A separate fresh-project verification is performed by the caller.
     """
     model = payload if isinstance(payload, dict) else {}
     scenario_rows = _rows(scenarios if scenarios is not None else model.get("scenarios"))
@@ -143,6 +262,28 @@ def sync_level1_to_sam_direct(
     package_name = str(plan["package_name"])
     marker_name = level1_completion_marker_name(plan["snapshot_digest"])
     staging_name = level1_staging_package_name(package_name)
+
+    # A completed snapshot is immutable and wins over any cleanup action.
+    existing_completed = _matches(project, package_name)
+    existing_marker = _matches(project, marker_name)
+    if existing_completed and existing_marker:
+        return {
+            **plan,
+            "status": "already_synced",
+            "sam_write_performed": False,
+            "sam_package_id": _element_id(existing_completed[0]),
+            "completion_marker_name": marker_name,
+            "cleanup": {"removed_incomplete_staging_packages": 0},
+            "metadata_warnings": [],
+        }
+    if existing_completed:
+        raise SamLevel1SyncError(
+            f"SAM contains a Level 1 package named {package_name!r}, but its completion "
+            "marker is missing. Treat it as an incomplete previous transfer; remove that "
+            "package in SAM before retrying."
+        )
+
+    removed_staging = _remove_incomplete_staging(project, staging_name)
     existing = _ensure_no_incomplete_snapshot(
         project,
         package_name=package_name,
@@ -150,12 +291,19 @@ def sync_level1_to_sam_direct(
         marker_name=marker_name,
     )
     if existing is not None:
-        return {**plan, **existing}
+        return {
+            **plan,
+            **existing,
+            "cleanup": {"removed_incomplete_staging_packages": removed_staging},
+            "metadata_warnings": [],
+        }
 
     root = project.get_root_package()
-    factory = factory_class(project, connector)
+    raw_factory = factory_class(project, connector)
+    factory = _MetadataTolerantFactory(raw_factory)
     model_package = None
     stage = "creating the Level 1 staging package"
+    textual_representation_count = 0
     try:
         model_package = factory.create_package(name=staging_name, owner=root)
         if not _matches(project, staging_name):
@@ -164,7 +312,7 @@ def sync_level1_to_sam_direct(
                 "in the reloaded project. No Level 1 content will be sent."
             )
 
-        stage = "creating Level 1 package metadata"
+        stage = "creating optional Level 1 package metadata"
         _documentation(
             factory,
             model_package,
@@ -211,14 +359,18 @@ def sync_level1_to_sam_direct(
             model_package=model_package,
         )
 
-        stage = "creating the Level 1 textual SysML v2 representation"
+        # This is a convenience copy of the already generated textual model. The
+        # native SysML elements above are the Level 1 authority, so a server that
+        # rejects TextualRepresentation must not invalidate the semantic transfer.
+        stage = "creating the optional Level 1 textual SysML v2 representation"
         sysml_text = generate_sysml_v2(model, scenarios=scenario_rows, drafts=[])
-        factory.create_textual_representation(
+        textual_representation = factory.create_textual_representation(
             owner=model_package,
             represented_element=model_package,
             language="SysML v2",
             body=sysml_text,
         )
+        textual_representation_count = 1 if textual_representation is not None else 0
 
         stage = "creating the Level 1 completion marker"
         factory.create_package(name=marker_name, owner=model_package)
@@ -255,13 +407,15 @@ def sync_level1_to_sam_direct(
         "sam_package_id": _element_id(completed_matches[0]),
         "completion_marker_name": marker_name,
         "staging_package_name": staging_name,
+        "cleanup": {"removed_incomplete_staging_packages": removed_staging},
+        "metadata_warnings": list(factory.warnings),
         "created": {
             "source_elements": len(elements),
             "native_relationships": relationship_count,
             "characteristic_attributes": characteristic_count,
             "scenarios": scenario_count,
             "scenario_steps": scenario_step_count,
-            "textual_level1_representation": 1,
+            "textual_level1_representation": textual_representation_count,
             "completion_marker": 1,
         },
     }
