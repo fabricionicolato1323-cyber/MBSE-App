@@ -5,11 +5,12 @@
   const query = new URLSearchParams(window.location.search);
   const rawDetachedPanel = query.get('detachedPanel');
   const legacyUtilityView = query.get('utilityView') === 'sysml' ? 'sysml' : 'text';
-  const detachedPanelName = rawDetachedPanel === 'utility'
+  const outputViewNames = ['text', 'sysml', 'diagram', 'details'];
+  const outputViewSet = new Set(outputViewNames);
+  const detachedViewName = rawDetachedPanel === 'utility'
     ? legacyUtilityView
-    : ['text', 'sysml'].includes(rawDetachedPanel) ? rawDetachedPanel : null;
-  const detachedOutputWindow = Boolean(detachedPanelName);
-  const outputPanelNames = new Set(['text', 'sysml']);
+    : outputViewSet.has(rawDetachedPanel) ? rawDetachedPanel : null;
+  const detachedOutputWindow = Boolean(detachedViewName);
 
   const panels = new Map(
     [...workspaceRoot.querySelectorAll('.workspace-panel[data-panel]')]
@@ -23,15 +24,29 @@
 
   const splitters = {
     completion: workspaceRoot.querySelector('[data-splitter="completion"]'),
-    text: workspaceRoot.querySelector('[data-splitter="text"]'),
-    sysml: workspaceRoot.querySelector('[data-splitter="sysml"]'),
+    output: workspaceRoot.querySelector('[data-splitter="output"]'),
   };
 
+  const outputPanel = panels.get('output');
+  const outputTabs = [...document.querySelectorAll('[data-output-tab]')];
+  const outputViews = [...document.querySelectorAll('[data-output-view]')];
+  const outputPanelTitle = document.getElementById('outputPanelTitle');
+  const outputDetachedEmpty = document.getElementById('outputDetachedEmpty');
   const outputPopups = new Map();
   const outputPopupMonitors = new Map();
+  let activeOutputView = detachedViewName || 'text';
 
   function clamp(value, min, max) {
     return Math.min(Math.max(value, min), max);
+  }
+
+  function outputViewLabel(name) {
+    return ({
+      text: 'Pseudo-code',
+      sysml: 'SysML V2',
+      diagram: 'Diagram',
+      details: 'Details',
+    })[name] || 'Model output';
   }
 
   function panelIsDockedUsable(name) {
@@ -39,7 +54,6 @@
     return Boolean(
       panel &&
       !panel.hidden &&
-      !panel.classList.contains('is-detached') &&
       !panel.classList.contains('is-floating') &&
       !panel.classList.contains('is-minimized') &&
       !panel.classList.contains('is-maximized')
@@ -50,41 +64,109 @@
     if (splitters.completion) {
       splitters.completion.hidden = !(
         panelIsDockedUsable('completion') &&
-        (panelIsDockedUsable('chat') || panelIsDockedUsable('text') || panelIsDockedUsable('sysml'))
+        (panelIsDockedUsable('chat') || panelIsDockedUsable('output'))
       );
     }
-    if (splitters.text) {
-      splitters.text.hidden = !(
-        panelIsDockedUsable('text') &&
+    if (splitters.output) {
+      splitters.output.hidden = !(
+        panelIsDockedUsable('output') &&
         (panelIsDockedUsable('chat') || panelIsDockedUsable('completion'))
       );
     }
-    if (splitters.sysml) {
-      splitters.sysml.hidden = !(
-        panelIsDockedUsable('sysml') &&
-        (panelIsDockedUsable('text') || panelIsDockedUsable('chat') || panelIsDockedUsable('completion'))
-      );
-    }
-  }
-
-  function panelIsExternallyVisible(name) {
-    if (!outputPanelNames.has(name)) return false;
-    const popup = outputPopups.get(name);
-    return Boolean(popup && !popup.closed);
   }
 
   function refreshPanelToggle(name) {
     const panel = panels.get(name);
     const button = panelToggles.get(name);
     if (!panel || !button) return;
-    const visible = !panel.hidden || panelIsExternallyVisible(name);
+    const visible = !panel.hidden;
     button.classList.toggle('active', visible);
     button.setAttribute('aria-pressed', visible ? 'true' : 'false');
   }
 
-  function outputPanelLabel(name) {
-    return name === 'sysml' ? 'SysML V2' : 'pseudo-code';
+  function popupForView(name) {
+    const popup = outputPopups.get(name);
+    if (popup && !popup.closed) return popup;
+    if (popup) {
+      outputPopups.delete(name);
+      stopOutputPopupMonitor(name);
+    }
+    return null;
   }
+
+  function viewIsDetached(name) {
+    return Boolean(popupForView(name));
+  }
+
+  function firstDockedOutputView() {
+    return outputViewNames.find(name => !viewIsDetached(name)) || null;
+  }
+
+  function setActiveOutputView(name, {allowDetached = false} = {}) {
+    if (!outputViewSet.has(name)) return false;
+    if (!detachedOutputWindow && viewIsDetached(name) && !allowDetached) {
+      popupForView(name)?.focus();
+      return false;
+    }
+
+    activeOutputView = name;
+    outputTabs.forEach(button => {
+      const selected = button.dataset.outputTab === name;
+      button.classList.toggle('active', selected);
+      button.setAttribute('aria-selected', selected ? 'true' : 'false');
+    });
+    outputViews.forEach(view => {
+      const selected = view.dataset.outputView === name;
+      view.classList.toggle('active', selected);
+      view.hidden = !selected;
+    });
+    if (outputDetachedEmpty) outputDetachedEmpty.hidden = true;
+    if (outputPanelTitle) {
+      outputPanelTitle.textContent = detachedOutputWindow ? outputViewLabel(name) : 'Model output';
+    }
+    refreshOutputTabs();
+    if (outputPanel) refreshPanelControls(outputPanel);
+    return true;
+  }
+
+  function showAllViewsDetachedState() {
+    activeOutputView = null;
+    outputViews.forEach(view => {
+      view.classList.remove('active');
+      view.hidden = true;
+    });
+    outputTabs.forEach(button => {
+      button.classList.remove('active');
+      button.setAttribute('aria-selected', 'false');
+    });
+    if (outputDetachedEmpty) outputDetachedEmpty.hidden = false;
+    if (outputPanelTitle) outputPanelTitle.textContent = 'Model output';
+    if (outputPanel) refreshPanelControls(outputPanel);
+  }
+
+  function refreshOutputTabs() {
+    outputTabs.forEach(button => {
+      const name = button.dataset.outputTab;
+      const detached = !detachedOutputWindow && viewIsDetached(name);
+      button.classList.toggle('is-detached-view', detached);
+      button.dataset.detached = detached ? 'true' : 'false';
+      button.title = detached
+        ? `${outputViewLabel(name)} is open in a separate browser window. Click to focus it.`
+        : `Show ${outputViewLabel(name)}`;
+    });
+  }
+
+  outputTabs.forEach(button => {
+    button.addEventListener('click', () => {
+      const name = button.dataset.outputTab;
+      if (!outputViewSet.has(name)) return;
+      if (!detachedOutputWindow && viewIsDetached(name)) {
+        popupForView(name)?.focus();
+        return;
+      }
+      setActiveOutputView(name, {allowDetached: detachedOutputWindow});
+    });
+  });
 
   function refreshPanelControls(panel) {
     const name = panel.dataset.panel;
@@ -96,28 +178,40 @@
     const maximizeButton = panel.querySelector('[data-panel-action="maximize"]');
 
     if (dockButton) {
-      if (detachedOutputWindow && name === detachedPanelName) {
-        dockButton.textContent = '↙';
-        dockButton.title = `Dock ${outputPanelLabel(name)} in the main browser window`;
+      if (name === 'output') {
+        if (detachedOutputWindow) {
+          dockButton.disabled = false;
+          dockButton.textContent = '↙';
+          dockButton.title = `Dock ${outputViewLabel(detachedViewName)} in the main browser window`;
+        } else if (activeOutputView) {
+          dockButton.disabled = false;
+          dockButton.textContent = '↗';
+          dockButton.title = `Open ${outputViewLabel(activeOutputView)} in a new browser window`;
+        } else {
+          dockButton.disabled = true;
+          dockButton.textContent = '↗';
+          dockButton.title = 'All output views are already undocked';
+        }
       } else {
+        dockButton.disabled = false;
         dockButton.textContent = floating ? '↙' : '↗';
-        dockButton.title = outputPanelNames.has(name) && !floating
-          ? `Open ${outputPanelLabel(name)} in a new browser window`
-          : floating ? 'Dock panel' : 'Undock panel';
+        dockButton.title = floating ? 'Dock panel' : 'Undock panel';
       }
       dockButton.setAttribute('aria-label', dockButton.title);
     }
+
     if (minimizeButton) {
       minimizeButton.textContent = minimized ? '▣' : '−';
       minimizeButton.title = minimized ? 'Restore panel' : 'Minimize panel';
       minimizeButton.setAttribute('aria-label', minimizeButton.title);
     }
+
     if (maximizeButton) {
-      const fullscreenForThisPanel = document.fullscreenElement && detachedOutputWindow && name === detachedPanelName;
-      maximizeButton.textContent = maximized || fullscreenForThisPanel ? '❐' : '□';
-      maximizeButton.title = maximized || fullscreenForThisPanel
+      const detachedFullscreen = detachedOutputWindow && name === 'output' && document.fullscreenElement;
+      maximizeButton.textContent = maximized || detachedFullscreen ? '❐' : '□';
+      maximizeButton.title = maximized || detachedFullscreen
         ? 'Restore panel size'
-        : outputPanelNames.has(name) ? 'Full screen panel' : 'Maximize panel';
+        : name === 'output' ? 'Full screen panel' : 'Maximize panel';
       maximizeButton.setAttribute('aria-label', maximizeButton.title);
     }
   }
@@ -156,29 +250,37 @@
     outputPopupMonitors.delete(name);
   }
 
-  function redockOutputPanel(name, {closePopup = false} = {}) {
-    if (detachedOutputWindow || !outputPanelNames.has(name)) return;
-    const panel = panels.get(name);
-    if (!panel) return;
-    const popup = outputPopups.get(name);
-
-    if (closePopup && popup && !popup.closed) popup.close();
+  function markOutputViewReturned(name, {activate = false, showPanel = false} = {}) {
+    if (detachedOutputWindow || !outputViewSet.has(name)) return;
     stopOutputPopupMonitor(name);
     outputPopups.delete(name);
-    panel.classList.remove('is-detached');
-    panel.hidden = false;
-    refreshPanelToggle(name);
-    refreshPanelControls(panel);
+    refreshOutputTabs();
+
+    if (showPanel && outputPanel) {
+      outputPanel.hidden = false;
+      outputPanel.classList.remove('is-minimized');
+      refreshPanelToggle('output');
+    }
+
+    if (activate || !activeOutputView) {
+      setActiveOutputView(name);
+    } else if (outputDetachedEmpty && !outputDetachedEmpty.hidden) {
+      setActiveOutputView(name);
+    }
     refreshSplitters();
   }
 
-  function openOutputBrowserWindow(name) {
-    if (detachedOutputWindow || !outputPanelNames.has(name)) return;
-    const panel = panels.get(name);
-    if (!panel) return;
+  function redockOutputView(name, {closePopup = false, showPanel = true} = {}) {
+    if (detachedOutputWindow || !outputViewSet.has(name)) return;
+    const popup = popupForView(name);
+    if (closePopup && popup && !popup.closed) popup.close();
+    markOutputViewReturned(name, {activate: true, showPanel});
+  }
 
-    const existing = outputPopups.get(name);
-    if (existing && !existing.closed) {
+  function openOutputBrowserWindow(name) {
+    if (detachedOutputWindow || !outputViewSet.has(name)) return;
+    const existing = popupForView(name);
+    if (existing) {
       existing.focus();
       return;
     }
@@ -186,31 +288,29 @@
     const url = new URL(window.location.href);
     url.searchParams.delete('utilityView');
     url.searchParams.set('detachedPanel', name);
-    const popupName = `mbse-${name}-output`;
     const popup = window.open(
       url.toString(),
-      popupName,
-      'popup=yes,width=760,height=900,resizable=yes,scrollbars=yes'
+      `mbse-${name}-output`,
+      'popup=yes,width=820,height=900,resizable=yes,scrollbars=yes'
     );
 
     if (!popup) {
       const status = document.getElementById('statusLine');
-      if (status) status.textContent = 'The browser blocked the new panel window. Allow pop-ups for this local app and try again.';
+      if (status) status.textContent = 'The browser blocked the new output window. Allow pop-ups for this local app and try again.';
       return;
     }
 
     outputPopups.set(name, popup);
-    panel.classList.remove('is-minimized', 'is-maximized');
-    panel.classList.add('is-detached');
-    panel.hidden = true;
-    refreshPanelToggle(name);
-    refreshSplitters();
-
     stopOutputPopupMonitor(name);
     outputPopupMonitors.set(name, window.setInterval(() => {
       const current = outputPopups.get(name);
-      if (!current || current.closed) redockOutputPanel(name);
+      if (!current || current.closed) markOutputViewReturned(name);
     }, 500));
+
+    refreshOutputTabs();
+    const nextView = firstDockedOutputView();
+    if (nextView) setActiveOutputView(nextView);
+    else showAllViewsDetachedState();
   }
 
   function toggleMinimize(panel) {
@@ -231,8 +331,7 @@
   }
 
   function toggleMaximize(panel) {
-    const name = panel.dataset.panel;
-    if (detachedOutputWindow && name === detachedPanelName) {
+    if (detachedOutputWindow && panel.dataset.panel === 'output') {
       void toggleDetachedFullscreen(panel);
       return;
     }
@@ -245,22 +344,7 @@
   function setPanelVisible(name, visible) {
     const panel = panels.get(name);
     if (!panel) return;
-
-    if (outputPanelNames.has(name) && panelIsExternallyVisible(name)) {
-      if (visible) {
-        redockOutputPanel(name, {closePopup: true});
-      } else {
-        const popup = outputPopups.get(name);
-        if (popup && !popup.closed) popup.close();
-        stopOutputPopupMonitor(name);
-        outputPopups.delete(name);
-        panel.classList.remove('is-detached');
-        panel.hidden = true;
-      }
-    } else {
-      panel.hidden = !visible;
-    }
-
+    panel.hidden = !visible;
     if (visible) {
       panel.classList.remove('is-minimized');
       refreshPanelControls(panel);
@@ -270,10 +354,10 @@
   }
 
   function requestRedockFromDetachedWindow() {
-    if (!detachedOutputWindow || !detachedPanelName) return;
+    if (!detachedOutputWindow || !detachedViewName) return;
     if (window.opener && !window.opener.closed) {
       window.opener.postMessage(
-        {type: 'mbse-redock-output', panel: detachedPanelName},
+        {type: 'mbse-redock-output-view', view: detachedViewName},
         window.location.origin
       );
     }
@@ -289,9 +373,9 @@
         event.stopPropagation();
         const action = button.dataset.panelAction;
         if (action === 'dock') {
-          if (outputPanelNames.has(name)) {
-            if (detachedOutputWindow && name === detachedPanelName) requestRedockFromDetachedWindow();
-            else openOutputBrowserWindow(name);
+          if (name === 'output') {
+            if (detachedOutputWindow) requestRedockFromDetachedWindow();
+            else if (activeOutputView) openOutputBrowserWindow(activeOutputView);
           } else if (panel.classList.contains('is-floating')) {
             dockPanel(panel);
           } else {
@@ -302,7 +386,7 @@
         } else if (action === 'maximize') {
           toggleMaximize(panel);
         } else if (action === 'close') {
-          if (detachedOutputWindow && name === detachedPanelName) requestRedockFromDetachedWindow();
+          if (detachedOutputWindow && name === 'output') requestRedockFromDetachedWindow();
           else setPanelVisible(name, false);
         }
       });
@@ -344,10 +428,6 @@
     button.addEventListener('click', () => {
       const panel = panels.get(name);
       if (!panel) return;
-      if (outputPanelNames.has(name) && panelIsExternallyVisible(name)) {
-        redockOutputPanel(name, {closePopup: true});
-        return;
-      }
       setPanelVisible(name, panel.hidden);
     });
   });
@@ -368,7 +448,7 @@
         const next = direction === 'left' ? startWidth + delta : startWidth - delta;
         document.documentElement.style.setProperty(
           cssVariable,
-          `${clamp(next, minWidth, Math.min(maxWidth, window.innerWidth * .55))}px`
+          `${clamp(next, minWidth, Math.min(maxWidth, window.innerWidth * .62))}px`
         );
       };
 
@@ -384,8 +464,7 @@
   }
 
   installSplitter(splitters.completion, '--completion-width', 'completion', 190, 520, 'left');
-  installSplitter(splitters.text, '--text-width', 'text', 280, 760, 'right');
-  installSplitter(splitters.sysml, '--sysml-width', 'sysml', 260, 700, 'right');
+  installSplitter(splitters.output, '--output-width', 'output', 300, 820, 'right');
 
   function countCharacteristics(nodes) {
     return nodes.reduce(
@@ -528,33 +607,35 @@
     button.addEventListener('click', event => event.preventDefault());
   });
 
-  if (detachedOutputWindow && detachedPanelName) {
+  if (detachedOutputWindow && detachedViewName) {
     document.body.classList.add('detached-output-window');
     panels.forEach((panel, name) => {
-      const target = name === detachedPanelName;
-      panel.hidden = !target;
-      panel.classList.toggle('detached-target', target);
-      if (target) {
-        panel.classList.remove('is-detached', 'is-floating', 'is-minimized', 'is-maximized');
-        refreshPanelControls(panel);
-      }
+      panel.hidden = name !== 'output';
     });
+    if (outputPanel) {
+      outputPanel.hidden = false;
+      outputPanel.classList.remove('is-floating', 'is-minimized', 'is-maximized');
+    }
+    setActiveOutputView(detachedViewName, {allowDetached: true});
     window.addEventListener('beforeunload', () => {
       if (window.opener && !window.opener.closed) {
         window.opener.postMessage(
-          {type: 'mbse-output-window-closed', panel: detachedPanelName},
+          {type: 'mbse-output-window-closed', view: detachedViewName},
           window.location.origin
         );
       }
     });
   } else {
+    setActiveOutputView('text');
     window.addEventListener('message', event => {
       if (event.origin !== window.location.origin) return;
       if (!event.data || typeof event.data !== 'object') return;
-      const name = event.data.panel;
-      if (!outputPanelNames.has(name)) return;
-      if (event.data.type === 'mbse-redock-output' || event.data.type === 'mbse-output-window-closed') {
-        redockOutputPanel(name);
+      const name = event.data.view;
+      if (!outputViewSet.has(name)) return;
+      if (event.data.type === 'mbse-redock-output-view') {
+        redockOutputView(name, {closePopup: true, showPanel: true});
+      } else if (event.data.type === 'mbse-output-window-closed') {
+        markOutputViewReturned(name);
       }
     });
   }
@@ -565,5 +646,7 @@
 
   window.addEventListener('resize', refreshSplitters);
   renderOACompletion({nodes: [], edges: []});
+  panels.forEach((_panel, name) => refreshPanelToggle(name));
+  refreshOutputTabs();
   refreshSplitters();
 })();
