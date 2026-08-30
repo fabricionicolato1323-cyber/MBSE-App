@@ -222,7 +222,7 @@
     button.className = 'ghost-button model-file-button';
     button.type = 'button';
     button.textContent = 'Send Level 1 to SAM';
-    button.title = 'Review a live SAM preflight, then create this Level 1 snapshot in the configured SAM project';
+    button.title = 'Review a live SAM preflight, then create and verify this Level 1 snapshot in the configured SAM project';
     button.setAttribute('aria-label', 'Send Level 1 model to SAM');
 
     button.addEventListener('click', async () => {
@@ -267,7 +267,7 @@
           `Package: ${plan.package_name}\n` +
           `${Number(counts.elements || 0)} elements · ${Number(counts.relationships || 0)} relationships · ${Number(counts.scenarios || 0)} scenarios\n\n` +
           `SAM preflight: connected successfully. No write has occurred yet.\n` +
-          `The transfer is transactional. The same snapshot will not be duplicated if sent again.`
+          `The transfer uses verified direct creation. It is only marked synchronized after a fresh SAM reload confirms the completed snapshot.`
         );
         if (!approved) {
           button.textContent = normalLabel;
@@ -286,6 +286,9 @@
         const sendData = await readJson(sendResponse);
         if (!sendResponse.ok || !sendData.result) {
           throw new Error(sendData.error || 'The Level 1 snapshot could not be sent to SAM.');
+        }
+        if (sendData.result.verified_in_sam !== true) {
+          throw new Error('SAM returned from the transfer, but fresh post-write verification did not confirm the completed Level 1 snapshot.');
         }
         latestSamSync = sendData.result;
         button.textContent = latestSamSync.status === 'already_synced'
@@ -306,10 +309,10 @@
         if (controls?.summary) {
           controls.summary.textContent = `SAM transfer failed · ${message}`;
         }
-        window.alert(`SAM Level 1 transfer failed\n\n${message}`);
+        // Schedule the modal so the browser paints the persistent failed state first.
         window.setTimeout(() => {
-          if (button.isConnected) button.textContent = normalLabel;
-        }, 2500);
+          window.alert(`SAM Level 1 transfer failed\n\n${message}`);
+        }, 0);
       } finally {
         button.disabled = latestLevel1?.status !== 'ready';
       }
