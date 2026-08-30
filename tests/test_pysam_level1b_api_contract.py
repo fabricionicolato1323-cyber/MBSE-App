@@ -9,6 +9,7 @@ class PySAMLevel1BAPIContractTests(unittest.TestCase):
 
         required = {
             "create_package",
+            "create_library_package",
             "create_part_definition",
             "create_action_definition",
             "create_item_definition",
