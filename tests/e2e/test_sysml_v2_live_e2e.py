@@ -180,6 +180,13 @@ def test_sysml_view_is_generated_from_arcadiaoa_contract_and_updates_after_load(
             )
 
             page.locator('[data-output-tab="sysml"]').click()
+            expect(page.locator("#sysmlLevel1Button")).to_have_text("Level 1 · Model")
+            expect(page.locator("#sysmlLevel2Button")).to_have_text("Level 2 · Views")
+            expect(page.locator("#sysmlLevel2Button")).to_be_disabled()
+            expect(page.locator("#sysmlLevel1Summary")).to_contain_text("6 elements")
+            expect(page.locator("#sysmlLevel1Summary")).to_contain_text("7 relationships")
+            expect(page.locator("#sysmlLevel1Summary")).to_contain_text("SAM not written")
+
             code = page.locator("#utilitySysmlView code")
             expect(code).to_contain_text("flow def OperationalExchange;", timeout=20_000)
             expect(code).to_contain_text("connection def CommunicationMean;")
@@ -204,14 +211,14 @@ def test_sysml_view_is_generated_from_arcadiaoa_contract_and_updates_after_load(
 
             export_button = page.get_by_role(
                 "button",
-                name="Export SysML V2 model as .sysml file",
+                name="Export Level 1 SysML V2 model as .sysml file",
             )
             expect(export_button).to_be_visible(timeout=20_000)
             rendered_text = code.inner_text().rstrip()
             with page.expect_download() as download_info:
                 export_button.click()
             download = download_info.value
-            assert download.suggested_filename == "SysML contract E2E.sysml"
+            assert download.suggested_filename == "SysML contract E2E.level1.sysml"
             exported_text = Path(download.path()).read_text(encoding="utf-8").rstrip()
             assert exported_text == rendered_text
             assert "package ArcadiaOA" in exported_text
