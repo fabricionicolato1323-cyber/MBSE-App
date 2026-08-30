@@ -166,15 +166,21 @@ def test_loaded_interaction_refinement_requires_target_and_explicit_communicatio
             expect(page.locator("#statusLine")).to_have_text("Ready", timeout=20_000)
             page.locator("#loadModelInput").set_input_files(str(model_file))
 
-            expect(
-                page.get_by_role("button", name="Refine existing interactions", exact=True)
-            ).to_be_visible(timeout=20_000)
+            expect(page.get_by_role("button", name="Operational Exchange", exact=True)).to_be_visible(
+                timeout=20_000
+            )
 
-            # Existing interaction: the user can explicitly associate the saved
-            # exchange with an already existing Communication Mean.
-            page.get_by_role("button", name="Refine existing interactions", exact=True).click()
+            # Existing interaction: concept -> Modify existing -> explicit exchange.
+            page.get_by_role("button", name="Operational Exchange", exact=True).click()
             expect(
-                page.get_by_text("Which interaction would you like to work on?", exact=True)
+                page.get_by_text(
+                    "What would you like to do with Operational Exchange?",
+                    exact=True,
+                )
+            ).to_be_visible(timeout=20_000)
+            page.get_by_role("button", name="Modify existing", exact=True).click()
+            expect(
+                page.get_by_text("Which Operational Exchange would you like to work on?", exact=True)
             ).to_be_visible(timeout=20_000)
             page.get_by_role(
                 "button",
@@ -213,16 +219,15 @@ def test_loaded_interaction_refinement_requires_target_and_explicit_communicatio
             )
             assert associated is True
 
-            # Return from the existing exchange refinement to the loaded-model menu.
+            # Return from the existing exchange refinement to the concept menu.
             page.get_by_role("button", name="Back to the interaction list", exact=True).click()
-            expect(
-                page.get_by_role("button", name="Refine existing interactions", exact=True)
-            ).to_be_visible(timeout=20_000)
+            expect(page.get_by_role("button", name="Operational Exchange", exact=True)).to_be_visible(
+                timeout=20_000
+            )
 
-            # New interaction: source selection must be followed directly by the
-            # destination action, never by the old premature "another interaction?" prompt.
-            page.get_by_role("button", name="Refine existing interactions", exact=True).click()
-            page.get_by_role("button", name="+ Add new interaction", exact=True).click()
+            # New interaction: concept -> Add new, then normal source/target flow.
+            page.get_by_role("button", name="Operational Exchange", exact=True).click()
+            page.get_by_role("button", name="Add new", exact=True).click()
             expect(
                 page.get_by_text("Which action should the interaction start from?", exact=True)
             ).to_be_visible(timeout=20_000)
