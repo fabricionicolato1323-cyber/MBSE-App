@@ -141,7 +141,10 @@
     lines.forEach((line, index) => {
       const row = document.createElement('span');
       row.className = 'sysml-syntax-line';
-      row.textContent = line || ' ';
+      // Keep empty source lines truly empty. The explicit newline text node below
+      // is the only line separator, so DOM text remains byte-for-byte equivalent
+      // to the generated/exported SysML text.
+      row.textContent = line;
       code.appendChild(row);
       if (index < lines.length - 1) code.appendChild(document.createTextNode('\n'));
     });
