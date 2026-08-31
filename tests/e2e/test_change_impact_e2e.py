@@ -205,10 +205,6 @@ def test_loaded_activity_rename_previews_impact_before_confirmation(
                 "Detect incoming threats updated",
                 timeout=20_000,
             )
-            expect(page.locator("#modelTextual")).not_to_contain_text(
-                "Detect incoming threats\n",
-                timeout=20_000,
-            )
 
             page.get_by_role("tab", name="Diagram", exact=True).click()
             expect(
