@@ -1,4 +1,4 @@
-"""Persistent dispatcher for Level 1 incremental SAM synchronization.
+"""Persistent dispatcher for explicit Level 1 incremental SAM synchronization.
 
 The manifest is local runtime state, not part of the ArcadiaOA library and not a
 visible SAM model element. It records only the last verified mapping between
@@ -18,11 +18,13 @@ from sam_level1_incremental import (
     _build_state,
     _nodes_by_id,
     _unique_descendant_by_name,
+    build_incremental_plan,
     sync_level1_incremental,
 )
 from sam_level1_managed_direct import sync_level1_to_sam_managed_direct
 from sam_level1_sync import _model_name, _rows, _slug, build_level1_sync_plan
 from sam_level1_transactional import (
+    ARCADIA_OA_LIBRARY_PACKAGE,
     _element_id,
     _element_name,
     _load_project,
@@ -52,7 +54,10 @@ def _load_manifest(model: dict[str, Any], settings: SamSettings) -> dict[str, An
 def _save_manifest(model: dict[str, Any], settings: SamSettings, state: dict[str, Any]) -> None:
     path = _manifest_path(model, settings)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state, indent=2, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+    path.write_text(
+        json.dumps(state, indent=2, ensure_ascii=False, sort_keys=True),
+        encoding="utf-8",
+    )
 
 
 def _with_manifest(model: dict[str, Any], state: dict[str, Any] | None) -> dict[str, Any]:
@@ -63,6 +68,112 @@ def _with_manifest(model: dict[str, Any], state: dict[str, Any] | None) -> dict[
         graph["sam_sync"] = state
     value["graph"] = graph
     return value
+
+
+def preview_level1_with_incremental_state(
+    payload: Any,
+    *,
+    scenarios: list[dict[str, Any]] | None,
+    settings: SamSettings,
+) -> dict[str, Any]:
+    """Build the user-reviewable SAM change set without performing a SAM write."""
+    model = payload if isinstance(payload, dict) else {}
+    scenario_rows = _rows(scenarios if scenarios is not None else model.get("scenarios"))
+    full = build_level1_sync_plan(
+        model,
+        scenarios=scenario_rows,
+        project_id=settings.project_id,
+    )
+    if full.get("status") != "ready":
+        return {
+            **full,
+            "sync_status": "blocked",
+            "delta": {"create": 0, "update": 0, "delete": 0, "unchanged": 0},
+            "library": {"action": "not_evaluated", "package_name": ARCADIA_OA_LIBRARY_PACKAGE},
+            "instance": {"action": "not_evaluated"},
+            "unsupported_changes": ["Level 1 semantic validation is blocked."],
+        }
+
+    manifest = _load_manifest(model, settings)
+    if manifest is None:
+        counts = full.get("counts") if isinstance(full.get("counts"), dict) else {}
+        return {
+            **full,
+            "mode": "manual_baseline_sync",
+            "sync_status": "never_synchronized",
+            "supported": True,
+            "delta": {
+                "create": int(counts.get("elements") or 0),
+                "update": 0,
+                "delete": 0,
+                "unchanged": 0,
+            },
+            "relationship_delta": {
+                "create": int(counts.get("relationships") or 0),
+                "update": 0,
+                "delete": 0,
+            },
+            "scenario_delta": {
+                "create": int(counts.get("scenarios") or 0),
+                "update": 0,
+                "delete": 0,
+            },
+            "library": {
+                "action": "create_or_reuse",
+                "package_name": ARCADIA_OA_LIBRARY_PACKAGE,
+            },
+            "instance": {
+                "action": "create_or_adopt",
+                "package_name": level1_instance_package_name(
+                    full["model_name"], full["snapshot_digest"]
+                ),
+            },
+            "unsupported_changes": [],
+        }
+
+    working_model = _with_manifest(model, manifest)
+    incremental = build_incremental_plan(
+        working_model,
+        scenarios=scenario_rows,
+        settings=settings,
+    )
+    sync_status = (
+        "up_to_date"
+        if incremental.get("mode") == "incremental_noop"
+        else "local_changes"
+    )
+    supported = bool(incremental.get("supported"))
+    if not supported:
+        sync_status = "local_changes_blocked"
+
+    return {
+        **full,
+        "mode": incremental.get("mode"),
+        "status": "ready" if supported else "blocked",
+        "supported": supported,
+        "sync_status": sync_status,
+        "delta": dict(incremental.get("counts") or {}),
+        "creates": list(incremental.get("creates") or []),
+        "updates": list(incremental.get("updates") or []),
+        "deletes": list(incremental.get("deletes") or []),
+        "relationship_delta": {
+            "pending": bool(incremental.get("relationship_changes_pending")),
+        },
+        "scenario_delta": {
+            "pending": bool(incremental.get("scenario_changes_pending")),
+        },
+        "library": {
+            "action": "reuse",
+            "package_name": manifest.get("library_package_name") or ARCADIA_OA_LIBRARY_PACKAGE,
+        },
+        "instance": {
+            "action": "reuse",
+            "package_name": manifest.get("instance_package_name"),
+            "package_id": manifest.get("instance_package_id"),
+        },
+        "package_name": manifest.get("instance_package_name"),
+        "unsupported_changes": list(incremental.get("unsupported_changes") or []),
+    }
 
 
 def _adopt_current_managed_instance(
@@ -115,7 +226,7 @@ def sync_level1_with_incremental_state(
     project_manager_class: type[Any] | None = None,
     factory_class: type[Any] | None = None,
 ) -> dict[str, Any]:
-    """Adopt/create a baseline once, then synchronize supported deltas only."""
+    """Create/adopt a baseline once, then synchronize only the reviewed delta."""
     model = payload if isinstance(payload, dict) else {}
     scenario_rows = _rows(scenarios if scenarios is not None else model.get("scenarios"))
     manifest = _load_manifest(model, settings)
@@ -130,8 +241,6 @@ def sync_level1_with_incremental_state(
             factory_class=factory_class,
         )
         if adopted is None:
-            # No current managed instance exists yet. Create/reuse the managed
-            # baseline once, then adopt exactly that MBSE_Instance package.
             baseline = sync_level1_to_sam_managed_direct(
                 model,
                 scenarios=scenario_rows,
@@ -156,6 +265,12 @@ def sync_level1_with_incremental_state(
             baseline["sync_state"] = adopted
             baseline["incremental_baseline_ready"] = True
             baseline["mode"] = "baseline_created_or_adopted_for_incremental_sync"
+            baseline["delta"] = {
+                "create": len(_nodes_by_id(model)),
+                "update": 0,
+                "delete": 0,
+                "unchanged": 0,
+            }
             return baseline
 
         _save_manifest(model, settings, adopted)
