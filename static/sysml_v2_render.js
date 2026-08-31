@@ -193,6 +193,24 @@
     return `CREATE ${Number(delta.create || 0)} · UPDATE ${Number(delta.update || 0)} · DELETE ${Number(delta.delete || 0)} · UNCHANGED ${Number(delta.unchanged || 0)}`;
   }
 
+  function relationshipChangeDetails(plan = {}) {
+    const rows = [];
+    const append = (label, items) => {
+      for (const item of Array.isArray(items) ? items : []) {
+        const edge = item?.edge || item?.old_edge || {};
+        const name = String(edge?.name || item?.new_name || item?.old_name || edge?.type || 'Relationship');
+        const type = String(edge?.type || item?.type || 'RELATIONSHIP');
+        const source = String(edge?.source || '?');
+        const target = String(edge?.target || '?');
+        rows.push(`${label} ${type} · ${name} · ${source} → ${target}`);
+      }
+    };
+    append('CREATE', plan.relationship_creates);
+    append('UPDATE', plan.relationship_updates);
+    append('DELETE', plan.relationship_deletes);
+    return rows.length ? `\n${rows.join('\n')}` : '';
+  }
+
   function updateLevel1Summary(ui, level1) {
     const controls = ensureLevelControls(ui);
     if (!controls?.summary) return;
@@ -275,8 +293,8 @@
       `Library: ${library.package_name || 'MBSE_ArcadiaOA_Library_v1'} (reused, no write)\n` +
       `Instance: ${instance.package_name || plan.package_name} (reused)\n\n` +
       `Change Set\n` +
-      `${deltaText(delta)}\n` +
-      `RELATIONSHIPS: unchanged\n` +
+      `ELEMENTS\n${deltaText(delta)}\n` +
+      `RELATIONSHIPS\n${deltaText(relationshipDelta)}${relationshipChangeDetails(plan)}\n` +
       `SCENARIOS: unchanged\n\n` +
       `SAM preflight: connected successfully. No write has occurred yet.\n` +
       `Only this reviewed delta will be synchronized. Continue?`
@@ -324,6 +342,7 @@
             sam_package_id: plan.instance?.package_id,
             target: plan.target,
             delta: plan.delta || {create: 0, update: 0, delete: 0, unchanged: Number(plan.counts?.elements || 0)},
+            relationship_delta: plan.relationship_delta || {create: 0, update: 0, delete: 0, unchanged: Number(plan.counts?.relationships || 0)},
             timings: {total_seconds: 0},
           };
           button.textContent = 'Level 1 in SAM';
