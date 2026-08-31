@@ -93,8 +93,9 @@ class ModelFileSession(TerminalProcessSession):
             snapshot["name"] = self.model_name
 
         # Change/impact highlighting is presentation metadata, deliberately kept
-        # outside semantic node/edge attributes. This means red/orange UI state
-        # cannot change the Level 1 digest or become a SysML/SAM property.
+        # outside semantic node/edge attributes. A rename preview may project a
+        # proposed name into this browser snapshot while the persisted semantic
+        # node still has its original name until the user confirms the change.
         presentation: dict[str, Any] = {}
         try:
             payload = json.loads(self.model_path.read_text(encoding="utf-8"))
@@ -104,6 +105,15 @@ class ModelFileSession(TerminalProcessSession):
                 presentation = candidate
         except (OSError, json.JSONDecodeError):
             presentation = {}
+
+        preview_names = presentation.get("preview_node_names")
+        if presentation.get("operation") == "rename_preview" and isinstance(preview_names, dict):
+            for node in snapshot.get("nodes", []):
+                node_id = str(node.get("id") or "")
+                proposed = preview_names.get(node_id)
+                if proposed:
+                    node["name"] = str(proposed)
+
         snapshot["presentation"] = presentation
         return snapshot
 
