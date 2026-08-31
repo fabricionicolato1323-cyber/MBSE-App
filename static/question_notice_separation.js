@@ -166,3 +166,11 @@ renderRevisionTurns = function separatedRevisionTurns(
     document.head.appendChild(script);
   }
 })();
+
+(function loadSysmlSyntaxHighlighting() {
+  if (document.querySelector('script[data-mbse-sysml-syntax]')) return;
+  const script = document.createElement('script');
+  script.src = '/static/sysml_syntax_highlight.js';
+  script.dataset.mbseSysmlSyntax = 'true';
+  document.head.appendChild(script);
+})();
