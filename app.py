@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import app_base as _base
 from app_base import *  # noqa: F401,F403 - preserve the public surface of app.py
+from change_impact_finalize import install_change_impact_finalize_support
 from change_impact_refinement import install_change_impact_refinement_support
 from characteristic_edit import install_characteristic_edit_support
 from characteristic_operators import install_characteristic_operator_support
@@ -23,6 +24,7 @@ install_operational_actor_composition_support()
 install_characteristic_operator_support()
 install_characteristic_edit_support()
 install_change_impact_refinement_support()
+install_change_impact_finalize_support()
 
 
 class OAApp(
