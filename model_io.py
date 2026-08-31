@@ -14,6 +14,7 @@ MODEL_FILE_FORMAT = "mbse-app-operational-analysis"
 MODEL_FILE_VERSION = 1
 MAX_MODEL_NODES = 5000
 MAX_MODEL_EDGES = 20000
+PRESENTATION_METADATA_KEYS = {"_revision_presentation"}
 
 
 class ModelFileError(ValueError):
@@ -32,6 +33,13 @@ def normalize_model_name(value: str) -> str:
 def _model_metadata(payload: dict[str, Any]) -> dict[str, Any]:
     graph = payload.get("graph", {})
     return dict(graph) if isinstance(graph, dict) else {}
+
+
+def _without_presentation_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    result = dict(metadata)
+    for key in PRESENTATION_METADATA_KEYS:
+        result.pop(key, None)
+    return result
 
 
 def model_name_from_payload(payload: dict[str, Any], fallback: str = "") -> str:
@@ -101,7 +109,7 @@ def validate_model_payload(payload: Any) -> dict[str, Any]:
 def prepare_model_export(payload: Any, model_name: str) -> dict[str, Any]:
     normalized = validate_model_payload(payload)
     name = normalize_model_name(model_name)
-    metadata = _model_metadata(normalized)
+    metadata = _without_presentation_metadata(_model_metadata(normalized))
     metadata["model"] = metadata.get("model") or "Arcadia Operational Analysis"
     metadata["model_name"] = name
     metadata["mbse_app_format"] = MODEL_FILE_FORMAT
@@ -112,6 +120,7 @@ def prepare_model_export(payload: Any, model_name: str) -> dict[str, Any]:
 
 def graph_from_model_payload(payload: Any) -> nx.MultiDiGraph:
     normalized = validate_model_payload(payload)
+    normalized["graph"] = _without_presentation_metadata(_model_metadata(normalized))
     graph = json_graph.node_link_graph(normalized, edges="edges")
     if not isinstance(graph, nx.MultiDiGraph):
         graph = nx.MultiDiGraph(graph)
