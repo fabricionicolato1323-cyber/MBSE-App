@@ -124,8 +124,6 @@ function renderRevisionTextualModel(model) {
         edge.source !== edge.target
       )
       .forEach(edge => {
-        // A participant is displayed under its first explicit participant/context location.
-        // Additional LOCATED_IN relations remain visible as secondary information.
         if (!locationParentById.has(edge.source)) {
           locationParentById.set(edge.source, edge.target);
           if (!locationChildrenById.has(edge.target)) {
@@ -143,31 +141,6 @@ function renderRevisionTextualModel(model) {
       const {item, children} = revisionTreeItem(participant.name || participant.id);
       revisionAppendCharacteristics(children, participant);
 
-      const actionIds = edges
-        .filter(edge => edge.type === 'PERFORMS' && edge.source === participant.id)
-        .map(edge => edge.target);
-
-      actionIds.forEach(actionId => {
-        const action = byId.get(actionId);
-        if (!action) return;
-
-        const actionItem = revisionTreeItem(action.name || action.id);
-        revisionAppendCharacteristics(actionItem.children, action);
-
-        edges
-          .filter(edge => edge.type === 'OPERATIONAL_EXCHANGE' && edge.source === actionId)
-          .forEach(edge => {
-            const target = byId.get(edge.target);
-            const exchangeItem = revisionExchangeTreeItem(edge, target);
-            actionItem.children.appendChild(exchangeItem.item);
-          });
-
-        children.appendChild(actionItem.item);
-      });
-
-      // Composition/organization remains visible even when location is expressed
-      // by the visual hierarchy. For example, "Part of Facility" is still useful
-      // information about a receptionist nested under Facility.
       edges
         .filter(edge => edge.type === 'CONTAINS' && edge.target === participant.id)
         .forEach(edge => {
@@ -213,13 +186,55 @@ function renderRevisionTextualModel(model) {
       if (item) section.appendChild(item);
     });
 
-    // Defensive fallback for malformed/cyclic location data: never hide a participant.
     participants
       .filter(participant => !renderedParticipants.has(participant.id))
       .forEach(participant => {
         const item = renderParticipant(participant);
         if (item) section.appendChild(item);
       });
+  }
+
+  const activities = nodes.filter(node => node.type === 'OperationalActivity');
+  if (activities.length) {
+    const section = addSection('Operational Activities');
+
+    // Keep the primary activity list focused on the activities themselves.
+    activities.forEach(activity => {
+      const {item, children} = revisionTreeItem(activity.name || activity.id);
+      revisionAppendCharacteristics(children, activity);
+      section.appendChild(item);
+    });
+
+    const assignments = participants
+      .map(participant => {
+        const performed = edges
+          .filter(edge => edge.type === 'PERFORMS' && edge.source === participant.id)
+          .map(edge => byId.get(edge.target))
+          .filter(activity => activity?.type === 'OperationalActivity');
+        return {participant, performed};
+      })
+      .filter(entry => entry.performed.length);
+
+    if (assignments.length) {
+      const subsection = document.createElement('div');
+      subsection.className = 'tree-subsection';
+      const heading = document.createElement('h4');
+      heading.className = 'tree-subsection-title';
+      heading.textContent = 'Activity assignments';
+      subsection.appendChild(heading);
+
+      assignments.forEach(({participant, performed}) => {
+        const label = `${participant.name || participant.id} · ${revisionFriendlyType(participant.type)}`;
+        const {item, children} = revisionTreeItem(label);
+        performed.forEach(activity => {
+          children.appendChild(
+            revisionTreeLine(activity.name || activity.id)
+          );
+        });
+        subsection.appendChild(item);
+      });
+      section.appendChild(subsection);
+    }
   }
 
   const communication = edges.filter(edge => edge.type === 'COMMUNICATION_MEAN');

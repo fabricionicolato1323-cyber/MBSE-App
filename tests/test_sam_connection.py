@@ -45,6 +45,15 @@ class FakeProjectManager:
     def __init__(self, connector):
         type(self).last_connector = connector
 
+    def get_projects(self):
+        return [
+            {
+                "@id": "project-1",
+                "name": "API Test",
+                "description": "Connection test project",
+            }
+        ]
+
     def get_scripting_project(self, project_id):
         type(self).last_project_id = project_id
         return FakeProject(project_id)
@@ -108,6 +117,16 @@ class SamConnectionTests(unittest.TestCase):
         self.assertEqual(result["project_name"], "API Test")
         self.assertEqual(result["root_package_name"], "API Test")
         self.assertEqual(result["root_package_id"], "root-1")
+        self.assertEqual(
+            result["available_projects"],
+            [
+                {
+                    "id": "project-1",
+                    "name": "API Test",
+                    "description": "Connection test project",
+                }
+            ],
+        )
         self.assertFalse(result["write_performed"])
 
     def test_result_never_contains_access_token(self):

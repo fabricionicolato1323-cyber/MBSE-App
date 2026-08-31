@@ -10,6 +10,7 @@ from characteristics_flow import CharacteristicsFlowMixin
 from communication_exchange_link import CommunicationExchangeLinkFlowMixin
 from composition_flow import CompositionFlowMixin
 from guidance_flow import GuidanceFlowMixin
+from participant_classification_simple import SimplifiedParticipantClassificationMixin
 from participant_composition import (
     OperationalActorCompositionFlowMixin,
     install_operational_actor_composition_support,
@@ -29,6 +30,7 @@ install_change_impact_finalize_support()
 
 class OAApp(
     GuidanceFlowMixin,
+    SimplifiedParticipantClassificationMixin,
     ParticipantFlowMixin,
     OperationalActorCompositionFlowMixin,
     CompositionFlowMixin,

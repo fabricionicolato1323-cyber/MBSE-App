@@ -1,6 +1,7 @@
 """Read-only Gate 0 smoke test for Ansys SAM / PySAM SysML2.
 
-This module only authenticates and loads an existing SAM project. It does not
+This module authenticates against the configured SAM organization, lists the
+projects visible to the connected user, and loads a selected project. It does not
 create, edit, commit, or publish model elements.
 """
 
@@ -65,6 +66,33 @@ def load_env_file(path: str | Path = ".env") -> None:
             os.environ.setdefault(key, value)
 
 
+def _request_project_id_override() -> str:
+    """Read an explicitly selected SAM project from the active Flask request.
+
+    The web UI sends the selected project on the read-only plan request and again
+    on the confirmed write request. CLI and unit-test usage has no Flask request
+    context, so this helper quietly falls back to the configured project ID.
+    """
+    try:
+        from flask import has_request_context, request
+    except ImportError:
+        return ""
+
+    if not has_request_context():
+        return ""
+
+    query_value = str(request.args.get("project_id") or "").strip()
+    if query_value:
+        return query_value
+
+    payload = request.get_json(silent=True)
+    if isinstance(payload, dict):
+        body_value = str(payload.get("project_id") or "").strip()
+        if body_value:
+            return body_value
+    return ""
+
+
 def settings_from_env(
     environ: Mapping[str, str] | None = None,
     *,
@@ -81,10 +109,12 @@ def settings_from_env(
             "Missing SAM configuration: " + ", ".join(missing)
         )
 
+    selected_project = _request_project_id_override() or source["SAM_PROJECT_ID"].strip()
+
     return SamSettings(
         server_url=source["SAM_SERVER_URL"].strip().rstrip("/"),
         organization_id=source["SAM_ORGANIZATION_ID"].strip(),
-        project_id=source["SAM_PROJECT_ID"].strip(),
+        project_id=selected_project,
         access_token=source["SAM_ACCESS_TOKEN"].strip(),
         use_ssl=_parse_bool(source.get("SAM_USE_SSL"), default=True),
     )
@@ -107,18 +137,70 @@ def _element_id(element: Any) -> str | None:
     return None
 
 
+def _normalized_project_records(records: Any) -> list[dict[str, str]]:
+    """Return only the project metadata needed by the project picker."""
+    result: list[dict[str, str]] = []
+    for record in records if isinstance(records, list) else []:
+        if not isinstance(record, Mapping):
+            continue
+        project_id = str(record.get("@id") or record.get("id") or "").strip()
+        if not project_id:
+            continue
+        name = str(record.get("name") or project_id).strip() or project_id
+        description = str(record.get("description") or "").strip()
+        result.append(
+            {
+                "id": project_id,
+                "name": name,
+                "description": description,
+            }
+        )
+    result.sort(key=lambda item: (item["name"].casefold(), item["id"]))
+    return result
+
+
+def list_available_projects(
+    settings: SamSettings,
+    *,
+    connector_class: type[Any] | None = None,
+    project_manager_class: type[Any] | None = None,
+) -> list[dict[str, str]]:
+    """List SysML v2 projects visible in the configured SAM organization."""
+    if connector_class is None or project_manager_class is None:
+        try:
+            from ansys.sam.sysml2 import (  # type: ignore[import-not-found]
+                AnsysSysML2APIConnector,
+                SysML2ProjectManager,
+            )
+        except ImportError as exc:
+            raise RuntimeError(
+                "PySAM SysML2 is not installed. Run: "
+                "python -m pip install -r requirements.txt"
+            ) from exc
+        connector_class = connector_class or AnsysSysML2APIConnector
+        project_manager_class = project_manager_class or SysML2ProjectManager
+
+    connector = connector_class(
+        server_url=settings.server_url,
+        organization_id=settings.organization_id,
+        token=settings.access_token,
+        use_ssl=settings.use_ssl,
+    )
+    manager = project_manager_class(connector=connector)
+    return _normalized_project_records(manager.get_projects())
+
+
 def run_connection_test(
     settings: SamSettings,
     *,
     connector_class: type[Any] | None = None,
     project_manager_class: type[Any] | None = None,
 ) -> dict[str, Any]:
-    """Authenticate to SAM and load an existing project without modifying it.
+    """Authenticate to SAM and load the selected project without modifying it.
 
-    The returned metadata is intentionally read-only and is also used by the
-    Level 1B preflight so the confirmation dialog names the project and root
-    package actually loaded from SAM rather than merely echoing environment
-    variables.
+    The returned metadata includes the project list visible in the configured
+    organization. The Level 1 UI uses that list to ask the user which project to
+    target before any synchronization write can occur.
     """
     if connector_class is None or project_manager_class is None:
         try:
@@ -141,9 +223,10 @@ def run_connection_test(
         use_ssl=settings.use_ssl,
     )
     manager = project_manager_class(connector=connector)
+    available_projects = _normalized_project_records(manager.get_projects())
     project = manager.get_scripting_project(settings.project_id)
     if project is None:
-        raise RuntimeError("The configured SAM project could not be loaded.")
+        raise RuntimeError("The selected SAM project could not be loaded.")
 
     root_package = project.get_root_package()
     root_items = list(project.get_root() or [])
@@ -156,6 +239,7 @@ def run_connection_test(
         "project_id": actual_project_id,
         "project_name": project_name,
         "project_loaded": True,
+        "available_projects": available_projects,
         "root_package_name": _element_name(root_package) or project_name,
         "root_package_id": _element_id(root_package),
         "top_level_items": [

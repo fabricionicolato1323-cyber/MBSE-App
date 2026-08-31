@@ -18,13 +18,18 @@ class SysMLV2UIContractTests(unittest.TestCase):
         self.assertIn("model?.sysml_v2", source)
         self.assertIn("Generated SysML V2 text", source)
         self.assertIn("Level 1 · Model", source)
-        self.assertIn("Level 2 · Views", source)
+        self.assertNotIn("Level 2 · Views", source)
+        self.assertNotIn("sysmlLevel2Button", source)
         self.assertIn("SAM not synchronized", source)
         self.assertIn("Export Level 1 .sysml", source)
 
-    def test_level1_requires_change_set_review_and_explicit_confirmation(self) -> None:
+    def test_level1_requires_project_selection_review_and_explicit_confirmation(self) -> None:
         source = (ROOT / "static" / "sysml_v2_render.js").read_text(encoding="utf-8")
         self.assertIn("Review / Sync with SAM", source)
+        self.assertIn("available_projects", source)
+        self.assertIn("Choose the SAM project", source)
+        self.assertIn("window.prompt", source)
+        self.assertIn("project_id", source)
         self.assertIn("Change Set", source)
         self.assertIn("CREATE", source)
         self.assertIn("UPDATE", source)
@@ -73,6 +78,14 @@ class SysMLV2UIContractTests(unittest.TestCase):
         self.assertIn('@app.post("/api/sam/level1/send")', source)
         self.assertIn('body.get("confirm") is not True', source)
         self.assertIn("sync_level1_to_sam_verified", source)
+
+    def test_sam_connection_exposes_projects_and_request_selected_project(self) -> None:
+        source = (ROOT / "sam_connection.py").read_text(encoding="utf-8")
+        self.assertIn("available_projects", source)
+        self.assertIn("manager.get_projects()", source)
+        self.assertIn("_request_project_id_override", source)
+        self.assertIn('request.args.get("project_id")', source)
+        self.assertIn('payload.get("project_id")', source)
 
 
 if __name__ == "__main__":
