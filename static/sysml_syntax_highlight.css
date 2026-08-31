@@ -1,6 +1,5 @@
 #utilitySysmlView code .sysml-syntax-line {
-  display: block;
-  min-height: 1em;
+  display: inline;
   white-space: pre-wrap;
 }
 
