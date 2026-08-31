@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -60,7 +61,7 @@ def impact_web_server():
     os.getenv("RUN_E2E") != "1",
     reason="Playwright E2E tests run in the dedicated CI job.",
 )
-def test_loaded_activity_rename_previews_impact_before_confirmation(
+def test_loaded_activity_rename_previews_impact_then_returns_to_normal_colours(
     impact_web_server,
     tmp_path,
 ):
@@ -155,9 +156,7 @@ def test_loaded_activity_rename_previews_impact_before_confirmation(
             composer.fill("Detect incoming threats updated")
             composer.press("Enter")
 
-            # The semantic model is still unchanged at this point. The current
-            # item is red, direct dependants are orange, and the proposed value
-            # is shown explicitly before the Yes/No decision.
+            # Preview: semantic model is unchanged; impact colours are visible.
             expect(
                 page.get_by_text(
                     "Rename action 'Detect incoming threats' to 'Detect incoming threats updated'?",
@@ -193,27 +192,43 @@ def test_loaded_activity_rename_previews_impact_before_confirmation(
             expect(
                 page.locator("#utilitySysmlView code .mbse-change-modified").first
             ).to_contain_text("Detect incoming threats", timeout=20_000)
-            expect(
-                page.locator("#utilitySysmlView code .mbse-change-impacted").first
-            ).to_be_visible(timeout=20_000)
 
-            # Only Yes commits the rename. The stable element ID remains action,
-            # and every regenerated projection now uses the new name.
+            # Commit: same ID/new name, and preview colours must disappear.
             page.get_by_role("button", name="Yes", exact=True).click()
             page.get_by_role("tab", name="Pseudo-code", exact=True).click()
-            expect(page.locator("#modelTextual .mbse-change-modified")).to_contain_text(
+            expect(page.locator("#modelTextual")).to_contain_text(
                 "Detect incoming threats updated",
                 timeout=20_000,
             )
+            expect(page.locator("#modelTextual .mbse-change-modified")).to_have_count(0)
+            expect(page.locator("#modelTextual .mbse-change-impacted")).to_have_count(0)
+            expect(page.locator("#modelTextual .mbse-change-summary")).to_have_count(0)
 
             page.get_by_role("tab", name="Diagram", exact=True).click()
+            action = page.locator('[data-node-id="action"]')
+            expect(action.locator('.oa-diagram-node-title')).to_have_text(
+                "Detect incoming threats updated", timeout=20_000
+            )
+            expect(action).not_to_have_class(re.compile(r"mbse-change-modified"))
             expect(
-                page.locator('[data-node-id="action"].mbse-change-modified .oa-diagram-node-title')
-            ).to_have_text("Detect incoming threats updated", timeout=20_000)
+                page.locator('[data-node-id="operator"].mbse-change-impacted')
+            ).to_have_count(0)
 
             page.get_by_role("tab", name="SysML V2", exact=True).click()
-            expect(
-                page.locator("#utilitySysmlView code .mbse-change-modified").first
-            ).to_contain_text("Detect incoming threats updated", timeout=20_000)
+            expect(page.locator("#utilitySysmlView code")).to_contain_text(
+                "Detect incoming threats updated", timeout=20_000
+            )
+            expect(page.locator("#utilitySysmlView code .mbse-change-modified")).to_have_count(0)
+            expect(page.locator("#utilitySysmlView code .mbse-change-impacted")).to_have_count(0)
+            expect(page.locator("#utilitySysmlView .mbse-change-summary")).to_have_count(0)
+
+            # Syntax highlighting is presentation-only and remains active after
+            # the impact review is complete.
+            expect(page.locator("#utilitySysmlView code .sysml-token-keyword").first).to_be_visible(
+                timeout=20_000
+            )
+            expect(page.locator("#utilitySysmlView code .sysml-token-definition").first).to_be_visible(
+                timeout=20_000
+            )
         finally:
             browser.close()
