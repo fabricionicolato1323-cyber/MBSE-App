@@ -102,11 +102,15 @@ class ManualSamChangeSetPreviewTests(unittest.TestCase):
         runner._save_manifest(self.model, self.settings, self._manifest())
         changed = copy.deepcopy(self.model)
         changed["nodes"].append(
-            {"id": "actor-1", "type": "OperationalActor", "name": "Operator"}
+            {
+                "id": "activity-1",
+                "type": "OperationalActivity",
+                "name": "Detect threat",
+            }
         )
         changed["edges"].append(
             {
-                "source": "actor-1",
+                "source": "activity-1",
                 "target": "cap-1",
                 "key": 0,
                 "type": "SUPPORTS_CAPABILITY",
