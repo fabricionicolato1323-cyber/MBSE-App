@@ -22,7 +22,7 @@ class SysMLV2UIContractTests(unittest.TestCase):
         self.assertIn("SAM not synchronized", source)
         self.assertIn("Export Level 1 .sysml", source)
 
-    def test_level1b_requires_change_set_review_and_explicit_confirmation(self) -> None:
+    def test_level1_requires_change_set_review_and_explicit_confirmation(self) -> None:
         source = (ROOT / "static" / "sysml_v2_render.js").read_text(encoding="utf-8")
         self.assertIn("Review / Sync with SAM", source)
         self.assertIn("Change Set", source)
@@ -35,6 +35,15 @@ class SysMLV2UIContractTests(unittest.TestCase):
         self.assertIn("snapshot_digest", source)
         self.assertIn("confirm: true", source)
         self.assertIn("No write has occurred yet", source)
+
+    def test_level1c_review_shows_relationship_delta_and_details(self) -> None:
+        source = (ROOT / "static" / "sysml_v2_render.js").read_text(encoding="utf-8")
+        self.assertIn("relationshipChangeDetails", source)
+        self.assertIn("plan.relationship_creates", source)
+        self.assertIn("plan.relationship_updates", source)
+        self.assertIn("plan.relationship_deletes", source)
+        self.assertIn("`RELATIONSHIPS\\n${deltaText(relationshipDelta)}", source)
+        self.assertNotIn("`RELATIONSHIPS: unchanged\\n`", source)
 
     def test_noop_plan_does_not_post_a_write(self) -> None:
         source = (ROOT / "static" / "sysml_v2_render.js").read_text(encoding="utf-8")
@@ -57,7 +66,7 @@ class SysMLV2UIContractTests(unittest.TestCase):
         self.assertIn('model_state["sysml_v2_level1"]', source)
         self.assertIn('model_state["sysml_v2"] = preview["text"]', source)
 
-    def test_level1b_backend_exposes_readonly_plan_and_confirmed_send(self) -> None:
+    def test_level1_backend_exposes_readonly_plan_and_confirmed_send(self) -> None:
         source = (ROOT / "web_app.py").read_text(encoding="utf-8")
         self.assertIn('@app.get("/api/sam/level1/plan")', source)
         self.assertIn("preview_level1_with_incremental_state", source)
