@@ -25,7 +25,8 @@ from operational_scenario import (
     write_runtime_scenarios,
 )
 from sam_connection import SamConfigurationError, run_connection_test, settings_from_env
-from sam_level1_sync import SamLevel1SyncError, build_level1_sync_plan
+from sam_level1_incremental_runner import preview_level1_with_incremental_state
+from sam_level1_sync import SamLevel1SyncError
 from sam_level1_verify import sync_level1_to_sam_verified
 from sam_pysam_compat import PySamCompatibilityError, install_transactional_factory_fix
 from sysml_level1 import build_sysml_level1_preview
@@ -286,22 +287,22 @@ def api_model_load():
 
 @app.get("/api/sam/level1/plan")
 def api_sam_level1_plan():
-    """Return a read-only live-SAM Level 1B transfer plan for explicit review."""
+    """Return a read-only live-SAM change set for explicit user review."""
     _, current = current_session(create_if_missing=False)
     if current is None:
         return jsonify({"ok": False, "error": "The modeling session is no longer active."}), 409
     settings = None
     try:
         settings = settings_from_env()
-        # Gate 1B preflight: this actually authenticates and loads the configured
-        # SAM project, but performs no write.
+        # This authenticates and loads the configured SAM project but performs no
+        # write. The local manifest is then used only to calculate the reviewed delta.
         target = run_connection_test(settings)
         model = _current_model_payload(current)
         scenarios = _scenario_views(current, model)
-        plan = build_level1_sync_plan(
+        plan = preview_level1_with_incremental_state(
             model,
             scenarios=scenarios,
-            project_id=target["project_id"],
+            settings=settings,
         )
         plan["target"] = target
     except SamConfigurationError as exc:
@@ -319,7 +320,7 @@ def api_sam_level1_plan():
 
 @app.post("/api/sam/level1/send")
 def api_sam_level1_send():
-    """Write and independently verify the reviewed Level 1 snapshot in SAM."""
+    """Apply and independently verify the explicitly reviewed Level 1 change set."""
     _, current = current_session(create_if_missing=False)
     if current is None:
         return jsonify({"ok": False, "error": "The modeling session is no longer active."}), 409
@@ -334,8 +335,8 @@ def api_sam_level1_send():
     settings = None
     try:
         settings = settings_from_env()
-        # PySAM 0.3.1 has a known ScriptingProject transactional Factory bug.
-        # Install the equivalent upstream fix locally before the write starts.
+        # Keep the known PySAM 0.3.1 compatibility fix installed for existing
+        # element transactions. New-element creation still uses the verified direct path.
         compatibility = install_transactional_factory_fix()
         with current._lock:  # noqa: SLF001 - freeze the local snapshot during transfer
             if not current._waiting:  # noqa: SLF001
@@ -350,8 +351,8 @@ def api_sam_level1_send():
                 settings=settings,
                 expected_digest=expected_digest,
             )
-        # Re-read target metadata after verification so the UI can show the
-        # actual project/root package where the snapshot exists.
+        # Re-read target metadata after verification so the UI can show the actual
+        # project/root package where the managed instance exists.
         result["target"] = run_connection_test(settings)
         result["pysam_compatibility"] = compatibility
     except SamConfigurationError as exc:
