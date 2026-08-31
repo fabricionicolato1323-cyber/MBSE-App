@@ -61,6 +61,19 @@
   color: #a94f00 !important;
 }
 
+.oa-diagram-edge.mbse-change-impacted,
+.oa-diagram-edge-label.mbse-change-impacted,
+[data-edge-id].mbse-change-impacted {
+  stroke: #d86f00 !important;
+  color: #a94f00 !important;
+  fill: #a94f00 !important;
+  opacity: 1 !important;
+}
+
+.oa-diagram-edge.mbse-change-impacted {
+  stroke-width: 4px !important;
+}
+
 .mbse-change-summary {
   margin: 0 0 10px;
   padding: 8px 10px;
