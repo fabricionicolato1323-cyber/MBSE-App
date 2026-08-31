@@ -124,12 +124,14 @@ def sync_level1_to_sam_verified(
         return result
 
     mode = str(result.get("mode") or "")
-    # Incremental UPDATE already performs ID-level fresh verification, baseline
-    # adoption already reads the existing SAM package, and a no-op does not write.
-    # Avoid a second project reload in those fast paths.
+    # Incremental change sets perform their own fresh ID-level verification,
+    # baseline adoption reads the existing package, and a no-op never writes.
+    # Avoid a redundant package reload (and obsolete completion-marker logic) in
+    # these managed-instance fast paths.
     if mode in {
         "incremental_noop",
         "incremental_update",
+        "incremental_change_set",
         "incremental_baseline_adopted",
     }:
         result["verified_in_sam"] = True
