@@ -8,6 +8,7 @@ from collections import defaultdict
 from typing import Any
 
 from arcadia_oa_library import ArcadiaOALibrary, DEFAULT_ARCADIA_OA_LIBRARY
+from exchange_transport import ExchangeTransportError, relationship_identity, resolve_exchange_transport
 
 ARCADIA_OA_LIBRARY_TEXT = DEFAULT_ARCADIA_OA_LIBRARY.sysml_text.rstrip()
 
@@ -536,7 +537,7 @@ def generate_sysml_v2(
                 output=lines,
             )
 
-    flow_rows: list[tuple[dict[str, Any], dict[str, Any], str, str, str]] = []
+    flow_rows: list[tuple[dict[str, Any], dict[str, Any], str, str, str, str | None]] = []
     behavior_body: dict[str, list[str]] = defaultdict(list)
     flow_used: set[str] = set()
     for index, (edge, mapping) in enumerate(classified.get("flow", []), start=1):
@@ -551,6 +552,11 @@ def generate_sysml_v2(
         payload_definition = str(mapping.get("payload_definition"))
         behavior_body[source].append(f"out item {out_name} : {payload_definition};")
         behavior_body[target].append(f"in item {in_name} : {payload_definition};")
+        try:
+            transport = resolve_exchange_transport(edges, edge)
+        except ExchangeTransportError:
+            explicitly_unmapped.append(edge)
+            continue
         flow_rows.append(
             (
                 edge,
@@ -558,6 +564,7 @@ def generate_sysml_v2(
                 _id(edge.get("name") or index, prefix, flow_used),
                 out_name,
                 in_name,
+                relationship_identity(transport) if transport is not None else None,
             )
         )
 
@@ -593,7 +600,9 @@ def generate_sysml_v2(
                 output=lines,
             )
 
-        for edge, mapping, flow_id, out_name, in_name in flow_rows:
+        for edge, mapping, flow_id, out_name, in_name, transport_id in flow_rows:
+            if transport_id is not None:
+                continue
             source = str(edge.get("source") or "")
             target = str(edge.get("target") or "")
             lines.extend(
@@ -692,10 +701,30 @@ def generate_sysml_v2(
                 str(mapping.get("identifier_prefix") or "connection"),
                 connection_used,
             )
-            lines.append(
-                f"        connection {connection_id} : {mapping['definition']} "
-                f"connect {structure_paths[source]} to {structure_paths[target]};"
-            )
+            communication_identity = relationship_identity(edge)
+            carried = [row for row in flow_rows if row[5] == communication_identity]
+            if not carried:
+                lines.append(
+                    f"        connection {connection_id} : {mapping['definition']} "
+                    f"connect {structure_paths[source]} to {structure_paths[target]};"
+                )
+            else:
+                lines.append(
+                    f"        connection {connection_id} : {mapping['definition']} "
+                    f"connect {structure_paths[source]} to {structure_paths[target]} {{"
+                )
+                for flow_edge, flow_mapping, flow_id, out_name, in_name, _transport_id in carried:
+                    flow_source = str(flow_edge.get("source") or "")
+                    flow_target = str(flow_edge.get("target") or "")
+                    lines.extend(
+                        [
+                            "",
+                            f"            flow {flow_id} : {flow_mapping['definition']} of {flow_mapping['payload_definition']}",
+                            f"                from {behavior_container_id}.{behavior_paths[flow_source]}.{out_name}",
+                            f"                to {behavior_container_id}.{behavior_paths[flow_target]}.{in_name};",
+                        ]
+                    )
+                lines.append("        }")
             lines.extend(
                 _comments(f"name: {_clean(edge.get('name') or connection_id)}", "        ")
             )
