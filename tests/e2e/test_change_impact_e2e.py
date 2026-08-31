@@ -60,7 +60,7 @@ def impact_web_server():
     os.getenv("RUN_E2E") != "1",
     reason="Playwright E2E tests run in the dedicated CI job.",
 )
-def test_loaded_activity_rename_is_red_and_direct_impacts_are_orange(
+def test_loaded_activity_rename_previews_impact_before_confirmation(
     impact_web_server,
     tmp_path,
 ):
@@ -155,8 +155,23 @@ def test_loaded_activity_rename_is_red_and_direct_impacts_are_orange(
             composer.fill("Detect incoming threats updated")
             composer.press("Enter")
 
+            # The semantic model is still unchanged at this point. The current
+            # item is red, direct dependants are orange, and the proposed value
+            # is shown explicitly before the Yes/No decision.
+            expect(
+                page.get_by_text(
+                    "Rename action 'Detect incoming threats' to 'Detect incoming threats updated'?",
+                    exact=True,
+                )
+            ).to_be_visible(timeout=20_000)
+            expect(page.get_by_role("button", name="Yes", exact=True)).to_be_visible()
+            expect(page.get_by_role("button", name="No", exact=True)).to_be_visible()
+            expect(page.locator("#modelTextual .mbse-change-summary")).to_contain_text(
+                "Detect incoming threats → Detect incoming threats updated",
+                timeout=20_000,
+            )
             expect(page.locator("#modelTextual .mbse-change-modified")).to_contain_text(
-                "Detect incoming threats updated",
+                "Detect incoming threats",
                 timeout=20_000,
             )
             expect(page.locator("#modelTextual .mbse-change-impacted").first).to_be_visible(
@@ -173,10 +188,36 @@ def test_loaded_activity_rename_is_red_and_direct_impacts_are_orange(
 
             page.get_by_role("tab", name="SysML V2", exact=True).click()
             expect(
-                page.locator("#utilitySysmlView code .mbse-change-modified").first
+                page.locator("#utilitySysmlView .mbse-change-summary")
             ).to_contain_text("Detect incoming threats updated", timeout=20_000)
+            expect(
+                page.locator("#utilitySysmlView code .mbse-change-modified").first
+            ).to_contain_text("Detect incoming threats", timeout=20_000)
             expect(
                 page.locator("#utilitySysmlView code .mbse-change-impacted").first
             ).to_be_visible(timeout=20_000)
+
+            # Only Yes commits the rename. The stable element ID remains action,
+            # and every regenerated projection now uses the new name.
+            page.get_by_role("button", name="Yes", exact=True).click()
+            page.get_by_role("tab", name="Pseudo-code", exact=True).click()
+            expect(page.locator("#modelTextual .mbse-change-modified")).to_contain_text(
+                "Detect incoming threats updated",
+                timeout=20_000,
+            )
+            expect(page.locator("#modelTextual")).not_to_contain_text(
+                "Detect incoming threats\n",
+                timeout=20_000,
+            )
+
+            page.get_by_role("tab", name="Diagram", exact=True).click()
+            expect(
+                page.locator('[data-node-id="action"].mbse-change-modified .oa-diagram-node-title')
+            ).to_have_text("Detect incoming threats updated", timeout=20_000)
+
+            page.get_by_role("tab", name="SysML V2", exact=True).click()
+            expect(
+                page.locator("#utilitySysmlView code .mbse-change-modified").first
+            ).to_contain_text("Detect incoming threats updated", timeout=20_000)
         finally:
             browser.close()
