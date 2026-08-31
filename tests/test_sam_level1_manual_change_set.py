@@ -7,7 +7,12 @@ from pathlib import Path
 
 import sam_level1_incremental_runner as runner
 from sam_connection import SamSettings
-from sam_level1_incremental import _edge_fingerprint, _scenario_fingerprint
+from sam_level1_incremental import (
+    SYNC_STATE_VERSION,
+    _edge_fingerprint,
+    _other_edge_fingerprint,
+    _scenario_fingerprint,
+)
 from sam_level1_sync import level1_snapshot_digest
 
 
@@ -37,24 +42,29 @@ class ManualSamChangeSetPreviewTests(unittest.TestCase):
         runner._RUNTIME_ROOT = self.previous_root
         self.tempdir.cleanup()
 
-    def _manifest(self):
-        node = copy.deepcopy(self.model["nodes"][0])
+    def _manifest(self, model=None):
+        model = copy.deepcopy(model or self.model)
+        nodes = {
+            str(node["id"]): {
+                "sam_id": f"sam-{node['id']}",
+                "type": node["type"],
+                "name": node["name"],
+                "source": copy.deepcopy(node),
+            }
+            for node in model["nodes"]
+        }
         return {
-            "version": 1,
+            "version": SYNC_STATE_VERSION,
             "project_id": self.settings.project_id,
             "library_package_name": "MBSE_ArcadiaOA_Library_v1",
             "instance_package_name": "MBSE_Instance_Manual_Sync_Test_deadbeef",
             "instance_package_id": "pkg-1",
-            "snapshot_digest": level1_snapshot_digest(self.model, []),
-            "nodes": {
-                "cap-1": {
-                    "sam_id": "sam-cap-1",
-                    "type": "OperationalCapability",
-                    "name": "Protect area",
-                    "source": node,
-                }
-            },
-            "edges_fingerprint": _edge_fingerprint(self.model),
+            "snapshot_digest": level1_snapshot_digest(model, []),
+            "nodes": nodes,
+            "relationships": {},
+            "relationship_tracking_complete": True,
+            "other_edges_fingerprint": _other_edge_fingerprint(model),
+            "edges_fingerprint": _edge_fingerprint(model),
             "scenarios_fingerprint": _scenario_fingerprint([]),
         }
 
@@ -78,6 +88,7 @@ class ManualSamChangeSetPreviewTests(unittest.TestCase):
         )
         self.assertEqual(preview["sync_status"], "up_to_date")
         self.assertEqual(preview["delta"]["unchanged"], 1)
+        self.assertEqual(preview["relationship_delta"]["unchanged"], 0)
         self.assertEqual(preview["library"]["action"], "reuse")
         self.assertEqual(preview["instance"]["action"], "reuse")
 
@@ -98,7 +109,46 @@ class ManualSamChangeSetPreviewTests(unittest.TestCase):
         self.assertEqual(preview["delta"]["delete"], 0)
         self.assertEqual(before, after)
 
-    def test_relationship_delta_is_visible_and_blocks_partial_sync(self):
+    def test_operational_exchange_create_is_visible_and_supported(self):
+        baseline = {
+            "directed": True,
+            "multigraph": True,
+            "graph": {"model_name": "Manual Sync Test"},
+            "nodes": [
+                {"id": "activity-1", "type": "OperationalActivity", "name": "Report threat engagement"},
+                {"id": "activity-2", "type": "OperationalActivity", "name": "Receive engagement report"},
+            ],
+            "edges": [],
+        }
+        runner._save_manifest(baseline, self.settings, self._manifest(baseline))
+        changed = copy.deepcopy(baseline)
+        changed["edges"].append(
+            {
+                "source": "activity-1",
+                "target": "activity-2",
+                "key": 0,
+                "type": "OPERATIONAL_EXCHANGE",
+                "name": "Kill count",
+            }
+        )
+        before = runner._load_manifest(baseline, self.settings)
+        preview = runner.preview_level1_with_incremental_state(
+            changed,
+            scenarios=[],
+            settings=self.settings,
+        )
+        after = runner._load_manifest(baseline, self.settings)
+
+        self.assertEqual(preview["sync_status"], "local_changes")
+        self.assertEqual(preview["status"], "ready")
+        self.assertTrue(preview["supported"])
+        self.assertEqual(preview["relationship_delta"]["create"], 1)
+        self.assertEqual(preview["relationship_delta"]["update"], 0)
+        self.assertEqual(preview["relationship_delta"]["delete"], 0)
+        self.assertEqual(preview["relationship_creates"][0]["edge"]["name"], "Kill count")
+        self.assertEqual(before, after)
+
+    def test_non_exchange_relationship_delta_remains_blocked(self):
         runner._save_manifest(self.model, self.settings, self._manifest())
         changed = copy.deepcopy(self.model)
         changed["nodes"].append(
@@ -125,6 +175,12 @@ class ManualSamChangeSetPreviewTests(unittest.TestCase):
         self.assertEqual(preview["status"], "blocked")
         self.assertTrue(preview["relationship_delta"]["pending"])
         self.assertEqual(preview["delta"]["create"], 1)
+        self.assertTrue(
+            any(
+                "outside OPERATIONAL_EXCHANGE" in item
+                for item in preview["unsupported_changes"]
+            )
+        )
 
 
 if __name__ == "__main__":
