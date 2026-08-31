@@ -10,9 +10,9 @@
       : [];
   }
 
-  function namesFor(items) {
+  function namesFor(items, {previewCurrentName = false} = {}) {
     return items
-      .map(item => String(item.name || '').trim())
+      .map(item => String(previewCurrentName ? (item.old_name || item.name || '') : (item.name || '')).trim())
       .filter(Boolean)
       .sort((a, b) => b.length - a.length);
   }
@@ -20,6 +20,29 @@
   function textMatches(text, names) {
     const value = String(text || '').toLocaleLowerCase();
     return names.some(name => value.includes(name.toLocaleLowerCase()));
+  }
+
+  function scenarioImpacts(model, modified) {
+    const ids = new Set(modified.map(item => String(item.id || '')).filter(Boolean));
+    if (!ids.size) return [];
+    return (Array.isArray(model?.scenarios) ? model.scenarios : [])
+      .filter(scenario => Array.isArray(scenario?.steps) && scenario.steps.some(step => {
+        if (!step || typeof step !== 'object') return false;
+        if (ids.has(String(step.activity_id || ''))) return true;
+        if (ids.has(String(step.source_activity_id || ''))) return true;
+        if (ids.has(String(step.target_activity_id || ''))) return true;
+        const communication = step.communication_mean;
+        return communication && typeof communication === 'object' && (
+          ids.has(String(communication.source_participant_id || '')) ||
+          ids.has(String(communication.target_participant_id || ''))
+        );
+      }))
+      .map(scenario => ({
+        kind: 'scenario',
+        id: String(scenario.id || ''),
+        name: String(scenario.name || scenario.id || 'Operational Scenario'),
+        type: 'OperationalScenario',
+      }));
   }
 
   function clearDomHighlights() {
@@ -74,7 +97,7 @@
     return String(value).replace(/["\\]/g, '\\$&');
   }
 
-  function applyDiagramHighlights(modified, impacted) {
+  function applyDiagramHighlights(modified, impacted, relations) {
     modified.forEach(item => {
       const node = document.querySelector(`[data-node-id="${cssEscape(item.id)}"]`);
       if (node) node.classList.add('mbse-change-modified');
@@ -85,30 +108,40 @@
         node.classList.add('mbse-change-impacted');
       }
     });
+    relations.forEach(item => {
+      document.querySelectorAll(`[data-edge-id="${cssEscape(item.id)}"]`).forEach(edge => {
+        edge.classList.add('mbse-change-impacted');
+      });
+    });
   }
 
-  function addDeleteSummary(presentation) {
-    if (presentation?.operation !== 'delete') return;
+  function insertSummary(container, text, before = null) {
+    if (!container || !text) return;
+    const note = document.createElement('div');
+    note.className = 'mbse-change-summary modified';
+    note.textContent = text;
+    if (before) container.insertBefore(note, before);
+    else container.prepend(note);
+  }
+
+  function addChangeSummary(presentation) {
     const modified = entries(presentation, 'modified');
     if (!modified.length) return;
-    const name = String(modified[0].name || modified[0].id || 'model element');
-
-    const textual = document.getElementById('modelTextual');
-    if (textual) {
-      const note = document.createElement('div');
-      note.className = 'mbse-change-summary modified';
-      note.textContent = `Deleted: ${name}`;
-      textual.prepend(note);
+    const item = modified[0];
+    let text = '';
+    if (presentation?.operation === 'rename_preview') {
+      text = `Proposed rename — ${String(item.old_name || item.id || 'item')} → ${String(item.name || '')}. No model change has been committed yet.`;
+    } else if (presentation?.operation === 'delete_preview') {
+      text = `Proposed delete — ${String(item.name || item.id || 'model element')}. No model change has been committed yet.`;
+    } else if (presentation?.operation === 'delete') {
+      text = `Deleted: ${String(item.name || item.id || 'model element')}`;
     }
+    if (!text) return;
 
+    insertSummary(document.getElementById('modelTextual'), text);
     const sysmlContainer = document.querySelector('#utilitySysmlView .sysml-text-placeholder');
     if (sysmlContainer) {
-      const note = document.createElement('div');
-      note.className = 'mbse-change-summary modified';
-      note.textContent = `Deleted from the current model: ${name}`;
-      const pre = sysmlContainer.querySelector('pre');
-      if (pre) sysmlContainer.insertBefore(note, pre);
-      else sysmlContainer.appendChild(note);
+      insertSummary(sysmlContainer, text, sysmlContainer.querySelector('pre'));
     }
   }
 
@@ -117,16 +150,19 @@
     const presentation = latestModel?.presentation || {};
     const modified = entries(presentation, 'modified');
     const impacted = entries(presentation, 'impacted');
+    const impactedRelations = entries(presentation, 'impacted_relations');
+    const impactedScenarios = scenarioImpacts(latestModel, modified);
 
     clearDomHighlights();
-    if (!modified.length && !impacted.length) return;
+    if (!modified.length && !impacted.length && !impactedRelations.length) return;
 
-    const modifiedNames = namesFor(modified);
-    const impactedNames = namesFor(impacted);
+    const preview = presentation?.operation === 'rename_preview';
+    const modifiedNames = namesFor(modified, {previewCurrentName: preview});
+    const impactedNames = namesFor([...impacted, ...impactedRelations, ...impactedScenarios]);
     applyTextualHighlights(modifiedNames, impactedNames);
     applySysmlHighlights(modifiedNames, impactedNames);
-    applyDiagramHighlights(modified, impacted);
-    addDeleteSummary(presentation);
+    applyDiagramHighlights(modified, impacted, impactedRelations);
+    addChangeSummary(presentation);
   }
 
   function schedule(model) {
