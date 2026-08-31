@@ -13,12 +13,23 @@ SAM also reloads ``SatisfyRequirementUsage`` using its native semantic fields
 ArcadiaOA contract describes SUPPORTS_CAPABILITY as an allocation with
 ``source`` / ``target`` endpoints. The read-only alias shim below makes those
 representations equivalent only while matching an existing relationship.
+
+The live SAM/PySAM combination can also reload a ``ReferenceUsage`` outside the
+owner traversal used by the scripting project, even though the relationship is
+still present in the project. LOCATED_IN uses that SysML shape. The adoption shim
+therefore falls back to a project-wide relationship-name lookup and resolves
+``referencedFeature`` through owned ``ReferenceSubsetting`` elements when needed.
+Direct creation of a LOCATED_IN reference is likewise normalized to a writable
+ReferenceUsage + ReferenceSubsetting pair instead of submitting the derived
+``referencedFeature`` projection on the ReferenceUsage itself.
 """
 
 from __future__ import annotations
 
 import inspect
 import sys
+from contextvars import ContextVar
+from functools import wraps
 from typing import Any
 from uuid import uuid4
 
@@ -28,50 +39,212 @@ class PySamCompatibilityError(RuntimeError):
 
 
 def install_relationship_reload_aliases() -> dict[str, Any]:
-    """Teach the Level 1 read-only matcher SAM's native satisfy field names.
+    """Teach the Level 1 read-only matcher SAM's reload-specific relationship shapes.
 
     This performs no SAM network operation and does not change any write payload.
-    It only augments the helper used when adopting already-created relationships
-    after a fresh PySAM/SAM reload.
+    It augments relationship adoption so SUPPORTS_CAPABILITY can be read through
+    native satisfy fields and LOCATED_IN can be found even when PySAM omits the
+    reloaded ReferenceUsage from the package-owner traversal.
     """
     try:
         import sam_level1_complete_incremental as complete
     except ImportError:
         return {"required": True, "applied": False, "available": False}
 
-    original = getattr(complete, "_mapped_refs", None)
-    if not callable(original):
+    context = getattr(complete, "_mbse_relationship_adoption_project_context", None)
+    if not isinstance(context, ContextVar):
+        context = ContextVar("mbse_relationship_adoption_project", default=None)
+        complete._mbse_relationship_adoption_project_context = context
+
+    load_result: dict[str, Any]
+    current_load = getattr(complete, "_load_project", None)
+    if not callable(current_load):
+        load_result = {"required": True, "applied": False, "available": False}
+    elif getattr(current_load, "_mbse_relationship_project_context_fix", False):
+        load_result = {"required": True, "applied": True, "already_installed": True}
+    else:
+
+        @wraps(current_load)
+        def load_project_with_adoption_context(*args, **kwargs):
+            result = current_load(*args, **kwargs)
+            if isinstance(result, tuple) and len(result) >= 3:
+                context.set(result[2])
+            return result
+
+        load_project_with_adoption_context._mbse_relationship_project_context_fix = True
+        complete._load_project = load_project_with_adoption_context
+        load_result = {"required": True, "applied": True, "already_installed": False}
+
+    refs_result: dict[str, Any]
+    original_refs = getattr(complete, "_mapped_refs", None)
+    if not callable(original_refs):
+        refs_result = {"required": True, "applied": False, "available": False}
+    elif getattr(original_refs, "_mbse_relationship_reload_fix", False):
+        refs_result = {"required": True, "applied": True, "already_installed": True}
+    else:
+
+        def mapped_refs(element: Any, *attrs: str) -> list[Any]:
+            values = list(original_refs(element, *attrs))
+            requested = set(attrs)
+            if requested.intersection({"source", "_source"}):
+                values.extend(
+                    original_refs(
+                        element,
+                        "satisfied_requirement",
+                        "_satisfied_requirement",
+                        "satisfiedRequirement",
+                        "_satisfiedRequirement",
+                    )
+                )
+            if requested.intersection({"target", "_target"}):
+                values.extend(
+                    original_refs(
+                        element,
+                        "satisfying_feature",
+                        "_satisfying_feature",
+                        "satisfyingFeature",
+                        "_satisfyingFeature",
+                    )
+                )
+
+            reference_attrs = {
+                "referenced_feature",
+                "_referenced_feature",
+                "referencedFeature",
+                "_referencedFeature",
+            }
+            if requested.intersection(reference_attrs):
+                project = context.get()
+                descendants = getattr(complete, "_descendants", None)
+                if project is not None and callable(descendants):
+                    try:
+                        children = descendants(project, element)
+                    except Exception:
+                        children = []
+                    for child in children:
+                        values.extend(original_refs(child, *tuple(reference_attrs)))
+            return values
+
+        mapped_refs._mbse_relationship_reload_fix = True
+        mapped_refs._mbse_supports_capability_reload_fix = True
+        mapped_refs._mbse_located_in_reference_subsetting_fix = True
+        complete._mapped_refs = mapped_refs
+        refs_result = {"required": True, "applied": True, "already_installed": False}
+
+    match_result: dict[str, Any]
+    original_match = getattr(complete, "_match_existing", None)
+    if not callable(original_match):
+        match_result = {"required": True, "applied": False, "available": False}
+    elif getattr(original_match, "_mbse_project_wide_relationship_adoption_fix", False):
+        match_result = {"required": True, "applied": True, "already_installed": True}
+    else:
+
+        @wraps(original_match)
+        def match_existing(descendants: list[Any], edge: dict[str, Any], node_ids: dict[str, str]):
+            matched = original_match(descendants, edge, node_ids)
+            if matched is not None:
+                return matched
+
+            project = context.get()
+            finder = getattr(project, "find_elements_by_name", None) if project is not None else None
+            relationship_name = getattr(complete, "_relationship_name", None)
+            if not callable(finder) or not callable(relationship_name):
+                return None
+
+            try:
+                candidates = list(finder(relationship_name(edge)) or [])
+            except Exception:
+                candidates = []
+            if not candidates:
+                return None
+
+            # Reuse the normal semantic matcher on the project-wide candidates.
+            # The patched _mapped_refs above can resolve a LOCATED_IN target via an
+            # owned ReferenceSubsetting, so same-name relationships remain
+            # distinguishable whenever SAM preserved their semantic endpoints.
+            return original_match(candidates, edge, node_ids)
+
+        match_existing._mbse_project_wide_relationship_adoption_fix = True
+        complete._match_existing = match_existing
+        match_result = {"required": True, "applied": True, "already_installed": False}
+
+    required = True
+    applied = any(
+        result.get("applied") for result in (load_result, refs_result, match_result)
+    )
+    already_installed = all(
+        result.get("already_installed") for result in (load_result, refs_result, match_result)
+    )
+    return {
+        "required": required,
+        "applied": applied,
+        "already_installed": already_installed,
+        "project_context": load_result,
+        "aliases": refs_result,
+        "project_wide_adoption": match_result,
+    }
+
+
+def _install_reference_usage_subsetting_policy() -> dict[str, Any]:
+    """Persist LOCATED_IN using writable ReferenceUsage/ReferenceSubsetting fields.
+
+    SAM treats ``ReferenceUsage.referencedFeature`` as a derived projection in the
+    live PoC environment. Submitting it directly can create a relationship whose
+    semantic target is not recoverable after a fresh reload. Build the reference
+    usage first, then create owned ReferenceSubsetting element(s) that point to the
+    referenced model feature. Connector-end ReferenceUsages, which do not submit a
+    referenced_feature argument, are unchanged.
+    """
+    try:
+        from sam_reload_safe_factory import ReloadSafeFactory
+    except ImportError:
         return {"required": True, "applied": False, "available": False}
-    if getattr(original, "_mbse_supports_capability_reload_fix", False):
+
+    original_getattr = ReloadSafeFactory.__getattr__
+    if getattr(original_getattr, "_mbse_reference_usage_subsetting_fix", False):
         return {"required": True, "applied": True, "already_installed": True}
 
-    def mapped_refs(element: Any, *attrs: str) -> list[Any]:
-        values = list(original(element, *attrs))
-        requested = set(attrs)
-        if requested.intersection({"source", "_source"}):
-            values.extend(
-                original(
-                    element,
-                    "satisfied_requirement",
-                    "_satisfied_requirement",
-                    "satisfiedRequirement",
-                    "_satisfiedRequirement",
-                )
-            )
-        if requested.intersection({"target", "_target"}):
-            values.extend(
-                original(
-                    element,
-                    "satisfying_feature",
-                    "_satisfying_feature",
-                    "satisfyingFeature",
-                    "_satisfyingFeature",
-                )
-            )
-        return values
+    @wraps(original_getattr)
+    def reference_safe_getattr(self, name: str):
+        target = original_getattr(self, name)
+        if name != "create_reference_usage" or not callable(target):
+            return target
 
-    mapped_refs._mbse_supports_capability_reload_fix = True
-    complete._mapped_refs = mapped_refs
+        @wraps(target)
+        def create_reference_usage(*args, **kwargs):
+            referenced_value = kwargs.get("referenced_feature")
+            if referenced_value is None:
+                return target(*args, **kwargs)
+            if args:
+                # Current MBSE-App writers use keyword-only reference creation.
+                # Preserve the delegate behavior rather than guessing positional
+                # argument semantics for an external caller.
+                return target(*args, **kwargs)
+
+            if isinstance(referenced_value, (list, tuple, set)):
+                referenced = [item for item in referenced_value if item is not None]
+            else:
+                referenced = [referenced_value]
+            if not referenced:
+                return target(*args, **kwargs)
+
+            base_kwargs = dict(kwargs)
+            base_kwargs.pop("referenced_feature", None)
+            usage = target(**base_kwargs)
+            create_subsetting = original_getattr(self, "create_reference_subsetting")
+            for referenced_feature in referenced:
+                create_subsetting(
+                    owner=usage,
+                    referencing_feature=usage,
+                    referenced_feature=referenced_feature,
+                )
+            return self.fresh(usage, required=True)
+
+        create_reference_usage._mbse_reference_usage_subsetting_fix = True
+        return create_reference_usage
+
+    reference_safe_getattr._mbse_reference_usage_subsetting_fix = True
+    ReloadSafeFactory.__getattr__ = reference_safe_getattr
     return {"required": True, "applied": True, "already_installed": False}
 
 
@@ -202,8 +375,9 @@ def install_transactional_factory_fix() -> dict[str, Any]:
 
     Returns diagnostic metadata and performs no SAM network operation. The
     compatibility layer covers local scripting attribute storage, canonical
-    transactional field names, and the semantic-only annotation policy used by
-    the PoC transport.
+    transactional field names, reload-safe relationship adoption, writable
+    LOCATED_IN reference semantics, and the semantic-only annotation policy used
+    by the PoC transport.
     """
     try:
         from ansys.sam.sysml2.classes.project import Project
@@ -215,6 +389,8 @@ def install_transactional_factory_fix() -> dict[str, Any]:
             "PySAM SysML2 is not installed. Run: python -m pip install -r requirements.txt"
         ) from exc
 
+    relationship_result = install_relationship_reload_aliases()
+    reference_result = _install_reference_usage_subsetting_policy()
     metadata_result = _install_semantic_only_annotation_policy()
     observer_result = _install_transactional_observer_field_fix()
 
@@ -281,21 +457,21 @@ def install_transactional_factory_fix() -> dict[str, Any]:
                 "already_installed": False,
             }
 
-    required = bool(
-        factory_result["required"]
-        or observer_result["required"]
-        or metadata_result["required"]
+    results = (
+        factory_result,
+        observer_result,
+        metadata_result,
+        relationship_result,
+        reference_result,
     )
-    applied = bool(
-        factory_result["applied"]
-        or observer_result["applied"]
-        or metadata_result["applied"]
-    )
+    required = any(bool(result.get("required")) for result in results)
+    applied = any(bool(result.get("applied")) for result in results)
     already_installed = bool(
         required
-        and (not factory_result["required"] or factory_result.get("already_installed"))
-        and (not observer_result["required"] or observer_result.get("already_installed"))
-        and (not metadata_result["required"] or metadata_result.get("already_installed"))
+        and all(
+            not result.get("required") or result.get("already_installed")
+            for result in results
+        )
     )
     return {
         "required": required,
@@ -304,6 +480,8 @@ def install_transactional_factory_fix() -> dict[str, Any]:
         "factory": factory_result,
         "observer": observer_result,
         "metadata": metadata_result,
+        "relationships": relationship_result,
+        "reference_usage": reference_result,
     }
 
 
