@@ -25,6 +25,14 @@ owned end ``ReferenceUsage`` with an owned ``ReferenceSubsetting`` to the actual
 model feature. This mirrors the SysML v2 abstract syntax behind ``connect A to B``
 without trying to mutate derived ELists.
 
+The SAM server used by this proof of concept does not reliably accept direct
+``Succession`` creation. It first rejects inherited connector projections as
+unmodifiable and then returns HTTP 500 when only ``trigger_step`` and
+``effect_step`` are submitted. ``create_succession`` is therefore intentionally a
+transport no-op. Scenario order remains explicit in the numbered scenario steps
+and their source documentation, while the Level 1A textual SysML model remains
+the normative sequence representation.
+
 The Level 1A textual model remains the normative translation artifact.
 """
 
@@ -236,6 +244,13 @@ class ReloadSafeFactory:
 
         @wraps(original_target)
         def reload_safe_create(*args, **kwargs):
+            # The live SAM server currently cannot create Succession reliably via
+            # PySAM direct commits. Keep this as a deliberate no-op for the PoC so
+            # scenario synchronization can complete without losing the normative
+            # sequence held in the source scenario and textual SysML Level 1.
+            if name == "create_succession":
+                return None
+
             if name in self._CONNECTOR_METHODS:
                 return self._create_binary_connector(
                     name,
