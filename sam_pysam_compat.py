@@ -84,6 +84,12 @@ def _install_transactional_observer_field_fix() -> dict[str, Any]:
     ``Name``/``Owner``/``ActionDefinition`` instead of the canonical
     ``name``/``owner``/``actionDefinition`` fields, so SAM can create the element
     type while losing its name, ownership, or semantic references after reload.
+
+    The live SAM used by the PoC also rejects ``Documentation`` creation. Direct
+    writes can detect that immediately and fall back to ``Comment``, but an atomic
+    transaction cannot discover the rejection until the whole stack is committed.
+    Documentation is optional metadata, so transactional commits drop only those
+    DataVersions rather than allowing them to abort semantic scenario creation.
     """
     try:
         from ansys.sam.sysml2.dto.commit.commit_class import Commit
@@ -103,8 +109,6 @@ def _install_transactional_observer_field_fix() -> dict[str, Any]:
     except (OSError, TypeError):
         source = ""
 
-    # Do not replace a future PySAM implementation that already removes the
-    # scripting-layer underscore before handing a field to DataVersion.
     upstream_normalizes = (
         'startswith("_")' in source
         and "change.add_change" in source
@@ -116,6 +120,17 @@ def _install_transactional_observer_field_fix() -> dict[str, Any]:
     def fixed_commit_stack(self):
         commit = Commit(self._project_id)
         for key, changes in self._stack.items():
+            element_type = next(
+                (
+                    field_value
+                    for field_name, field_value in changes
+                    if field_name == "@type"
+                ),
+                None,
+            )
+            if element_type == "Documentation":
+                continue
+
             change = DataVersion()
             if not key.startswith("value:"):
                 change.identify(key)
@@ -165,9 +180,6 @@ def install_transactional_factory_fix() -> dict[str, Any]:
         except (OSError, TypeError):
             source = ""
 
-        # The upstream Factory correction contains this scripting-specific prefix
-        # logic. It fixes local scripting storage, but the observer normalization
-        # above is still evaluated independently.
         upstream_factory_fixed = (
             "attr_name = key" in source and 'attr_name = "_" + key' in source
         )
