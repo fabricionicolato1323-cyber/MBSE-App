@@ -92,10 +92,11 @@ class ModelFileSession(TerminalProcessSession):
         if self.model_name:
             snapshot["name"] = self.model_name
 
-        # Change/impact highlighting is presentation metadata, deliberately kept
-        # outside semantic node/edge attributes. A rename preview may project a
-        # proposed name into this browser snapshot while the persisted semantic
-        # node still has its original name until the user confirms the change.
+        # Red/orange impact state is presentation metadata only. In particular,
+        # rename_preview never substitutes the proposed name into the semantic
+        # model projection before confirmation. The UI shows the current element
+        # in red plus an explicit old -> proposed-new summary; a Yes answer then
+        # commits the rename and all projections regenerate from the same stable ID.
         presentation: dict[str, Any] = {}
         try:
             payload = json.loads(self.model_path.read_text(encoding="utf-8"))
@@ -105,15 +106,6 @@ class ModelFileSession(TerminalProcessSession):
                 presentation = candidate
         except (OSError, json.JSONDecodeError):
             presentation = {}
-
-        preview_names = presentation.get("preview_node_names")
-        if presentation.get("operation") == "rename_preview" and isinstance(preview_names, dict):
-            for node in snapshot.get("nodes", []):
-                node_id = str(node.get("id") or "")
-                proposed = preview_names.get(node_id)
-                if proposed:
-                    node["name"] = str(proposed)
-
         snapshot["presentation"] = presentation
         return snapshot
 
