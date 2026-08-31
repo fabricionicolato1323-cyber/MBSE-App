@@ -51,6 +51,21 @@ def _model(*, assigned: bool = True) -> dict:
     }
 
 
+def _legacy_model() -> dict:
+    model = _model(assigned=True)
+    exchange = next(edge for edge in model["edges"] if edge["type"] == "OPERATIONAL_EXCHANGE")
+    communication = next(edge for edge in model["edges"] if edge["type"] == "COMMUNICATION_MEAN")
+    exchange.pop("communication_assignment", None)
+    communication.pop("exchange_refs", None)
+    model["edges"].extend(
+        [
+            {"type": "PERFORMS", "source": "entity-a", "target": "activity-source", "key": 0},
+            {"type": "PERFORMS", "source": "entity-b", "target": "activity-target", "key": 0},
+        ]
+    )
+    return model
+
+
 def _settings() -> SamSettings:
     return SamSettings(
         server_url="https://sam.invalid",
@@ -70,6 +85,37 @@ def test_resolver_returns_communication_mean_only_for_assigned_exchange():
     unassigned = _model(assigned=False)
     exchange = next(edge for edge in unassigned["edges"] if edge["type"] == "OPERATIONAL_EXCHANGE")
     assert resolve_exchange_transport(unassigned["edges"], exchange) is None
+
+
+def test_legacy_single_medium_matches_diagram_and_sysml_ownership():
+    model = _legacy_model()
+    exchange = next(edge for edge in model["edges"] if edge["type"] == "OPERATIONAL_EXCHANGE")
+
+    medium = resolve_exchange_transport(model["edges"], exchange)
+    assert medium is not None
+    assert medium["name"] == "Radio link"
+
+    text = generate_sysml_v2(model)
+    connection = "connection oa_communication_Radio_link : CommunicationMean"
+    flow = "flow oa_exchange_Kill_count : OperationalExchange"
+    assert text.count(flow) == 1
+    assert text.index(connection) < text.index(flow)
+    assert "connect oa_entity_Entity_A to oa_entity_Entity_B {" in text
+
+
+def test_legacy_transport_is_not_guessed_when_two_media_match():
+    model = _legacy_model()
+    model["edges"].append(
+        {
+            "type": "COMMUNICATION_MEAN",
+            "source": "entity-a",
+            "target": "entity-b",
+            "key": 1,
+            "name": "Backup link",
+        }
+    )
+    exchange = next(edge for edge in model["edges"] if edge["type"] == "OPERATIONAL_EXCHANGE")
+    assert resolve_exchange_transport(model["edges"], exchange) is None
 
 
 def test_sysml_nests_assigned_flow_usage_inside_communication_mean_usage():
