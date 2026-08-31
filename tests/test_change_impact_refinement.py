@@ -14,6 +14,7 @@ from change_impact_refinement import (
 from graph_model import OAGraph
 from model_io import prepare_model_export
 from sam_level1_sync import level1_snapshot_digest
+from sysml_v2 import generate_sysml_v2
 
 
 def _model() -> tuple[OAGraph, str, str, str]:
@@ -72,6 +73,24 @@ def test_confirmed_rename_preserves_stable_id_and_marks_direct_impact() -> None:
     assert presentation["modified_ids"] == [action]
     assert set(presentation["impacted_ids"]) == {actor, goal}
     assert model.graph.graph[PRESENTATION_KEY]["operation"] == "rename"
+
+
+def test_confirmed_rename_regenerates_sysml_names_and_references_from_same_id() -> None:
+    model, _actor, action, _goal = _model()
+    before = generate_sysml_v2(_payload(model))
+    assert "Detect incoming threats" in before
+    assert "Detect_incoming_threats" in before
+
+    ok, error, _presentation = rename_model_node(model, action, "Classify hazards")
+    assert ok, error
+    after = generate_sysml_v2(_payload(model))
+
+    assert action in model.graph
+    assert model.name(action) == "Classify hazards"
+    assert "Classify hazards" in after
+    assert "Classify_hazards" in after
+    assert "Detect incoming threats" not in after
+    assert "Detect_incoming_threats" not in after
 
 
 def test_confirmed_rename_updates_only_name_caches_proven_by_matching_id() -> None:
