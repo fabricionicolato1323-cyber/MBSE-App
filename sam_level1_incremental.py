@@ -1,18 +1,20 @@
 """Incremental SAM Level 1 synchronization for one managed model instance.
 
 The reusable ArcadiaOA library is never rewritten after it is available. A verified
-local manifest maps stable MBSE-App node IDs to SAM IDs and provides the baseline
-for an explicit, user-reviewed change set.
+local manifest maps stable MBSE-App node and relationship identities to SAM IDs and
+provides the baseline for an explicit, user-reviewed change set.
 
 Supported in this stage:
 * no-op detection without a SAM write;
 * name-only UPDATEs of existing nodes;
-* CREATE of new nodes when relationship/scenario topology is unchanged; and
-* DELETE of existing nodes when relationship/scenario topology is unchanged.
+* CREATE/DELETE of isolated nodes;
+* CREATE/DELETE/UPDATE (replace) of OPERATIONAL_EXCHANGE relationships; and
+* read-only migration of a legacy v1 manifest when the relationship delta can be
+  proven to contain only additive OPERATIONAL_EXCHANGE relationships.
 
-Relationship/scenario deltas are deliberately detected and block the entire write
-until their own incremental handlers are enabled. The writer never performs a
-partial structural synchronization or rebuilds the complete instance silently.
+Other relationship types and Operational Scenario deltas remain deliberately
+blocked. The writer never performs a partial structural synchronization or rebuilds
+the complete instance silently.
 """
 
 from __future__ import annotations
@@ -38,15 +40,19 @@ from sam_level1_sync import (
 )
 from sam_level1_transactional import (
     ARCADIA_OA_LIBRARY_PACKAGE,
+    _attribute_values,
     _children,
     _element_id,
     _element_name,
     _load_project,
+    _resolve_project_value,
 )
 from sam_reload_safe_factory import ReloadSafeFactory
 
 SYNC_STATE_KEY = "sam_sync"
-SYNC_STATE_VERSION = 1
+LEGACY_SYNC_STATE_VERSION = 1
+SYNC_STATE_VERSION = 2
+SUPPORTED_INCREMENTAL_RELATIONSHIP_TYPES = frozenset({"OPERATIONAL_EXCHANGE"})
 
 
 def _digest(value: Any) -> str:
@@ -74,7 +80,13 @@ def _graph(model: dict[str, Any]) -> dict[str, Any]:
 
 def sync_state_from_model(model: dict[str, Any]) -> dict[str, Any] | None:
     state = _graph(model).get(SYNC_STATE_KEY)
-    if not isinstance(state, dict) or state.get("version") != SYNC_STATE_VERSION:
+    if not isinstance(state, dict):
+        return None
+    try:
+        version = int(state.get("version", 0))
+    except (TypeError, ValueError):
+        return None
+    if version not in {LEGACY_SYNC_STATE_VERSION, SYNC_STATE_VERSION}:
         return None
     return copy.deepcopy(state)
 
@@ -93,6 +105,34 @@ def _without_name(node: dict[str, Any]) -> dict[str, Any]:
     return value
 
 
+def _edge_identity(edge: dict[str, Any]) -> str:
+    """Stable relationship identity; name/properties are intentionally excluded."""
+    explicit = str(edge.get("id") or "").strip()
+    if explicit:
+        return f"id:{explicit}"
+    identity = [
+        str(edge.get("type") or ""),
+        str(edge.get("source") or ""),
+        str(edge.get("target") or ""),
+        edge.get("key", 0),
+    ]
+    return "edge:" + json.dumps(identity, ensure_ascii=False, separators=(",", ":"), default=str)
+
+
+def _supported_edges_by_id(model: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for edge in _rows(model.get("edges")):
+        if str(edge.get("type") or "") not in SUPPORTED_INCREMENTAL_RELATIONSHIP_TYPES:
+            continue
+        identity = _edge_identity(edge)
+        if identity in result:
+            raise SamLevel1SyncError(
+                f"Relationship identity {identity!r} is duplicated in the local model."
+            )
+        result[identity] = copy.deepcopy(edge)
+    return result
+
+
 def _edge_fingerprint(model: dict[str, Any]) -> str:
     return _digest(
         sorted(
@@ -100,6 +140,15 @@ def _edge_fingerprint(model: dict[str, Any]) -> str:
             key=lambda item: json.dumps(item, sort_keys=True, default=str),
         )
     )
+
+
+def _other_edge_fingerprint(model: dict[str, Any]) -> str:
+    rows = [
+        copy.deepcopy(item)
+        for item in _rows(model.get("edges"))
+        if str(item.get("type") or "") not in SUPPORTED_INCREMENTAL_RELATIONSHIP_TYPES
+    ]
+    return _digest(sorted(rows, key=lambda item: json.dumps(item, sort_keys=True, default=str)))
 
 
 def _scenario_fingerprint(rows: list[dict[str, Any]]) -> str:
@@ -136,6 +185,68 @@ def _unique_descendant_by_name(project: Any, package: Any, name: str) -> Any:
     return matches[0]
 
 
+def _relationship_name(edge: dict[str, Any]) -> str:
+    return str(edge.get("name") or edge.get("type") or "Relationship").strip() or "Relationship"
+
+
+def _adopt_supported_relationship_elements(
+    project: Any,
+    package: Any,
+    model: dict[str, Any],
+    *,
+    allow_missing: bool = False,
+) -> tuple[dict[str, Any], list[str]]:
+    """Resolve supported relationship IDs by scoped, unique name.
+
+    ``allow_missing`` is used only by the v1 additive migration path. Missing
+    relationships are then candidates for CREATE; ambiguity always blocks.
+    """
+    descendants = _descendants(project, package)
+    result: dict[str, Any] = {}
+    missing: list[str] = []
+    for relationship_id, edge in _supported_edges_by_id(model).items():
+        name = _relationship_name(edge)
+        matches = [item for item in descendants if _element_name(item) == name]
+        if not matches and allow_missing:
+            missing.append(relationship_id)
+            continue
+        if len(matches) != 1:
+            raise SamLevel1SyncError(
+                f"Cannot map Operational Exchange {name!r} to the managed SAM instance: "
+                f"found {len(matches)} descendants with that name. No SAM write was performed."
+            )
+        result[relationship_id] = matches[0]
+    return result, missing
+
+
+def _relationship_records(
+    model: dict[str, Any],
+    relationship_elements: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    records: dict[str, dict[str, Any]] = {}
+    for relationship_id, edge in _supported_edges_by_id(model).items():
+        element = relationship_elements.get(relationship_id)
+        if element is None:
+            raise SamLevel1SyncError(
+                f"No SAM relationship mapping is available for {relationship_id!r}."
+            )
+        sam_id = _element_id(element)
+        if not sam_id:
+            raise SamLevel1SyncError(
+                f"SAM relationship {_relationship_name(edge)!r} has no stable ID."
+            )
+        records[relationship_id] = {
+            "sam_id": sam_id,
+            "type": str(edge.get("type") or ""),
+            "source_id": str(edge.get("source") or ""),
+            "target_id": str(edge.get("target") or ""),
+            "key": edge.get("key", 0),
+            "name": _relationship_name(edge),
+            "source": copy.deepcopy(edge),
+        }
+    return records
+
+
 def _build_state(
     model: dict[str, Any],
     scenarios: list[dict[str, Any]],
@@ -144,8 +255,16 @@ def _build_state(
     package_name: str,
     package_id: str | None,
     node_elements: dict[str, Any],
+    relationship_elements: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     nodes = _nodes_by_id(model)
+    supported_relationships = _supported_edges_by_id(model)
+    if relationship_elements is None:
+        if supported_relationships:
+            raise SamLevel1SyncError(
+                "Incremental baseline adoption did not resolve Operational Exchange IDs."
+            )
+        relationship_elements = {}
     return {
         "version": SYNC_STATE_VERSION,
         "project_id": settings.project_id,
@@ -162,9 +281,93 @@ def _build_state(
             }
             for node_id, node in nodes.items()
         },
+        "relationships": _relationship_records(model, relationship_elements),
+        "relationship_tracking_complete": True,
+        "other_edges_fingerprint": _other_edge_fingerprint(model),
         "edges_fingerprint": _edge_fingerprint(model),
         "scenarios_fingerprint": _scenario_fingerprint(scenarios),
     }
+
+
+def _managed_instance(project: Any, state: dict[str, Any]) -> Any:
+    package_id = str(state.get("instance_package_id") or "")
+    package = project.find_element_by_id(package_id) if package_id else None
+    if package is not None:
+        return package
+    name = str(state.get("instance_package_name") or "")
+    matches = list(project.find_elements_by_name(name) or []) if name else []
+    if len(matches) != 1:
+        raise SamLevel1SyncError(
+            "The managed SAM Level 1 instance recorded by MBSE-App can no longer be resolved. "
+            "No incremental write was performed."
+        )
+    return matches[0]
+
+
+def migrate_legacy_relationship_state(
+    model: dict[str, Any],
+    *,
+    scenarios: list[dict[str, Any]],
+    state: dict[str, Any],
+    settings: SamSettings,
+    connector_class: type[Any] | None = None,
+    project_manager_class: type[Any] | None = None,
+    factory_class: type[Any] | None = None,
+) -> dict[str, Any]:
+    """Read-only v1->v2 migration for provably additive Operational Exchanges.
+
+    The v1 manifest stored only a global edge fingerprint. We therefore migrate a
+    changed v1 baseline only when every relationship absent from SAM is a current
+    OPERATIONAL_EXCHANGE and removing exactly those relationships reproduces the
+    recorded v1 fingerprint. This proves the old topology without guessing.
+    """
+    try:
+        version = int(state.get("version", 0))
+    except (TypeError, ValueError):
+        version = 0
+    if version == SYNC_STATE_VERSION:
+        return copy.deepcopy(state)
+    if version != LEGACY_SYNC_STATE_VERSION:
+        raise SamLevel1SyncError("Unsupported SAM synchronization manifest version.")
+    if state.get("project_id") != settings.project_id:
+        raise SamLevel1SyncError("The legacy SAM manifest belongs to a different project.")
+    if _scenario_fingerprint(scenarios) != state.get("scenarios_fingerprint"):
+        raise SamLevel1SyncError(
+            "Operational Scenarios changed while migrating the legacy SAM baseline. "
+            "Scenario incremental sync is still pending; no SAM write was performed."
+        )
+
+    _, _, project, _ = _load_project(
+        settings,
+        connector_class=connector_class,
+        project_manager_class=project_manager_class,
+        factory_class=factory_class,
+    )
+    package = _managed_instance(project, state)
+    mapped, missing_ids = _adopt_supported_relationship_elements(
+        project, package, model, allow_missing=True
+    )
+
+    candidate_previous = copy.deepcopy(model)
+    missing_set = set(missing_ids)
+    candidate_previous["edges"] = [
+        copy.deepcopy(edge)
+        for edge in _rows(model.get("edges"))
+        if _edge_identity(edge) not in missing_set
+    ]
+    if _edge_fingerprint(candidate_previous) != state.get("edges_fingerprint"):
+        raise SamLevel1SyncError(
+            "The legacy SAM relationship baseline cannot be migrated safely from this "
+            "change set. Only provably additive OPERATIONAL_EXCHANGE changes are accepted "
+            "for the first v1-to-v2 migration. No SAM data was changed."
+        )
+
+    migrated = copy.deepcopy(state)
+    migrated["version"] = SYNC_STATE_VERSION
+    migrated["relationships"] = _relationship_records(candidate_previous, mapped)
+    migrated["relationship_tracking_complete"] = True
+    migrated["other_edges_fingerprint"] = _other_edge_fingerprint(candidate_previous)
+    return migrated
 
 
 def adopt_existing_instance(
@@ -209,6 +412,11 @@ def adopt_existing_instance(
             package,
             str(node.get("name") or node_id),
         )
+    relationship_elements, missing = _adopt_supported_relationship_elements(
+        project, package, model
+    )
+    if missing:
+        return None
     return _build_state(
         model,
         scenarios,
@@ -216,7 +424,64 @@ def adopt_existing_instance(
         package_name=_element_name(package),
         package_id=_element_id(package),
         node_elements=node_elements,
+        relationship_elements=relationship_elements,
     )
+
+
+def _relationship_change_set(
+    model: dict[str, Any], state: dict[str, Any]
+) -> dict[str, Any]:
+    current = _supported_edges_by_id(model)
+    previous = state.get("relationships") if isinstance(state.get("relationships"), dict) else {}
+    current_ids = set(current)
+    previous_ids = set(previous)
+    creates = [
+        {"relationship_id": identity, "edge": copy.deepcopy(current[identity])}
+        for identity in sorted(current_ids - previous_ids)
+    ]
+    deletes: list[dict[str, Any]] = []
+    for identity in sorted(previous_ids - current_ids):
+        record = previous.get(identity) if isinstance(previous.get(identity), dict) else {}
+        deletes.append(
+            {
+                "relationship_id": identity,
+                "sam_id": record.get("sam_id"),
+                "old_name": str(record.get("name") or ""),
+                "type": str(record.get("type") or ""),
+                "edge": copy.deepcopy(record.get("source") or {}),
+            }
+        )
+    updates: list[dict[str, Any]] = []
+    unchanged = 0
+    for identity in sorted(current_ids & previous_ids):
+        record = previous.get(identity) if isinstance(previous.get(identity), dict) else {}
+        old_edge = record.get("source") if isinstance(record.get("source"), dict) else {}
+        new_edge = current[identity]
+        if old_edge == new_edge:
+            unchanged += 1
+            continue
+        updates.append(
+            {
+                "relationship_id": identity,
+                "sam_id": record.get("sam_id"),
+                "old_name": str(record.get("name") or _relationship_name(old_edge)),
+                "new_name": _relationship_name(new_edge),
+                "old_edge": copy.deepcopy(old_edge),
+                "edge": copy.deepcopy(new_edge),
+            }
+        )
+    return {
+        "create": creates,
+        "update": updates,
+        "delete": deletes,
+        "unchanged": unchanged,
+        "counts": {
+            "create": len(creates),
+            "update": len(updates),
+            "delete": len(deletes),
+            "unchanged": unchanged,
+        },
+    }
 
 
 def build_incremental_plan(
@@ -225,7 +490,7 @@ def build_incremental_plan(
     scenarios: list[dict[str, Any]],
     settings: SamSettings,
 ) -> dict[str, Any]:
-    """Return a read-only node change set based on the persisted SAM baseline."""
+    """Return a read-only node + supported-relationship change set."""
     state = sync_state_from_model(model)
     current_digest = level1_snapshot_digest(model, scenarios)
     current_nodes = _nodes_by_id(model)
@@ -246,6 +511,15 @@ def build_incremental_plan(
             ],
             "updates": [],
             "deletes": [],
+            "relationship_counts": {
+                "create": len(_rows(model.get("edges"))),
+                "update": 0,
+                "delete": 0,
+                "unchanged": 0,
+            },
+            "relationship_creates": [],
+            "relationship_updates": [],
+            "relationship_deletes": [],
             "reason": "No incremental baseline is recorded for this SAM project yet.",
         }
     if current_digest == state.get("snapshot_digest"):
@@ -262,7 +536,18 @@ def build_incremental_plan(
             "creates": [],
             "updates": [],
             "deletes": [],
+            "relationship_counts": {
+                "create": 0,
+                "update": 0,
+                "delete": 0,
+                "unchanged": len(_rows(model.get("edges"))),
+            },
+            "relationship_creates": [],
+            "relationship_updates": [],
+            "relationship_deletes": [],
             "unsupported_changes": [],
+            "relationship_changes_pending": False,
+            "scenario_changes_pending": False,
             "instance_package_name": state.get("instance_package_name"),
         }
 
@@ -292,18 +577,40 @@ def build_incremental_plan(
         )
 
     unsupported: list[str] = []
-    relationship_changed = _edge_fingerprint(model) != state.get("edges_fingerprint")
+    try:
+        state_version = int(state.get("version", 0))
+    except (TypeError, ValueError):
+        state_version = 0
+
     scenarios_changed = (
         _scenario_fingerprint(scenarios) != state.get("scenarios_fingerprint")
     )
-    if relationship_changed:
-        unsupported.append(
-            "relationship topology or relationship properties changed; relationship incremental sync is pending"
-        )
     if scenarios_changed:
         unsupported.append(
             "operational scenarios changed; scenario incremental sync is pending"
         )
+
+    if state_version == LEGACY_SYNC_STATE_VERSION:
+        relationship_changed = _edge_fingerprint(model) != state.get("edges_fingerprint")
+        if relationship_changed:
+            unsupported.append(
+                "legacy relationship baseline requires read-only v1-to-v2 migration before synchronization"
+            )
+        relationship_delta = {
+            "create": [], "update": [], "delete": [], "unchanged": 0,
+            "counts": {"create": 0, "update": 0, "delete": 0, "unchanged": 0},
+        }
+        relationship_changes_pending = relationship_changed
+    else:
+        relationship_delta = _relationship_change_set(model, state)
+        other_relationship_changed = (
+            _other_edge_fingerprint(model) != state.get("other_edges_fingerprint")
+        )
+        if other_relationship_changed:
+            unsupported.append(
+                "relationship types outside OPERATIONAL_EXCHANGE changed; their incremental handlers are pending"
+            )
+        relationship_changes_pending = other_relationship_changed
 
     updates: list[dict[str, Any]] = []
     for node_id in sorted(current_ids & previous_ids):
@@ -335,10 +642,30 @@ def build_incremental_plan(
             }
         )
 
+    for item in relationship_delta["create"] + relationship_delta["update"]:
+        edge = item.get("edge") if isinstance(item.get("edge"), dict) else {}
+        source_id = str(edge.get("source") or "")
+        target_id = str(edge.get("target") or "")
+        if source_id not in current_nodes or target_id not in current_nodes:
+            unsupported.append(
+                f"Operational Exchange {_relationship_name(edge)!r} has an unresolved endpoint"
+            )
+
+    removed_set = set(removed_ids)
+    for edge in _supported_edges_by_id(model).values():
+        if str(edge.get("source") or "") in removed_set or str(edge.get("target") or "") in removed_set:
+            unsupported.append(
+                f"node deletion would leave Operational Exchange {_relationship_name(edge)!r} dangling"
+            )
+
     unchanged = max(0, len(current_ids & previous_ids) - len(updates))
+    relationship_counts = relationship_delta["counts"]
+    has_relationship_delta = any(
+        int(relationship_counts.get(key, 0)) > 0 for key in ("create", "update", "delete")
+    )
     mode = (
         "incremental_noop"
-        if not creates and not updates and not deletes and not unsupported
+        if not creates and not updates and not deletes and not has_relationship_delta and not unsupported
         else "incremental_change_set"
     )
     return {
@@ -354,26 +681,15 @@ def build_incremental_plan(
         "creates": creates,
         "updates": updates,
         "deletes": deletes,
-        "relationship_changes_pending": relationship_changed,
+        "relationship_counts": relationship_counts,
+        "relationship_creates": relationship_delta["create"],
+        "relationship_updates": relationship_delta["update"],
+        "relationship_deletes": relationship_delta["delete"],
+        "relationship_changes_pending": relationship_changes_pending,
         "scenario_changes_pending": scenarios_changed,
         "unsupported_changes": unsupported,
         "instance_package_name": state.get("instance_package_name"),
     }
-
-
-def _managed_instance(project: Any, state: dict[str, Any]) -> Any:
-    package_id = str(state.get("instance_package_id") or "")
-    package = project.find_element_by_id(package_id) if package_id else None
-    if package is not None:
-        return package
-    name = str(state.get("instance_package_name") or "")
-    matches = list(project.find_elements_by_name(name) or []) if name else []
-    if len(matches) != 1:
-        raise SamLevel1SyncError(
-            "The managed SAM Level 1 instance recorded by MBSE-App can no longer be resolved. "
-            "No incremental write was performed."
-        )
-    return matches[0]
 
 
 def _incremental_create_owner(
@@ -473,6 +789,104 @@ def _stage_incremental_creates(
     return staged, list(factory.warnings)
 
 
+def _node_sam_ids(
+    state: dict[str, Any], staged_nodes: list[dict[str, Any]]
+) -> dict[str, str]:
+    result: dict[str, str] = {}
+    previous = state.get("nodes") if isinstance(state.get("nodes"), dict) else {}
+    for node_id, record in previous.items():
+        if isinstance(record, dict) and record.get("sam_id"):
+            result[str(node_id)] = str(record["sam_id"])
+    for item in staged_nodes:
+        if item.get("source_id") and item.get("sam_id"):
+            result[str(item["source_id"])] = str(item["sam_id"])
+    return result
+
+
+def _stage_incremental_relationships(
+    connector: Any,
+    project: Any,
+    resolved_factory: type[Any],
+    state: dict[str, Any],
+    *,
+    node_sam_ids: dict[str, str],
+    creates: list[dict[str, Any]],
+    updates: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    work: list[tuple[str, dict[str, Any]]] = [
+        ("create", item) for item in creates
+    ] + [("update", item) for item in updates]
+    if not work:
+        return [], []
+
+    package = _managed_instance(project, state)
+    behavior = _unique_descendant_by_name(project, package, "oa_operationalBehavior")
+    library = _library_status(project)
+    if not library.get("loaded"):
+        raise SamLevel1SyncError(
+            "The reusable ArcadiaOA library is not complete. Relationship CREATE was not started."
+        )
+    definitions = library["definitions"]
+    raw_factory = resolved_factory(project, connector)
+    factory = _MetadataTolerantFactory(ReloadSafeFactory(project, raw_factory))
+    staged: list[dict[str, Any]] = []
+
+    for operation, item in work:
+        edge = item.get("edge") if isinstance(item.get("edge"), dict) else {}
+        if str(edge.get("type") or "") != "OPERATIONAL_EXCHANGE":
+            raise SamLevel1SyncError(
+                f"Incremental relationship writer does not support {edge.get('type')!r}."
+            )
+        source_id = str(edge.get("source") or "")
+        target_id = str(edge.get("target") or "")
+        source_sam_id = node_sam_ids.get(source_id)
+        target_sam_id = node_sam_ids.get(target_id)
+        source = project.find_element_by_id(source_sam_id) if source_sam_id else None
+        target = project.find_element_by_id(target_sam_id) if target_sam_id else None
+        if source is None or target is None:
+            raise SamLevel1SyncError(
+                f"Operational Exchange {_relationship_name(edge)!r} endpoints could not be resolved in SAM."
+            )
+        behavior = project.find_element_by_id(_element_id(behavior)) or behavior
+        definition = project.find_element_by_id(_element_id(definitions["OperationalExchange"])) or definitions["OperationalExchange"]
+        staging_name = f"__MBSE_REL_NEW_{uuid4().hex[:10]}"
+        try:
+            relationship = factory.create_flow_connection_usage(
+                name=staging_name,
+                owner=behavior,
+                flow_connection_definition=[definition],
+                source=[source],
+                target=[target],
+                source_feature=source,
+                target_feature=[target],
+                related_feature=[source, target],
+                is_directed=True,
+            )
+            _documentation(factory, relationship, _source_document(edge, "relationship"))
+        except Exception as exc:
+            raise SamLevel1SyncError(
+                "SAM incremental Operational Exchange CREATE failed while staging "
+                f"{_relationship_name(edge)!r}: {exc}. A temporary __MBSE_REL_NEW_* "
+                "element may remain; the reviewed relationship was not published."
+            ) from exc
+        staged.append(
+            {
+                "operation": operation,
+                "relationship_id": item.get("relationship_id"),
+                "old_sam_id": item.get("sam_id") if operation == "update" else None,
+                "sam_id": _element_id(relationship),
+                "staging_name": staging_name,
+                "final_name": _relationship_name(edge),
+                "source_id": source_id,
+                "target_id": target_id,
+                "source_sam_id": source_sam_id,
+                "target_sam_id": target_sam_id,
+                "edge": copy.deepcopy(edge),
+            }
+        )
+    return staged, list(factory.warnings)
+
+
 def _delete_owned_tree(element: Any, project: Any) -> None:
     descendants = _descendants(project, element)
     for child in reversed(descendants):
@@ -487,6 +901,29 @@ def _delete_owned_tree(element: Any, project: Any) -> None:
     delete()
 
 
+def _relationship_endpoint_ids(project: Any, relationship: Any) -> set[str]:
+    """Best-effort fresh endpoint proof across PySAM JSON/scripting shapes."""
+    attrs = (
+        "source", "_source", "target", "_target",
+        "source_feature", "_source_feature", "sourceFeature", "_sourceFeature",
+        "target_feature", "_target_feature", "targetFeature", "_targetFeature",
+        "related_feature", "_related_feature", "relatedFeature", "_relatedFeature",
+        "referenced_feature", "_referenced_feature", "referencedFeature", "_referencedFeature",
+    )
+    values: list[Any] = []
+    for item in [relationship] + _descendants(project, relationship):
+        values.extend(_attribute_values(item, attrs))
+    result: set[str] = set()
+    for value in values:
+        resolved = _resolve_project_value(project, value)
+        identity = _element_id(resolved)
+        if identity:
+            result.add(identity)
+        elif isinstance(value, str) and value.strip():
+            result.add(value.strip())
+    return result
+
+
 def sync_level1_incremental(
     model: dict[str, Any],
     *,
@@ -497,7 +934,7 @@ def sync_level1_incremental(
     project_manager_class: type[Any] | None = None,
     factory_class: type[Any] | None = None,
 ) -> dict[str, Any]:
-    """Adopt a baseline, skip no-ops, or apply one reviewed node change set."""
+    """Adopt a baseline, skip no-ops, or apply one reviewed Level 1 change set."""
     total_started = perf_counter()
     state = sync_state_from_model(model)
     if state is None or state.get("project_id") != settings.project_id:
@@ -525,6 +962,12 @@ def sync_level1_incremental(
                     "delete": 0,
                     "unchanged": len(adopted["nodes"]),
                 },
+                "relationship_delta": {
+                    "create": 0,
+                    "update": 0,
+                    "delete": 0,
+                    "unchanged": len(adopted.get("relationships") or {}),
+                },
                 "timings": {
                     "adoption_seconds": round(perf_counter() - adopt_started, 3),
                     "total_seconds": round(perf_counter() - total_started, 3),
@@ -548,6 +991,7 @@ def sync_level1_incremental(
             "snapshot_digest": plan["snapshot_digest"],
             "sync_state": state,
             "delta": plan["counts"],
+            "relationship_delta": plan.get("relationship_counts") or {},
             "timings": {"total_seconds": round(perf_counter() - total_started, 3)},
         }
     if not plan["supported"]:
@@ -569,9 +1013,10 @@ def sync_level1_incremental(
     updates = list(plan.get("updates") or [])
     creates = list(plan.get("creates") or [])
     deletes = list(plan.get("deletes") or [])
+    relationship_creates = list(plan.get("relationship_creates") or [])
+    relationship_updates = list(plan.get("relationship_updates") or [])
+    relationship_deletes = list(plan.get("relationship_deletes") or [])
 
-    # Resolve every existing write target before the first write. This prevents a
-    # stale manifest from producing a partial change set.
     for item in updates + deletes:
         sam_id = str(item.get("sam_id") or "")
         element = project.find_element_by_id(sam_id) if sam_id else None
@@ -580,23 +1025,66 @@ def sync_level1_incremental(
                 f"The SAM element mapped to MBSE-App id {item.get('source_id')!r} no longer exists. "
                 "No incremental write was performed."
             )
+    for item in relationship_updates + relationship_deletes:
+        sam_id = str(item.get("sam_id") or "")
+        element = project.find_element_by_id(sam_id) if sam_id else None
+        if element is None:
+            raise SamLevel1SyncError(
+                f"The SAM relationship mapped to {item.get('relationship_id')!r} no longer exists. "
+                "No incremental write was performed."
+            )
+
+    current_nodes = _nodes_by_id(model)
+    create_node_ids = {str(item.get("source_id") or "") for item in creates}
+    previous_nodes = state.get("nodes") if isinstance(state.get("nodes"), dict) else {}
+    for item in relationship_creates + relationship_updates:
+        edge = item.get("edge") if isinstance(item.get("edge"), dict) else {}
+        for endpoint in (str(edge.get("source") or ""), str(edge.get("target") or "")):
+            record = previous_nodes.get(endpoint) if isinstance(previous_nodes.get(endpoint), dict) else {}
+            if endpoint not in create_node_ids and not record.get("sam_id"):
+                raise SamLevel1SyncError(
+                    f"Relationship endpoint {endpoint!r} has no verified SAM mapping. No write was performed."
+                )
+            if endpoint not in current_nodes:
+                raise SamLevel1SyncError(
+                    f"Relationship endpoint {endpoint!r} is absent from the reviewed snapshot. No write was performed."
+                )
 
     write_started = perf_counter()
-    staged, metadata_warnings = _stage_incremental_creates(
+    staged_nodes, node_metadata_warnings = _stage_incremental_creates(
         connector,
         project,
         resolved_factory,
         state,
         creates,
     )
+    node_ids = _node_sam_ids(state, staged_nodes)
+    staged_relationships, relationship_metadata_warnings = _stage_incremental_relationships(
+        connector,
+        project,
+        resolved_factory,
+        state,
+        node_sam_ids=node_ids,
+        creates=relationship_creates,
+        updates=relationship_updates,
+    )
 
-    # Direct CREATE is staged with temporary names because PySAM 0.3.1 direct
-    # creation is the reliable server path. Once all new objects exist, updates,
-    # deletions and publication renames are committed together as modifications
-    # of already-persisted IDs.
-    if updates or deletes or staged:
+    has_write = bool(
+        updates or deletes or staged_nodes or relationship_deletes or staged_relationships
+    )
+    if has_write:
         try:
             project.start_transactional_mode()
+
+            relationship_old_items = relationship_deletes + relationship_updates
+            for item in relationship_old_items:
+                element = project.find_element_by_id(str(item.get("sam_id") or ""))
+                if element is None:
+                    raise SamLevel1SyncError(
+                        f"SAM relationship delete target {item.get('relationship_id')!r} disappeared before commit."
+                    )
+                _delete_owned_tree(element, project)
+
             for item in updates:
                 element = project.find_element_by_id(str(item.get("sam_id") or ""))
                 if element is None:
@@ -604,11 +1092,18 @@ def sync_level1_incremental(
                         f"SAM update target {item.get('source_id')!r} disappeared before commit."
                     )
                 element.name = item["new_name"]
-            for item in staged:
+            for item in staged_nodes:
                 element = project.find_element_by_id(str(item.get("sam_id") or ""))
                 if element is None:
                     raise SamLevel1SyncError(
                         f"Staged SAM element {item.get('source_id')!r} disappeared before publication."
+                    )
+                element.name = item["final_name"]
+            for item in staged_relationships:
+                element = project.find_element_by_id(str(item.get("sam_id") or ""))
+                if element is None:
+                    raise SamLevel1SyncError(
+                        f"Staged SAM relationship {item.get('relationship_id')!r} disappeared before publication."
                     )
                 element.name = item["final_name"]
             for item in deletes:
@@ -640,7 +1135,7 @@ def sync_level1_incremental(
             raise SamLevel1SyncError(
                 f"SAM accepted the change set, but UPDATE verification failed for {item.get('source_id')!r}."
             )
-    for item in staged:
+    for item in staged_nodes:
         current = verified_project.find_element_by_id(str(item.get("sam_id") or ""))
         if current is None or _element_name(current) != item["final_name"]:
             raise SamLevel1SyncError(
@@ -652,15 +1147,44 @@ def sync_level1_incremental(
             raise SamLevel1SyncError(
                 f"SAM accepted the change set, but DELETE verification failed for {item.get('source_id')!r}."
             )
+
+    for item in relationship_deletes + relationship_updates:
+        old = verified_project.find_element_by_id(str(item.get("sam_id") or ""))
+        if old is not None:
+            raise SamLevel1SyncError(
+                f"SAM accepted the change set, but old relationship removal verification failed for {item.get('relationship_id')!r}."
+            )
+
+    endpoint_verification_warnings: list[str] = []
+    for item in staged_relationships:
+        current = verified_project.find_element_by_id(str(item.get("sam_id") or ""))
+        if current is None or _element_name(current) != item["final_name"]:
+            raise SamLevel1SyncError(
+                f"SAM accepted the change set, but Operational Exchange verification failed for {item.get('relationship_id')!r}."
+            )
+        endpoint_ids = _relationship_endpoint_ids(verified_project, current)
+        expected = {str(item["source_sam_id"]), str(item["target_sam_id"])}
+        if endpoint_ids:
+            if not expected.issubset(endpoint_ids):
+                raise SamLevel1SyncError(
+                    f"SAM reloaded Operational Exchange {item['final_name']!r}, but its endpoints do not match the reviewed source/target."
+                )
+        else:
+            endpoint_verification_warnings.append(
+                f"Fresh SAM reload verified Operational Exchange {item['final_name']!r} by stable ID/name; "
+                "PySAM did not expose connector endpoint references for an additional endpoint proof."
+            )
     verification_seconds = perf_counter() - verify_started
 
     new_state = copy.deepcopy(state)
+    new_state["version"] = SYNC_STATE_VERSION
     current_nodes = _nodes_by_id(model)
+    new_state.setdefault("nodes", {})
     for item in updates:
         node_id = str(item["source_id"])
         new_state["nodes"][node_id]["name"] = item["new_name"]
         new_state["nodes"][node_id]["source"] = current_nodes[node_id]
-    for item in staged:
+    for item in staged_nodes:
         node_id = str(item["source_id"])
         node = current_nodes[node_id]
         new_state["nodes"][node_id] = {
@@ -671,19 +1195,48 @@ def sync_level1_incremental(
         }
     for item in deletes:
         new_state["nodes"].pop(str(item["source_id"]), None)
+
+    relationships = new_state.get("relationships") if isinstance(new_state.get("relationships"), dict) else {}
+    relationships = copy.deepcopy(relationships)
+    for item in relationship_deletes:
+        relationships.pop(str(item.get("relationship_id") or ""), None)
+    for item in relationship_updates:
+        relationships.pop(str(item.get("relationship_id") or ""), None)
+    for item in staged_relationships:
+        relationship_id = str(item.get("relationship_id") or "")
+        edge = item["edge"]
+        relationships[relationship_id] = {
+            "sam_id": item["sam_id"],
+            "type": str(edge.get("type") or ""),
+            "source_id": str(edge.get("source") or ""),
+            "target_id": str(edge.get("target") or ""),
+            "key": edge.get("key", 0),
+            "name": _relationship_name(edge),
+            "source": copy.deepcopy(edge),
+        }
+    new_state["relationships"] = relationships
+    new_state["relationship_tracking_complete"] = True
     new_state["snapshot_digest"] = plan["snapshot_digest"]
+    new_state["other_edges_fingerprint"] = _other_edge_fingerprint(model)
     new_state["edges_fingerprint"] = _edge_fingerprint(model)
     new_state["scenarios_fingerprint"] = _scenario_fingerprint(scenarios)
 
+    metadata_warnings = (
+        node_metadata_warnings + relationship_metadata_warnings + endpoint_verification_warnings
+    )
     return {
         "status": "synced",
         "mode": "incremental_change_set",
-        "sam_write_performed": bool(updates or creates or deletes),
+        "sam_write_performed": has_write,
         "package_name": state.get("instance_package_name"),
         "sam_package_id": state.get("instance_package_id"),
         "snapshot_digest": plan["snapshot_digest"],
         "sync_state": new_state,
         "delta": plan["counts"],
+        "relationship_delta": plan.get("relationship_counts") or {},
+        "relationship_creates": plan.get("relationship_creates") or [],
+        "relationship_updates": plan.get("relationship_updates") or [],
+        "relationship_deletes": plan.get("relationship_deletes") or [],
         "metadata_warnings": metadata_warnings,
         "timings": {
             "connection_seconds": round(connection_seconds, 3),
