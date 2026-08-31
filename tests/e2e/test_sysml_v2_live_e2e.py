@@ -185,7 +185,7 @@ def test_sysml_view_is_generated_from_arcadiaoa_contract_and_updates_after_load(
             expect(page.locator("#sysmlLevel2Button")).to_be_disabled()
             expect(page.locator("#sysmlLevel1Summary")).to_contain_text("6 elements")
             expect(page.locator("#sysmlLevel1Summary")).to_contain_text("7 relationships")
-            expect(page.locator("#sysmlLevel1Summary")).to_contain_text("SAM not written")
+            expect(page.locator("#sysmlLevel1Summary")).to_contain_text("SAM not synchronized")
 
             code = page.locator("#utilitySysmlView code")
             expect(code).to_contain_text("flow def OperationalExchange;", timeout=20_000)
