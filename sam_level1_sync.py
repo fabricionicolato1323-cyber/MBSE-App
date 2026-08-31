@@ -8,6 +8,7 @@ from collections import defaultdict
 from typing import Any
 
 from arcadia_oa_library import DEFAULT_ARCADIA_OA_LIBRARY
+from exchange_transport import ExchangeTransportError, relationship_identity, resolve_exchange_transport
 from sam_connection import SamSettings
 from sysml_v2 import generate_sysml_v2
 
@@ -377,12 +378,16 @@ def _create_relationships(
 ) -> int:
     mappings = DEFAULT_ARCADIA_OA_LIBRARY.contract.get("relationships", {})
     created_count = 0
+    communication_usages: dict[str, Any] = {}
+
+    # Create every non-flow relationship first so a Communication Mean usage can
+    # own the FlowConnectionUsage instances that it carries.
     for edge in edges:
         relation = str(edge.get("type") or "")
         mapping = mappings[relation]
         strategy = str(mapping.get("strategy") or "")
-        if strategy == "nested_usage":
-            continue  # Represented by native ownership/nesting.
+        if strategy in {"nested_usage", "flow"}:
+            continue
 
         source = elements[str(edge.get("source") or "")]
         target = elements[str(edge.get("target") or "")]
@@ -392,18 +397,6 @@ def _create_relationships(
                 name=name,
                 owner=source,
                 performed_action=target,
-            )
-        elif strategy == "flow":
-            relationship = factory.create_flow_connection_usage(
-                name=name,
-                owner=behavior,
-                flow_connection_definition=[definitions["OperationalExchange"]],
-                source=[source],
-                target=[target],
-                source_feature=source,
-                target_feature=[target],
-                related_feature=[source, target],
-                is_directed=True,
             )
         elif strategy == "connection":
             relationship = factory.create_connection_usage(
@@ -417,6 +410,7 @@ def _create_relationships(
                 related_feature=[source, target],
                 is_directed=False,
             )
+            communication_usages[relationship_identity(edge)] = relationship
         elif strategy == "allocation":
             from_id = str(edge.get(str(mapping.get("from_endpoint") or "source")) or "")
             to_id = str(edge.get(str(mapping.get("to_endpoint") or "target")) or "")
@@ -450,6 +444,39 @@ def _create_relationships(
             raise SamLevel1SyncError(
                 f"Unsupported relationship strategy reached writer: {strategy}"
             )
+        _documentation(factory, relationship, _source_document(edge, "relationship"))
+        created_count += 1
+
+    for edge in edges:
+        relation = str(edge.get("type") or "")
+        mapping = mappings[relation]
+        if str(mapping.get("strategy") or "") != "flow":
+            continue
+        source = elements[str(edge.get("source") or "")]
+        target = elements[str(edge.get("target") or "")]
+        try:
+            transport = resolve_exchange_transport(edges, edge)
+        except ExchangeTransportError as exc:
+            raise SamLevel1SyncError(str(exc)) from exc
+        owner = behavior
+        if transport is not None:
+            owner = communication_usages.get(relationship_identity(transport))
+            if owner is None:
+                raise SamLevel1SyncError(
+                    f"Communication Mean {_relation_name(transport)!r} was not created before "
+                    f"Operational Exchange {_relation_name(edge)!r}."
+                )
+        relationship = factory.create_flow_connection_usage(
+            name=_relation_name(edge),
+            owner=owner,
+            flow_connection_definition=[definitions["OperationalExchange"]],
+            source=[source],
+            target=[target],
+            source_feature=source,
+            target_feature=[target],
+            related_feature=[source, target],
+            is_directed=True,
+        )
         _documentation(factory, relationship, _source_document(edge, "relationship"))
         created_count += 1
     return created_count
