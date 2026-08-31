@@ -8,7 +8,8 @@ Supported in this stage:
 * no-op detection without a SAM write;
 * name-only UPDATEs of existing nodes;
 * CREATE/DELETE of isolated nodes;
-* CREATE/DELETE/UPDATE (replace) of OPERATIONAL_EXCHANGE relationships; and
+* CREATE/DELETE/UPDATE (replace) of OPERATIONAL_EXCHANGE relationships;
+* FlowConnectionUsage ownership under an associated Communication Mean usage; and
 * read-only migration of a legacy v1 manifest when the relationship delta can be
   proven to contain only additive OPERATIONAL_EXCHANGE relationships.
 
@@ -26,6 +27,12 @@ from time import perf_counter
 from typing import Any
 from uuid import uuid4
 
+from exchange_transport import (
+    ExchangeTransportError,
+    relationship_identity,
+    resolve_exchange_transport,
+    transport_owner_record,
+)
 from sam_connection import SamSettings
 from sam_level1_direct import _MetadataTolerantFactory
 from sam_level1_managed_direct import _library_status
@@ -52,6 +59,7 @@ from sam_reload_safe_factory import ReloadSafeFactory
 SYNC_STATE_KEY = "sam_sync"
 LEGACY_SYNC_STATE_VERSION = 1
 SYNC_STATE_VERSION = 2
+TRANSPORT_OWNERSHIP_REVISION = 1
 SUPPORTED_INCREMENTAL_RELATIONSHIP_TYPES = frozenset({"OPERATIONAL_EXCHANGE"})
 
 
@@ -107,16 +115,7 @@ def _without_name(node: dict[str, Any]) -> dict[str, Any]:
 
 def _edge_identity(edge: dict[str, Any]) -> str:
     """Stable relationship identity; name/properties are intentionally excluded."""
-    explicit = str(edge.get("id") or "").strip()
-    if explicit:
-        return f"id:{explicit}"
-    identity = [
-        str(edge.get("type") or ""),
-        str(edge.get("source") or ""),
-        str(edge.get("target") or ""),
-        edge.get("key", 0),
-    ]
-    return "edge:" + json.dumps(identity, ensure_ascii=False, separators=(",", ":"), default=str)
+    return relationship_identity(edge)
 
 
 def _supported_edges_by_id(model: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -142,12 +141,26 @@ def _edge_fingerprint(model: dict[str, Any]) -> str:
     )
 
 
-def _other_edge_fingerprint(model: dict[str, Any]) -> str:
+def _legacy_other_edge_fingerprint(model: dict[str, Any]) -> str:
     rows = [
         copy.deepcopy(item)
         for item in _rows(model.get("edges"))
         if str(item.get("type") or "") not in SUPPORTED_INCREMENTAL_RELATIONSHIP_TYPES
     ]
+    return _digest(sorted(rows, key=lambda item: json.dumps(item, sort_keys=True, default=str)))
+
+
+def _other_edge_fingerprint(model: dict[str, Any]) -> str:
+    rows: list[dict[str, Any]] = []
+    for item in _rows(model.get("edges")):
+        if str(item.get("type") or "") in SUPPORTED_INCREMENTAL_RELATIONSHIP_TYPES:
+            continue
+        normalized = copy.deepcopy(item)
+        if str(normalized.get("type") or "") == "COMMUNICATION_MEAN":
+            # exchange_refs expresses which flow usage is owned by this medium;
+            # it is handled by the OPERATIONAL_EXCHANGE incremental change set.
+            normalized.pop("exchange_refs", None)
+        rows.append(normalized)
     return _digest(sorted(rows, key=lambda item: json.dumps(item, sort_keys=True, default=str)))
 
 
@@ -187,6 +200,13 @@ def _unique_descendant_by_name(project: Any, package: Any, name: str) -> Any:
 
 def _relationship_name(edge: dict[str, Any]) -> str:
     return str(edge.get("name") or edge.get("type") or "Relationship").strip() or "Relationship"
+
+
+def _transport_record(model: dict[str, Any], edge: dict[str, Any]) -> dict[str, Any]:
+    try:
+        return transport_owner_record(_rows(model.get("edges")), edge)
+    except ExchangeTransportError as exc:
+        raise SamLevel1SyncError(str(exc)) from exc
 
 
 def _adopt_supported_relationship_elements(
@@ -235,6 +255,7 @@ def _relationship_records(
             raise SamLevel1SyncError(
                 f"SAM relationship {_relationship_name(edge)!r} has no stable ID."
             )
+        owner = _transport_record(model, edge)
         records[relationship_id] = {
             "sam_id": sam_id,
             "type": str(edge.get("type") or ""),
@@ -243,6 +264,7 @@ def _relationship_records(
             "key": edge.get("key", 0),
             "name": _relationship_name(edge),
             "source": copy.deepcopy(edge),
+            **owner,
         }
     return records
 
@@ -267,6 +289,7 @@ def _build_state(
         relationship_elements = {}
     return {
         "version": SYNC_STATE_VERSION,
+        "transport_ownership_revision": TRANSPORT_OWNERSHIP_REVISION,
         "project_id": settings.project_id,
         "library_package_name": ARCADIA_OA_LIBRARY_PACKAGE,
         "instance_package_name": package_name,
@@ -362,11 +385,19 @@ def migrate_legacy_relationship_state(
             "for the first v1-to-v2 migration. No SAM data was changed."
         )
 
+    records = _relationship_records(candidate_previous, mapped)
+    # A v1 manifest was written by the pre-transport-ownership writer: every
+    # Operational Exchange was under oa_operationalBehavior, regardless of refs.
+    for record in records.values():
+        record["owner_kind"] = "behavior"
+        record["owner_relationship_id"] = None
+        record["owner_name"] = "oa_operationalBehavior"
+
     migrated = copy.deepcopy(state)
     migrated["version"] = SYNC_STATE_VERSION
-    migrated["relationships"] = _relationship_records(candidate_previous, mapped)
+    migrated["relationships"] = records
     migrated["relationship_tracking_complete"] = True
-    migrated["other_edges_fingerprint"] = _other_edge_fingerprint(candidate_previous)
+    migrated["other_edges_fingerprint"] = _legacy_other_edge_fingerprint(candidate_previous)
     return migrated
 
 
@@ -449,6 +480,8 @@ def _relationship_change_set(
                 "old_name": str(record.get("name") or ""),
                 "type": str(record.get("type") or ""),
                 "edge": copy.deepcopy(record.get("source") or {}),
+                "old_owner_kind": str(record.get("owner_kind") or "behavior"),
+                "old_owner_name": str(record.get("owner_name") or "oa_operationalBehavior"),
             }
         )
     updates: list[dict[str, Any]] = []
@@ -457,7 +490,14 @@ def _relationship_change_set(
         record = previous.get(identity) if isinstance(previous.get(identity), dict) else {}
         old_edge = record.get("source") if isinstance(record.get("source"), dict) else {}
         new_edge = current[identity]
-        if old_edge == new_edge:
+        new_owner = _transport_record(model, new_edge)
+        old_owner_kind = str(record.get("owner_kind") or "behavior")
+        old_owner_relationship_id = record.get("owner_relationship_id")
+        owner_changed = (
+            old_owner_kind != str(new_owner.get("owner_kind") or "behavior")
+            or old_owner_relationship_id != new_owner.get("owner_relationship_id")
+        )
+        if old_edge == new_edge and not owner_changed:
             unchanged += 1
             continue
         updates.append(
@@ -468,6 +508,12 @@ def _relationship_change_set(
                 "new_name": _relationship_name(new_edge),
                 "old_edge": copy.deepcopy(old_edge),
                 "edge": copy.deepcopy(new_edge),
+                "old_owner_kind": old_owner_kind,
+                "old_owner_name": str(record.get("owner_name") or "oa_operationalBehavior"),
+                "new_owner_kind": str(new_owner.get("owner_kind") or "behavior"),
+                "new_owner_name": str(new_owner.get("owner_name") or "oa_operationalBehavior"),
+                "new_owner_relationship_id": new_owner.get("owner_relationship_id"),
+                "owner_changed": owner_changed,
             }
         )
     return {
@@ -522,7 +568,11 @@ def build_incremental_plan(
             "relationship_deletes": [],
             "reason": "No incremental baseline is recorded for this SAM project yet.",
         }
-    if current_digest == state.get("snapshot_digest"):
+    ownership_current = (
+        int(state.get("transport_ownership_revision", 0) or 0)
+        == TRANSPORT_OWNERSHIP_REVISION
+    )
+    if current_digest == state.get("snapshot_digest") and ownership_current:
         return {
             "mode": "incremental_noop",
             "supported": True,
@@ -603,9 +653,16 @@ def build_incremental_plan(
         relationship_changes_pending = relationship_changed
     else:
         relationship_delta = _relationship_change_set(model, state)
-        other_relationship_changed = (
-            _other_edge_fingerprint(model) != state.get("other_edges_fingerprint")
-        )
+        if ownership_current:
+            other_relationship_changed = (
+                _other_edge_fingerprint(model) != state.get("other_edges_fingerprint")
+            )
+        else:
+            # Existing v2 manifests were written before exchange_refs became an
+            # ownership signal; compare using the legacy fingerprint once.
+            other_relationship_changed = (
+                _legacy_other_edge_fingerprint(model) != state.get("other_edges_fingerprint")
+            )
         if other_relationship_changed:
             unsupported.append(
                 "relationship types outside OPERATIONAL_EXCHANGE changed; their incremental handlers are pending"
@@ -650,6 +707,10 @@ def build_incremental_plan(
             unsupported.append(
                 f"Operational Exchange {_relationship_name(edge)!r} has an unresolved endpoint"
             )
+        try:
+            resolve_exchange_transport(_rows(model.get("edges")), edge)
+        except ExchangeTransportError as exc:
+            unsupported.append(str(exc))
 
     removed_set = set(removed_ids)
     for edge in _supported_edges_by_id(model).values():
@@ -809,6 +870,7 @@ def _stage_incremental_relationships(
     resolved_factory: type[Any],
     state: dict[str, Any],
     *,
+    model: dict[str, Any],
     node_sam_ids: dict[str, str],
     creates: list[dict[str, Any]],
     updates: list[dict[str, Any]],
@@ -848,12 +910,28 @@ def _stage_incremental_relationships(
                 f"Operational Exchange {_relationship_name(edge)!r} endpoints could not be resolved in SAM."
             )
         behavior = project.find_element_by_id(_element_id(behavior)) or behavior
+        try:
+            transport = resolve_exchange_transport(_rows(model.get("edges")), edge)
+        except ExchangeTransportError as exc:
+            raise SamLevel1SyncError(str(exc)) from exc
+        owner = behavior
+        owner_kind = "behavior"
+        owner_name = "oa_operationalBehavior"
+        owner_relationship_id = None
+        if transport is not None:
+            owner = _unique_descendant_by_name(
+                project, package, str(transport.get("name") or "Communication Mean")
+            )
+            owner_kind = "communication_mean"
+            owner_name = str(transport.get("name") or "Communication Mean")
+            owner_relationship_id = relationship_identity(transport)
+        owner = project.find_element_by_id(_element_id(owner)) or owner
         definition = project.find_element_by_id(_element_id(definitions["OperationalExchange"])) or definitions["OperationalExchange"]
         staging_name = f"__MBSE_REL_NEW_{uuid4().hex[:10]}"
         try:
             relationship = factory.create_flow_connection_usage(
                 name=staging_name,
-                owner=behavior,
+                owner=owner,
                 flow_connection_definition=[definition],
                 source=[source],
                 target=[target],
@@ -881,6 +959,10 @@ def _stage_incremental_relationships(
                 "target_id": target_id,
                 "source_sam_id": source_sam_id,
                 "target_sam_id": target_sam_id,
+                "owner_sam_id": _element_id(owner),
+                "owner_kind": owner_kind,
+                "owner_name": owner_name,
+                "owner_relationship_id": owner_relationship_id,
                 "edge": copy.deepcopy(edge),
             }
         )
@@ -922,6 +1004,21 @@ def _relationship_endpoint_ids(project: Any, relationship: Any) -> set[str]:
         elif isinstance(value, str) and value.strip():
             result.add(value.strip())
     return result
+
+
+def _relationship_owner_id(project: Any, relationship: Any) -> str | None:
+    for attr in ("owner", "_owner"):
+        try:
+            value = getattr(relationship, attr, None)
+        except Exception:
+            value = None
+        if value is None:
+            continue
+        resolved = _resolve_project_value(project, value)
+        identity = _element_id(resolved)
+        if identity:
+            return identity
+    return None
 
 
 def sync_level1_incremental(
@@ -1064,6 +1161,7 @@ def sync_level1_incremental(
         project,
         resolved_factory,
         state,
+        model=model,
         node_sam_ids=node_ids,
         creates=relationship_creates,
         updates=relationship_updates,
@@ -1174,10 +1272,23 @@ def sync_level1_incremental(
                 f"Fresh SAM reload verified Operational Exchange {item['final_name']!r} by stable ID/name; "
                 "PySAM did not expose connector endpoint references for an additional endpoint proof."
             )
+        owner_id = _relationship_owner_id(verified_project, current)
+        expected_owner_id = str(item.get("owner_sam_id") or "")
+        if owner_id and expected_owner_id and owner_id != expected_owner_id:
+            raise SamLevel1SyncError(
+                f"SAM reloaded Operational Exchange {item['final_name']!r}, but its owner does not match "
+                f"the reviewed transport {item.get('owner_name')!r}."
+            )
+        if not owner_id:
+            endpoint_verification_warnings.append(
+                f"Fresh SAM reload verified Operational Exchange {item['final_name']!r}; PySAM did not expose "
+                "its owner for an additional transport-ownership proof."
+            )
     verification_seconds = perf_counter() - verify_started
 
     new_state = copy.deepcopy(state)
     new_state["version"] = SYNC_STATE_VERSION
+    new_state["transport_ownership_revision"] = TRANSPORT_OWNERSHIP_REVISION
     current_nodes = _nodes_by_id(model)
     new_state.setdefault("nodes", {})
     for item in updates:
@@ -1213,6 +1324,9 @@ def sync_level1_incremental(
             "key": edge.get("key", 0),
             "name": _relationship_name(edge),
             "source": copy.deepcopy(edge),
+            "owner_kind": item.get("owner_kind"),
+            "owner_relationship_id": item.get("owner_relationship_id"),
+            "owner_name": item.get("owner_name"),
         }
     new_state["relationships"] = relationships
     new_state["relationship_tracking_complete"] = True
