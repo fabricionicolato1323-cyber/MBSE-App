@@ -259,9 +259,12 @@ def _create_tree(factory: Any, package: Any, definitions: dict[str, Any], model:
             {"scenario_step": pos, "kind": "activity", "activity_id": aid},
             ensure_ascii=False, sort_keys=True
         ))
+        action_id = _element_id(action)
+        if not action_id:
+            raise SamLevel1SyncError(f"Scenario activity step {label!r} has no stable SAM ID.")
         by_pos[pos] = action
         actions.append(action)
-        expected.append(label)
+        expected.append({"sam_id": action_id, "name": label})
 
     for pos, step in enumerate(steps, 1):
         if step.get("kind") != "interaction":
@@ -287,7 +290,10 @@ def _create_tree(factory: Any, package: Any, definitions: dict[str, Any], model:
             {"scenario_step": pos, **copy.deepcopy(step)},
             ensure_ascii=False, sort_keys=True, default=str
         ))
-        expected.append(label)
+        flow_id = _element_id(flow)
+        if not flow_id:
+            raise SamLevel1SyncError(f"Scenario interaction step {label!r} has no stable SAM ID.")
+        expected.append({"sam_id": flow_id, "name": label})
 
     for before, after in zip(actions, actions[1:]):
         factory.create_succession(
@@ -413,9 +419,12 @@ def sync_level1_incremental_with_scenarios(
         element = verified.find_element_by_id(str(stage.get("sam_id") or ""))
         if element is None or _element_name(element) != stage["final_name"]:
             raise SamLevel1SyncError("Scenario publication verification failed.")
-        names = {_element_name(x) for x in _descendants(verified, element)}
-        if any(name not in names for name in stage["expected"]):
-            raise SamLevel1SyncError("Scenario path verification failed after SAM reload.")
+        for expected in stage["expected"]:
+            step = verified.find_element_by_id(str(expected.get("sam_id") or ""))
+            if step is None or _element_name(step) != expected["name"]:
+                raise SamLevel1SyncError(
+                    f"Scenario step verification failed after SAM reload: {expected['name']!r}."
+                )
 
     current = _by_id(scenarios)
     records = copy.deepcopy(state.get("scenarios") or {})
