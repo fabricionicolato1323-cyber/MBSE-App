@@ -189,6 +189,10 @@
     );
   }
 
+  function deltaText(delta = {}) {
+    return `CREATE ${Number(delta.create || 0)} · UPDATE ${Number(delta.update || 0)} · DELETE ${Number(delta.delete || 0)} · UNCHANGED ${Number(delta.unchanged || 0)}`;
+  }
+
   function updateLevel1Summary(ui, level1) {
     const controls = ensureLevelControls(ui);
     if (!controls?.summary) return;
@@ -196,13 +200,20 @@
     const statusText = level1?.status === 'ready'
       ? 'Preview ready'
       : 'Waiting for confirmed model content';
-    let samText = 'SAM not written';
+    let samText = 'SAM not synchronized';
     if (currentSyncMatches(level1)) {
       const container = latestSamSync?.target?.root_package_name;
       const location = container ? ` · under ${container}` : '';
-      samText = latestSamSync.status === 'already_synced'
-        ? `Already in SAM · ${latestSamSync.package_name}${location}`
-        : `SAM synced · ${latestSamSync.package_name}${location}`;
+      const timing = Number(
+        latestSamSync?.timings?.total_with_verification_seconds ??
+        latestSamSync?.timings?.total_seconds ?? 0
+      );
+      const timingText = timing > 0 ? ` · ${timing.toFixed(1)} s` : '';
+      const delta = latestSamSync?.delta;
+      const deltaSummary = delta && Number(delta.create || 0) + Number(delta.update || 0) + Number(delta.delete || 0) > 0
+        ? ` · Δ ${Number(delta.create || 0)}/${Number(delta.update || 0)}/${Number(delta.delete || 0)}`
+        : '';
+      samText = `SAM synchronized · ${latestSamSync.package_name}${location}${deltaSummary}${timingText}`;
     }
     controls.summary.textContent =
       `${statusText} · ${Number(counts.elements || 0)} elements · ${Number(counts.relationships || 0)} relationships · ${Number(counts.scenarios || 0)} scenarios · ${samText}`;
@@ -210,6 +221,66 @@
 
   async function readJson(response) {
     return response.json().catch(() => ({}));
+  }
+
+  function blockedChangeMessage(plan) {
+    const pending = Array.isArray(plan?.unsupported_changes)
+      ? plan.unsupported_changes.filter(Boolean)
+      : [];
+    if (pending.length) {
+      return `This local change set cannot be synchronized yet:\n\n- ${pending.join('\n- ')}\n\nNo SAM data has been changed.`;
+    }
+    const unsupported =
+      Number(plan?.unsupported_nodes?.length || 0) +
+      Number(plan?.unsupported_relations?.length || 0);
+    return unsupported
+      ? `SAM synchronization is blocked by ${unsupported} unsupported model item(s). No SAM data has been changed.`
+      : 'SAM synchronization is blocked for the current model. No SAM data has been changed.';
+  }
+
+  function buildReviewMessage(plan) {
+    const target = plan.target || {};
+    const projectLabel = target.project_name
+      ? `${target.project_name} (${target.project_id || plan.target_project_id})`
+      : (target.project_id || plan.target_project_id);
+    const rootLabel = target.root_package_name || '(project root)';
+    const library = plan.library || {};
+    const instance = plan.instance || {};
+    const delta = plan.delta || {};
+    const relationshipDelta = plan.relationship_delta || {};
+    const scenarioDelta = plan.scenario_delta || {};
+
+    if (plan.sync_status === 'never_synchronized') {
+      const relationCreate = Number(relationshipDelta.create || 0);
+      const scenarioCreate = Number(scenarioDelta.create || 0);
+      return (
+        `Create the initial managed Level 1 baseline in SAM?\n\n` +
+        `Project: ${projectLabel}\n` +
+        `Target container: ${rootLabel}\n` +
+        `Library: ${library.package_name || 'MBSE_ArcadiaOA_Library_v1'} (create if missing, otherwise reuse)\n` +
+        `Instance: ${instance.package_name || plan.package_name}\n\n` +
+        `Initial Change Set\n` +
+        `${deltaText(delta)}\n` +
+        `RELATIONSHIPS CREATE ${relationCreate}\n` +
+        `SCENARIOS CREATE ${scenarioCreate}\n\n` +
+        `SAM preflight: connected successfully. No write has occurred yet.\n` +
+        `Synchronize now?`
+      );
+    }
+
+    return (
+      `Synchronize these local Level 1 changes with SAM?\n\n` +
+      `Project: ${projectLabel}\n` +
+      `Target container: ${rootLabel}\n` +
+      `Library: ${library.package_name || 'MBSE_ArcadiaOA_Library_v1'} (reused, no write)\n` +
+      `Instance: ${instance.package_name || plan.package_name} (reused)\n\n` +
+      `Change Set\n` +
+      `${deltaText(delta)}\n` +
+      `RELATIONSHIPS: unchanged\n` +
+      `SCENARIOS: unchanged\n\n` +
+      `SAM preflight: connected successfully. No write has occurred yet.\n` +
+      `Only this reviewed delta will be synchronized. Continue?`
+    );
   }
 
   function ensureSamSendButton(ui) {
@@ -221,60 +292,56 @@
     button.id = 'sendLevel1ToSamButton';
     button.className = 'ghost-button model-file-button';
     button.type = 'button';
-    button.textContent = 'Send Level 1 to SAM';
-    button.title = 'Review a live SAM preflight, then create and verify this Level 1 snapshot in the configured SAM project';
-    button.setAttribute('aria-label', 'Send Level 1 model to SAM');
+    button.textContent = 'Review / Sync with SAM';
+    button.title = 'Connect read-only, review the local Level 1 change set, then synchronize only after explicit confirmation';
+    button.setAttribute('aria-label', 'Review and synchronize Level 1 changes with SAM');
 
     button.addEventListener('click', async () => {
       if (!latestLevel1 || latestLevel1.status !== 'ready') return;
-      const normalLabel = 'Send Level 1 to SAM';
+      const normalLabel = 'Review / Sync with SAM';
       button.disabled = true;
       button.textContent = 'Checking SAM target…';
       try {
         const planResponse = await fetch('/api/sam/level1/plan', {cache: 'no-store'});
         const planData = await readJson(planResponse);
         if (!planResponse.ok || !planData.plan) {
-          throw new Error(planData.error || 'The SAM transfer plan could not be prepared.');
+          throw new Error(planData.error || 'The SAM change set could not be prepared.');
         }
         const plan = planData.plan;
-        if (plan.status !== 'ready') {
-          const unsupported =
-            Number(plan.unsupported_nodes?.length || 0) +
-            Number(plan.unsupported_relations?.length || 0);
-          throw new Error(
-            unsupported
-              ? `SAM transfer is blocked by ${unsupported} unsupported model item(s).`
-              : 'SAM transfer is blocked for the current model.'
-          );
-        }
         if (
           latestLevel1.snapshot_digest &&
           plan.snapshot_digest !== latestLevel1.snapshot_digest
         ) {
-          throw new Error('The model changed while the transfer plan was being prepared. Review the current Level 1 output and try again.');
+          throw new Error('The model changed while the SAM change set was being prepared. Review the current Level 1 output and try again.');
         }
 
-        const counts = plan.counts || {};
-        const target = plan.target || {};
-        const projectLabel = target.project_name
-          ? `${target.project_name} (${target.project_id || plan.target_project_id})`
-          : (target.project_id || plan.target_project_id);
-        const rootLabel = target.root_package_name || '(project root)';
-        const approved = window.confirm(
-          `Send this Level 1 snapshot to SAM?\n\n` +
-          `Project: ${projectLabel}\n` +
-          `Target container: ${rootLabel}\n` +
-          `Package: ${plan.package_name}\n` +
-          `${Number(counts.elements || 0)} elements · ${Number(counts.relationships || 0)} relationships · ${Number(counts.scenarios || 0)} scenarios\n\n` +
-          `SAM preflight: connected successfully. No write has occurred yet.\n` +
-          `The transfer uses verified direct creation. It is only marked synchronized after a fresh SAM reload confirms the completed snapshot.`
-        );
+        if (plan.sync_status === 'up_to_date') {
+          latestSamSync = {
+            status: 'already_synced',
+            mode: 'incremental_noop',
+            snapshot_digest: plan.snapshot_digest,
+            package_name: plan.instance?.package_name || plan.package_name,
+            sam_package_id: plan.instance?.package_id,
+            target: plan.target,
+            delta: plan.delta || {create: 0, update: 0, delete: 0, unchanged: Number(plan.counts?.elements || 0)},
+            timings: {total_seconds: 0},
+          };
+          button.textContent = 'Level 1 in SAM';
+          updateLevel1Summary(ui, latestLevel1);
+          return;
+        }
+
+        if (plan.status !== 'ready' || plan.supported === false) {
+          throw new Error(blockedChangeMessage(plan));
+        }
+
+        const approved = window.confirm(buildReviewMessage(plan));
         if (!approved) {
           button.textContent = normalLabel;
           return;
         }
 
-        button.textContent = 'Sending to SAM…';
+        button.textContent = 'Synchronizing delta…';
         const sendResponse = await fetch('/api/sam/level1/send', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
@@ -285,15 +352,15 @@
         });
         const sendData = await readJson(sendResponse);
         if (!sendResponse.ok || !sendData.result) {
-          throw new Error(sendData.error || 'The Level 1 snapshot could not be sent to SAM.');
+          throw new Error(sendData.error || 'The reviewed Level 1 change set could not be synchronized with SAM.');
         }
         if (sendData.result.verified_in_sam !== true) {
-          throw new Error('SAM returned from the transfer, but fresh post-write verification did not confirm the completed Level 1 snapshot.');
+          throw new Error('SAM returned from synchronization, but fresh verification did not confirm the reviewed Level 1 state.');
         }
         latestSamSync = sendData.result;
         button.textContent = latestSamSync.status === 'already_synced'
-          ? 'Already in SAM'
-          : 'Sent to SAM';
+          ? 'Level 1 in SAM'
+          : 'Synchronized';
         updateLevel1Summary(ui, latestLevel1);
         window.setTimeout(() => {
           if (!button.isConnected) return;
@@ -302,16 +369,15 @@
             : normalLabel;
         }, 1400);
       } catch (error) {
-        console.error('Level 1B SAM transfer failed.', error);
-        const message = error?.message || 'SAM transfer failed.';
-        button.textContent = 'SAM transfer failed';
+        console.error('Level 1B SAM synchronization failed.', error);
+        const message = error?.message || 'SAM synchronization failed.';
+        button.textContent = 'SAM sync blocked / failed';
         const controls = ensureLevelControls(ui);
         if (controls?.summary) {
-          controls.summary.textContent = `SAM transfer failed · ${message}`;
+          controls.summary.textContent = `SAM sync blocked / failed · ${message}`;
         }
-        // Schedule the modal so the browser paints the persistent failed state first.
         window.setTimeout(() => {
-          window.alert(`SAM Level 1 transfer failed\n\n${message}`);
+          window.alert(`SAM Level 1 synchronization\n\n${message}`);
         }, 0);
       } finally {
         button.disabled = latestLevel1?.status !== 'ready';
@@ -332,7 +398,7 @@
     if (ui.heading) ui.heading.textContent = 'SysML V2 · Level 1 — Model';
     if (ui.note) {
       ui.note.textContent =
-        'Generated live from the complete confirmed Operational Analysis model. Level 1A previews/exports it; Level 1B writes only after a live SAM preflight and explicit confirmation.';
+        'Generated live from the complete confirmed Operational Analysis model. Work remains local; SAM writes occur only after a read-only preflight, change-set review, and explicit confirmation.';
     }
 
     updateLevel1Summary(ui, level1);
@@ -346,8 +412,8 @@
     if (samButton) {
       samButton.disabled = level1?.status !== 'ready';
       if (currentSyncMatches(level1)) samButton.textContent = 'Level 1 in SAM';
-      else if (!samButton.textContent.includes('…') && samButton.textContent !== 'SAM transfer failed') {
-        samButton.textContent = 'Send Level 1 to SAM';
+      else if (!samButton.textContent.includes('…') && samButton.textContent !== 'SAM sync blocked / failed') {
+        samButton.textContent = 'Review / Sync with SAM';
       }
     }
   }
