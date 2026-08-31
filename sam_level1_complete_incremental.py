@@ -35,7 +35,13 @@ from sam_level1_sync import (
     _source_document,
     level1_snapshot_digest,
 )
-from sam_level1_transactional import _element_id, _element_name, _load_project
+from sam_level1_transactional import (
+    _attribute_values,
+    _element_id,
+    _element_name,
+    _load_project,
+    _owner_candidates,
+)
 from sam_reload_safe_factory import ReloadSafeFactory
 
 COMPLETE_RELATIONSHIP_TRACKING_REVISION = 1
@@ -106,7 +112,17 @@ def _contains_id(value: Any, expected: str) -> bool:
 
 
 def _owner_id(element: Any) -> str | None:
-    return _ref_id(getattr(element, "owner", None))
+    """Return ownership across native and freshly reloaded scripting shapes."""
+    for candidate in _owner_candidates(element):
+        identity = _ref_id(candidate)
+        if identity:
+            return identity
+    return None
+
+
+def _mapped_refs(element: Any, *attrs: str) -> list[Any]:
+    """Read one semantic reference across snake_case and SAM JSON field names."""
+    return _attribute_values(element, tuple(attrs))
 
 
 def _node_sam_ids(state: dict[str, Any]) -> dict[str, str]:
@@ -146,20 +162,27 @@ def _match_existing(
     matches: list[Any] = []
     for item in descendants:
         if strategy == "perform":
-            if _owner_id(item) == source_id and _contains_id(
-                getattr(item, "performed_action", None), target_id
-            ):
+            performed = _mapped_refs(
+                item,
+                "performed_action",
+                "_performed_action",
+                "performedAction",
+                "_performedAction",
+            )
+            if _owner_id(item) == source_id and _contains_id(performed, target_id):
                 matches.append(item)
         elif strategy == "allocation":
             mapping = _mapping(edge)
             from_local = str(edge.get(str(mapping.get("from_endpoint") or "source")) or "")
             to_local = str(edge.get(str(mapping.get("to_endpoint") or "target")) or "")
             from_id, to_id = node_ids.get(from_local), node_ids.get(to_local)
+            source_values = _mapped_refs(item, "source", "_source")
+            target_values = _mapped_refs(item, "target", "_target")
             if (
                 from_id
                 and to_id
-                and _contains_id(getattr(item, "source", None), from_id)
-                and _contains_id(getattr(item, "target", None), to_id)
+                and _contains_id(source_values, from_id)
+                and _contains_id(target_values, to_id)
             ):
                 matches.append(item)
         elif strategy == "reference":
@@ -167,11 +190,18 @@ def _match_existing(
             owner_local = str(edge.get(str(mapping.get("owner_endpoint") or "source")) or "")
             ref_local = str(edge.get(str(mapping.get("referenced_endpoint") or "target")) or "")
             owner_expected, ref_expected = node_ids.get(owner_local), node_ids.get(ref_local)
+            referenced = _mapped_refs(
+                item,
+                "referenced_feature",
+                "_referenced_feature",
+                "referencedFeature",
+                "_referencedFeature",
+            )
             if (
                 owner_expected
                 and ref_expected
                 and _owner_id(item) == owner_expected
-                and _contains_id(getattr(item, "referenced_feature", None), ref_expected)
+                and _contains_id(referenced, ref_expected)
             ):
                 matches.append(item)
     if len(matches) == 1:
