@@ -58,8 +58,6 @@ class SamLevel1IncrementalPlanTests(unittest.TestCase):
                 },
             },
         }
-        # Obtain the stable edge/scenario fingerprints through one initial plan by
-        # temporarily using a matching state built from the module's public plan.
         from sam_level1_incremental import _edge_fingerprint, _scenario_fingerprint
 
         self.state["edges_fingerprint"] = _edge_fingerprint(self.model)
@@ -84,7 +82,7 @@ class SamLevel1IncrementalPlanTests(unittest.TestCase):
         plan = build_incremental_plan(
             self.with_state(changed), scenarios=[], settings=self.settings
         )
-        self.assertEqual(plan["mode"], "incremental_update")
+        self.assertEqual(plan["mode"], "incremental_change_set")
         self.assertTrue(plan["supported"])
         self.assertEqual(plan["counts"]["create"], 0)
         self.assertEqual(plan["counts"]["delete"], 0)
@@ -92,17 +90,82 @@ class SamLevel1IncrementalPlanTests(unittest.TestCase):
         self.assertEqual(plan["updates"][0]["sam_id"], "sam-activity")
         self.assertEqual(plan["updates"][0]["new_name"], "Detect incoming threat")
 
-    def test_structural_change_is_blocked_without_rebuild(self):
+    def test_isolated_new_element_is_a_supported_create(self):
+        changed = copy.deepcopy(self.model)
+        changed["nodes"].append(
+            {"id": "capability-2", "type": "OperationalCapability", "name": "Track threat"}
+        )
+        plan = build_incremental_plan(
+            self.with_state(changed), scenarios=[], settings=self.settings
+        )
+        self.assertTrue(plan["supported"])
+        self.assertEqual(plan["counts"]["create"], 1)
+        self.assertEqual(plan["creates"][0]["source_id"], "capability-2")
+        self.assertEqual(plan["unsupported_changes"], [])
+
+    def test_isolated_removed_element_is_a_supported_delete(self):
+        model = copy.deepcopy(self.model)
+        model["nodes"].append(
+            {"id": "capability-2", "type": "OperationalCapability", "name": "Track threat"}
+        )
+        state_model = copy.deepcopy(model)
+        state = copy.deepcopy(self.state)
+        state["nodes"]["capability-2"] = {
+            "sam_id": "sam-capability",
+            "type": "OperationalCapability",
+            "name": "Track threat",
+            "source": copy.deepcopy(model["nodes"][2]),
+        }
+        from sam_level1_incremental import _edge_fingerprint
+
+        state["snapshot_digest"] = level1_snapshot_digest(model, [])
+        state["edges_fingerprint"] = _edge_fingerprint(model)
+        state_model.setdefault("graph", {})["sam_sync"] = state
+        state_model["nodes"] = state_model["nodes"][:2]
+
+        plan = build_incremental_plan(
+            state_model, scenarios=[], settings=self.settings
+        )
+        self.assertTrue(plan["supported"])
+        self.assertEqual(plan["counts"]["delete"], 1)
+        self.assertEqual(plan["deletes"][0]["sam_id"], "sam-capability")
+
+    def test_new_activity_plus_performs_relationship_blocks_entire_write(self):
         changed = copy.deepcopy(self.model)
         changed["nodes"].append(
             {"id": "activity-2", "type": "OperationalActivity", "name": "Track threat"}
+        )
+        changed["edges"].append(
+            {
+                "source": "entity-1",
+                "target": "activity-2",
+                "key": 0,
+                "type": "PERFORMS",
+                "name": "performs",
+            }
         )
         plan = build_incremental_plan(
             self.with_state(changed), scenarios=[], settings=self.settings
         )
         self.assertFalse(plan["supported"])
         self.assertEqual(plan["counts"]["create"], 1)
-        self.assertTrue(any("new elements" in item for item in plan["unsupported_changes"]))
+        self.assertTrue(plan["relationship_changes_pending"])
+        self.assertTrue(
+            any("relationship incremental sync is pending" in item for item in plan["unsupported_changes"])
+        )
+
+    def test_scenario_change_blocks_entire_write(self):
+        scenario = {
+            "id": "scenario-1",
+            "name": "Nominal",
+            "valid": True,
+            "steps": [{"kind": "activity", "activity_id": "activity-1"}],
+        }
+        plan = build_incremental_plan(
+            self.with_state(self.model), scenarios=[scenario], settings=self.settings
+        )
+        self.assertFalse(plan["supported"])
+        self.assertTrue(plan["scenario_changes_pending"])
 
 
 if __name__ == "__main__":
