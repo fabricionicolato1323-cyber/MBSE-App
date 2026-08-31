@@ -1,33 +1,85 @@
-"""Persistent dispatcher for Level 1 incremental SAM synchronization.
+"""Persistent dispatcher for explicit Level 1 incremental SAM synchronization.
 
-Compatibility note: the previous dispatcher is preserved as
-sam_level1_incremental_runner_base.py. This wrapper adds Communication Mean
-tracking while retaining the established baseline creation/adoption workflow.
+The manifest is local runtime state, not part of the ArcadiaOA library and not a
+visible SAM model element. It records the last verified mapping between stable
+MBSE-App IDs/relationship identities and SAM IDs for one project/model pair.
 """
+
 from __future__ import annotations
 
+import copy
+import hashlib
+import json
+from pathlib import Path
 from typing import Any
 
-import sam_level1_incremental_runner_base as _base
 from sam_connection import SamSettings
-from sam_level1_communication_incremental import (
-    build_incremental_plan_with_communication,
-    enrich_state_with_current_communication_means,
-    sync_level1_incremental_with_communication,
+from sam_level1_incremental import (
+    LEGACY_SYNC_STATE_VERSION,
+    _adopt_supported_relationship_elements,
+    _build_state,
+    _nodes_by_id,
+    _unique_descendant_by_name,
+    build_incremental_plan,
+    migrate_legacy_relationship_state,
+    sync_level1_incremental,
 )
 from sam_level1_managed_direct import sync_level1_to_sam_managed_direct
-from sam_level1_sync import _rows, build_level1_sync_plan
+from sam_level1_sync import _model_name, _rows, _slug, build_level1_sync_plan
 from sam_level1_transactional import (
     ARCADIA_OA_LIBRARY_PACKAGE,
+    _element_id,
+    _element_name,
+    _load_project,
     level1_instance_package_name,
 )
 
-_RUNTIME_ROOT = _base._RUNTIME_ROOT
-_manifest_path = _base._manifest_path
-_load_manifest = _base._load_manifest
-_save_manifest = _base._save_manifest
-_with_manifest = _base._with_manifest
-_manifest_version = _base._manifest_version
+_RUNTIME_ROOT = Path(__file__).resolve().parent / ".web_runtime" / "sam_sync"
+
+
+def _manifest_path(model: dict[str, Any], settings: SamSettings) -> Path:
+    project_key = hashlib.sha256(settings.project_id.encode("utf-8")).hexdigest()[:16]
+    model_key = _slug(_model_name(model), fallback="Operational_Analysis")
+    return _RUNTIME_ROOT / project_key / f"{model_key}.json"
+
+
+def _load_manifest(model: dict[str, Any], settings: SamSettings) -> dict[str, Any] | None:
+    path = _manifest_path(model, settings)
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(value, dict) or value.get("project_id") != settings.project_id:
+        return None
+    return value
+
+
+def _save_manifest(model: dict[str, Any], settings: SamSettings, state: dict[str, Any]) -> None:
+    path = _manifest_path(model, settings)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(state, indent=2, ensure_ascii=False, sort_keys=True),
+        encoding="utf-8",
+    )
+
+
+def _with_manifest(model: dict[str, Any], state: dict[str, Any] | None) -> dict[str, Any]:
+    value = copy.deepcopy(model)
+    graph = value.get("graph") if isinstance(value.get("graph"), dict) else {}
+    graph = dict(graph)
+    if state is not None:
+        graph["sam_sync"] = state
+    value["graph"] = graph
+    return value
+
+
+def _manifest_version(manifest: dict[str, Any] | None) -> int:
+    if not isinstance(manifest, dict):
+        return 0
+    try:
+        return int(manifest.get("version", 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _prepare_manifest_for_relationship_plan(
@@ -40,55 +92,20 @@ def _prepare_manifest_for_relationship_plan(
     project_manager_class: type[Any] | None = None,
     factory_class: type[Any] | None = None,
 ) -> dict[str, Any]:
-    prepared = _base._prepare_manifest_for_relationship_plan(
-        model,
-        scenarios,
-        manifest,
-        settings,
-        connector_class=connector_class,
-        project_manager_class=project_manager_class,
-        factory_class=factory_class,
-    )
-    return enrich_state_with_current_communication_means(
+    """Migrate a v1 manifest in memory only when a relationship delta requires it."""
+    if _manifest_version(manifest) != LEGACY_SYNC_STATE_VERSION:
+        return manifest
+    # Always reconstruct relationship identity for a legacy manifest read-only.
+    # Even a node-only change must not silently promote v1 to v2 without mapping
+    # the relationships that already exist in the managed SAM instance.
+    return migrate_legacy_relationship_state(
         model,
         scenarios=scenarios,
-        state=prepared,
+        state=manifest,
         settings=settings,
         connector_class=connector_class,
         project_manager_class=project_manager_class,
         factory_class=factory_class,
-        require_migration_proof=True,
-    )
-
-
-def _adopt_current_managed_instance(
-    model: dict[str, Any],
-    scenarios: list[dict[str, Any]],
-    settings: SamSettings,
-    *,
-    connector_class: type[Any] | None,
-    project_manager_class: type[Any] | None,
-    factory_class: type[Any] | None,
-) -> dict[str, Any] | None:
-    adopted = _base._adopt_current_managed_instance(
-        model,
-        scenarios,
-        settings,
-        connector_class=connector_class,
-        project_manager_class=project_manager_class,
-        factory_class=factory_class,
-    )
-    if adopted is None:
-        return None
-    return enrich_state_with_current_communication_means(
-        model,
-        scenarios=scenarios,
-        state=adopted,
-        settings=settings,
-        connector_class=connector_class,
-        project_manager_class=project_manager_class,
-        factory_class=factory_class,
-        require_migration_proof=False,
     )
 
 
@@ -98,6 +115,7 @@ def preview_level1_with_incremental_state(
     scenarios: list[dict[str, Any]] | None,
     settings: SamSettings,
 ) -> dict[str, Any]:
+    """Build the user-reviewable SAM change set without performing a SAM write."""
     model = payload if isinstance(payload, dict) else {}
     scenario_rows = _rows(scenarios if scenarios is not None else model.get("scenarios"))
     full = build_level1_sync_plan(
@@ -157,6 +175,8 @@ def preview_level1_with_incremental_state(
             "unsupported_changes": [],
         }
 
+    # The migration is read-only and intentionally is NOT saved during preview.
+    # The local manifest is updated only after a confirmed + verified sync.
     manifest_for_plan = _prepare_manifest_for_relationship_plan(
         model,
         scenario_rows,
@@ -164,17 +184,17 @@ def preview_level1_with_incremental_state(
         settings,
     )
     working_model = _with_manifest(model, manifest_for_plan)
-    incremental = build_incremental_plan_with_communication(
+    incremental = build_incremental_plan(
         working_model,
         scenarios=scenario_rows,
         settings=settings,
     )
-    supported = bool(incremental.get("supported"))
     sync_status = (
         "up_to_date"
         if incremental.get("mode") == "incremental_noop"
         else "local_changes"
     )
+    supported = bool(incremental.get("supported"))
     if not supported:
         sync_status = "local_changes_blocked"
 
@@ -201,10 +221,7 @@ def preview_level1_with_incremental_state(
         },
         "library": {
             "action": "reuse",
-            "package_name": (
-                manifest_for_plan.get("library_package_name")
-                or ARCADIA_OA_LIBRARY_PACKAGE
-            ),
+            "package_name": manifest_for_plan.get("library_package_name") or ARCADIA_OA_LIBRARY_PACKAGE,
         },
         "instance": {
             "action": "reuse",
@@ -217,6 +234,52 @@ def preview_level1_with_incremental_state(
     }
 
 
+def _adopt_current_managed_instance(
+    model: dict[str, Any],
+    scenarios: list[dict[str, Any]],
+    settings: SamSettings,
+    *,
+    connector_class: type[Any] | None,
+    project_manager_class: type[Any] | None,
+    factory_class: type[Any] | None,
+) -> dict[str, Any] | None:
+    """Adopt the current MBSE_Instance package, never a legacy MBSE_Level1 package."""
+    plan = build_level1_sync_plan(model, scenarios=scenarios, project_id=settings.project_id)
+    managed_name = level1_instance_package_name(plan["model_name"], plan["snapshot_digest"])
+    _, _, project, _ = _load_project(
+        settings,
+        connector_class=connector_class,
+        project_manager_class=project_manager_class,
+        factory_class=factory_class,
+    )
+    matches = list(project.find_elements_by_name(managed_name) or [])
+    if len(matches) != 1:
+        return None
+
+    package = matches[0]
+    node_elements: dict[str, Any] = {}
+    for node_id, node in _nodes_by_id(model).items():
+        node_elements[node_id] = _unique_descendant_by_name(
+            project,
+            package,
+            str(node.get("name") or node_id),
+        )
+    relationship_elements, missing = _adopt_supported_relationship_elements(
+        project, package, model
+    )
+    if missing:
+        return None
+    return _build_state(
+        model,
+        scenarios,
+        settings=settings,
+        package_name=_element_name(package),
+        package_id=_element_id(package),
+        node_elements=node_elements,
+        relationship_elements=relationship_elements,
+    )
+
+
 def sync_level1_with_incremental_state(
     payload: Any,
     *,
@@ -227,6 +290,7 @@ def sync_level1_with_incremental_state(
     project_manager_class: type[Any] | None = None,
     factory_class: type[Any] | None = None,
 ) -> dict[str, Any]:
+    """Create/adopt a baseline once, then synchronize only the reviewed delta."""
     model = payload if isinstance(payload, dict) else {}
     scenario_rows = _rows(scenarios if scenarios is not None else model.get("scenarios"))
     manifest = _load_manifest(model, settings)
@@ -266,7 +330,7 @@ def sync_level1_with_incremental_state(
             baseline["incremental_baseline_ready"] = True
             baseline["mode"] = "baseline_created_or_adopted_for_incremental_sync"
             baseline["delta"] = {
-                "create": len(_base._nodes_by_id(model)),
+                "create": len(_nodes_by_id(model)),
                 "update": 0,
                 "delete": 0,
                 "unchanged": 0,
@@ -292,7 +356,7 @@ def sync_level1_with_incremental_state(
         factory_class=factory_class,
     )
     working_model = _with_manifest(model, manifest)
-    result = sync_level1_incremental_with_communication(
+    result = sync_level1_incremental(
         working_model,
         scenarios=scenario_rows,
         settings=settings,
