@@ -5,6 +5,12 @@ objects: locally-created scripting attributes are stored without the underscore
 prefix used by the scripting mapper. The upstream project fixed this after the
 0.3.1 release (issue #152). Until a released PySAM version contains that fix,
 Level 1B installs the equivalent behavior locally before creating a transaction.
+
+SAM also reloads ``SatisfyRequirementUsage`` using its native semantic fields
+(``satisfiedRequirement`` / ``satisfyingFeature``), while the Companion App's
+ArcadiaOA contract describes SUPPORTS_CAPABILITY as an allocation with
+``source`` / ``target`` endpoints. The read-only alias shim below makes those
+representations equivalent only while matching an existing relationship.
 """
 
 from __future__ import annotations
@@ -16,6 +22,54 @@ from uuid import uuid4
 
 class PySamCompatibilityError(RuntimeError):
     """Raised when the required PySAM compatibility patch cannot be installed."""
+
+
+def install_relationship_reload_aliases() -> dict[str, Any]:
+    """Teach the Level 1 read-only matcher SAM's native satisfy field names.
+
+    This performs no SAM network operation and does not change any write payload.
+    It only augments the helper used when adopting already-created relationships
+    after a fresh PySAM/SAM reload.
+    """
+    try:
+        import sam_level1_complete_incremental as complete
+    except ImportError:
+        return {"required": True, "applied": False, "available": False}
+
+    original = getattr(complete, "_mapped_refs", None)
+    if not callable(original):
+        return {"required": True, "applied": False, "available": False}
+    if getattr(original, "_mbse_supports_capability_reload_fix", False):
+        return {"required": True, "applied": True, "already_installed": True}
+
+    def mapped_refs(element: Any, *attrs: str) -> list[Any]:
+        values = list(original(element, *attrs))
+        requested = set(attrs)
+        if requested.intersection({"source", "_source"}):
+            values.extend(
+                original(
+                    element,
+                    "satisfied_requirement",
+                    "_satisfied_requirement",
+                    "satisfiedRequirement",
+                    "_satisfiedRequirement",
+                )
+            )
+        if requested.intersection({"target", "_target"}):
+            values.extend(
+                original(
+                    element,
+                    "satisfying_feature",
+                    "_satisfying_feature",
+                    "satisfyingFeature",
+                    "_satisfyingFeature",
+                )
+            )
+        return values
+
+    mapped_refs._mbse_supports_capability_reload_fix = True
+    complete._mapped_refs = mapped_refs
+    return {"required": True, "applied": True, "already_installed": False}
 
 
 def install_transactional_factory_fix() -> dict[str, Any]:
@@ -81,3 +135,8 @@ def install_transactional_factory_fix() -> dict[str, Any]:
     fixed_create_local_element_and_stack._mbse_level1_transaction_fix = True
     Factory._create_local_element_and_stack = fixed_create_local_element_and_stack
     return {"required": True, "applied": True, "already_installed": False}
+
+
+# web_app imports this module during startup after the Level 1 dispatcher, so the
+# matcher is already available and can be patched before any SAM preview/send.
+install_relationship_reload_aliases()
