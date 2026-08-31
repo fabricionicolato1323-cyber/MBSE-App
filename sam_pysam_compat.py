@@ -18,6 +18,7 @@ representations equivalent only while matching an existing relationship.
 from __future__ import annotations
 
 import inspect
+import sys
 from typing import Any
 from uuid import uuid4
 
@@ -71,6 +72,54 @@ def install_relationship_reload_aliases() -> dict[str, Any]:
 
     mapped_refs._mbse_supports_capability_reload_fix = True
     complete._mapped_refs = mapped_refs
+    return {"required": True, "applied": True, "already_installed": False}
+
+
+def _install_semantic_only_annotation_policy() -> dict[str, Any]:
+    """Skip optional SAM annotation elements during synchronization.
+
+    The live PoC previously created one ``Comment`` for many source nodes,
+    relationships, and scenario steps. In direct-create mode every annotation is
+    another SAM commit followed by a complete project reload, so optional
+    metadata can dominate the elapsed transfer time. The semantic SysML model is
+    already represented by native SAM elements and the local Level 1 text/model,
+    therefore the transport now omits these optional annotations.
+
+    Patch both the defining helper and any already-imported aliases. Modules
+    imported later will naturally receive the patched helper from
+    ``sam_level1_sync``.
+    """
+    try:
+        import sam_level1_sync as sync
+    except ImportError:
+        return {"required": True, "applied": False, "available": False}
+
+    current = getattr(sync, "_documentation", None)
+    if not callable(current):
+        return {"required": True, "applied": False, "available": False}
+    if getattr(current, "_mbse_semantic_only_sam_metadata", False):
+        return {"required": True, "applied": True, "already_installed": True}
+
+    def skip_optional_documentation(*args, **kwargs):
+        return None
+
+    skip_optional_documentation._mbse_semantic_only_sam_metadata = True
+    sync._documentation = skip_optional_documentation
+
+    # These modules import _documentation by value. Update aliases that already
+    # exist in the current process so the policy applies to the same send call.
+    for module_name in (
+        "sam_level1_direct",
+        "sam_level1_managed_direct",
+        "sam_level1_incremental",
+        "sam_level1_communication_incremental",
+        "sam_level1_scenario_incremental",
+        "sam_level1_complete_incremental",
+    ):
+        module = sys.modules.get(module_name)
+        if module is not None and hasattr(module, "_documentation"):
+            setattr(module, "_documentation", skip_optional_documentation)
+
     return {"required": True, "applied": True, "already_installed": False}
 
 
@@ -152,8 +201,9 @@ def install_transactional_factory_fix() -> dict[str, Any]:
     """Install the PySAM transactional ScriptingProject compatibility fixes.
 
     Returns diagnostic metadata and performs no SAM network operation. The
-    compatibility layer covers both local scripting attribute storage and the
-    canonical field names emitted by the transactional observer.
+    compatibility layer covers local scripting attribute storage, canonical
+    transactional field names, and the semantic-only annotation policy used by
+    the PoC transport.
     """
     try:
         from ansys.sam.sysml2.classes.project import Project
@@ -165,6 +215,7 @@ def install_transactional_factory_fix() -> dict[str, Any]:
             "PySAM SysML2 is not installed. Run: python -m pip install -r requirements.txt"
         ) from exc
 
+    metadata_result = _install_semantic_only_annotation_policy()
     observer_result = _install_transactional_observer_field_fix()
 
     original = Factory._create_local_element_and_stack
@@ -230,12 +281,21 @@ def install_transactional_factory_fix() -> dict[str, Any]:
                 "already_installed": False,
             }
 
-    required = bool(factory_result["required"] or observer_result["required"])
-    applied = bool(factory_result["applied"] or observer_result["applied"])
+    required = bool(
+        factory_result["required"]
+        or observer_result["required"]
+        or metadata_result["required"]
+    )
+    applied = bool(
+        factory_result["applied"]
+        or observer_result["applied"]
+        or metadata_result["applied"]
+    )
     already_installed = bool(
         required
         and (not factory_result["required"] or factory_result.get("already_installed"))
         and (not observer_result["required"] or observer_result.get("already_installed"))
+        and (not metadata_result["required"] or metadata_result.get("already_installed"))
     )
     return {
         "required": required,
@@ -243,6 +303,7 @@ def install_transactional_factory_fix() -> dict[str, Any]:
         "already_installed": already_installed,
         "factory": factory_result,
         "observer": observer_result,
+        "metadata": metadata_result,
     }
 
 
