@@ -37,7 +37,7 @@ def _definition(name: str) -> Element:
     return Element("Definition", name=name)
 
 
-def test_nested_usages_receive_owning_feature_memberships():
+def _fixture():
     factory = Factory()
     packages = {
         "structure": Element("Package", name="Structure"),
@@ -80,6 +80,11 @@ def test_nested_usages_receive_owning_feature_memberships():
             }
         ],
     )
+    return factory, packages, definitions, analysis
+
+
+def test_nested_usage_is_owned_by_membership_not_parallel_to_it():
+    factory, packages, definitions, analysis = _fixture()
 
     elements, _ = create_projection_nodes(
         factory,
@@ -89,23 +94,58 @@ def test_nested_usages_receive_owning_feature_memberships():
     )
 
     memberships = [e for e in factory.elements if e.element_type == "FeatureMembership"]
-    assert len(memberships) == 4  # nested actor, two activities, decomposed capability
+    assert len(memberships) == 4
 
-    a1_membership = next(
-        m for m in memberships if m.owned_member_feature is elements["a1"]
+    activity = elements["a1"]
+    membership = activity.owner
+
+    assert membership.element_type == "FeatureMembership"
+    assert membership.owner is elements["actor"]
+    assert membership.membership_owning_namespace is elements["actor"]
+    assert membership.owning_type is elements["actor"]
+    assert membership.member_element is activity
+    assert membership.owned_member_element is activity
+    assert membership.owned_member_feature is activity
+
+    assert activity.owning_feature_membership is membership
+    assert activity.owning_namespace is elements["actor"]
+    assert activity.featuring_type == [elements["actor"]]
+    assert activity.is_composite is True
+    assert activity.owner is not elements["actor"]
+
+
+def test_nested_part_and_decomposed_activity_follow_same_ownership_pattern():
+    factory, packages, definitions, analysis = _fixture()
+
+    elements, _ = create_projection_nodes(
+        factory,
+        analysis=analysis,
+        definitions=definitions,
+        packages=packages,
     )
-    assert a1_membership.owner is elements["actor"]
-    assert a1_membership.owning_type is elements["actor"]
-    assert a1_membership.membership_owning_namespace is elements["actor"]
-    assert a1_membership.member_element is elements["a1"]
-    assert a1_membership.owned_member_element is elements["a1"]
 
-    a2_membership = next(
-        m for m in memberships if m.owned_member_feature is elements["a2"]
+    actor = elements["actor"]
+    assert actor.owner.element_type == "FeatureMembership"
+    assert actor.owner.owner is elements["entity"]
+    assert actor.owning_feature_membership is actor.owner
+    assert actor.is_composite is True
+
+    child_activity = elements["a2"]
+    assert child_activity.owner.element_type == "FeatureMembership"
+    assert child_activity.owner.owner is elements["a1"]
+    assert child_activity.owning_namespace is elements["a1"]
+    assert child_activity.is_composite is True
+
+
+def test_perform_actions_are_owned_by_feature_memberships():
+    factory, packages, definitions, analysis = _fixture()
+
+    elements, _ = create_projection_nodes(
+        factory,
+        analysis=analysis,
+        definitions=definitions,
+        packages=packages,
     )
-    assert a2_membership.owner is elements["a1"]
-    assert a2_membership.owning_type is elements["a1"]
-
     create_projection_scenarios(
         factory,
         analysis=analysis,
@@ -114,10 +154,19 @@ def test_nested_usages_receive_owning_feature_memberships():
         packages=packages,
     )
 
-    memberships = [e for e in factory.elements if e.element_type == "FeatureMembership"]
+    scenario = next(
+        e
+        for e in factory.elements
+        if e.element_type == "ActionUsage" and getattr(e, "name", None) == "Nominal"
+    )
     perform_steps = [e for e in factory.elements if e.element_type == "PerformActionUsage"]
     assert len(perform_steps) == 2
+
     for step in perform_steps:
-        membership = next(m for m in memberships if m.owned_member_feature is step)
-        assert membership.owner is step.owner
-        assert membership.owning_type is step.owner
+        membership = step.owner
+        assert membership.element_type == "FeatureMembership"
+        assert membership.owner is scenario
+        assert membership.owned_member_feature is step
+        assert step.owning_feature_membership is membership
+        assert step.owning_namespace is scenario
+        assert step.is_composite is True
