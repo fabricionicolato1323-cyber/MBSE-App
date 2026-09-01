@@ -40,6 +40,26 @@ def _definition_name(profile: SAMReferenceProfile, concept: str) -> str:
     return str(profile.definition(concept).get("sysml_name") or concept)
 
 
+def _create_feature_membership(factory: Any, owner: Any, feature: Any) -> Any:
+    """Make a nested Usage a real SysML feature of its owning Type.
+
+    A plain ``owner`` reference is enough to make SAM display an element under a
+    participant in the project tree, but it is not the same semantic structure as
+    textual SysML nesting. SysML v2 represents a nested Usage through an owning
+    FeatureMembership between the owning Type and its owned member Feature. SAM's
+    diagram editor relies on that relationship when adding nested actions to a
+    diagram.
+    """
+    return factory.create_feature_membership(
+        owner=owner,
+        membership_owning_namespace=owner,
+        owning_type=owner,
+        member_element=feature,
+        owned_member_element=feature,
+        owned_member_feature=feature,
+    )
+
+
 def create_sam_reference_definitions(
     factory: Any,
     owner: Any,
@@ -171,6 +191,8 @@ def create_projection_nodes(
         if node_type == "OperationalActor":
             kwargs["is_actor"] = True
         element = factory.create_part_usage(**kwargs)
+        if parent:
+            _create_feature_membership(factory, owner, element)
         created[node_id] = element
         _documentation(factory, element, _source_document(node, "element"))
         characteristic_count += _create_characteristics(factory, element, node)
@@ -196,6 +218,7 @@ def create_projection_nodes(
             owner=owner,
             action_definition=[definitions["OperationalActivity"]],
         )
+        _create_feature_membership(factory, owner, element)
         created[node_id] = element
         _documentation(factory, element, _source_document(node, "element"))
         characteristic_count += _create_characteristics(factory, element, node)
@@ -214,6 +237,8 @@ def create_projection_nodes(
             requirement_definition=definitions["OperationalCapability"],
             req_id=node_id,
         )
+        if parent:
+            _create_feature_membership(factory, owner, element)
         created[node_id] = element
         _documentation(factory, element, _source_document(node, "element"))
         characteristic_count += _create_characteristics(factory, element, node)
@@ -334,6 +359,7 @@ def create_projection_scenarios(
                 owner=scenario_usage,
                 performed_action=source,
             )
+            _create_feature_membership(factory, scenario_usage, usage)
             _documentation(
                 factory,
                 usage,
