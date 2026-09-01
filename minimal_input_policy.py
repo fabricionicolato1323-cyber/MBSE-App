@@ -162,6 +162,49 @@ class MinimalInputPolicyMixin:
             if decision is not None:
                 return decision
 
+    def ask_additional_participant(self) -> str | None:
+        """Accept any non-empty participant label, plus the structural `done` token."""
+        self.current_why = (
+            "The model may need people, roles, organizations, groups, facilities, "
+            "places, resources, or other real-world elements involved in the operation."
+        )
+
+        while True:
+            has_participants = bool(self.model.participants())
+            self.draw_question(
+                "Who or what else is involved?" if has_participants else "Who or what is involved?",
+                explanation="Name one participant/context element, or type 'done' when finished.",
+                expected_structure="participant/context name or 'done'",
+            )
+            value = input("> ").strip()
+
+            if self.command(value):
+                continue
+            if value.startswith("/"):
+                self.add_notice("That command is not available in this step.")
+                continue
+
+            normalized = normalize_whitespace(value)
+            if normalized.casefold() == "done":
+                return None
+            if not normalized:
+                self.add_notice("Enter one participant/context name or type 'done'.")
+                continue
+
+            decision = self.confirm_participant_classification(normalized)
+            if decision is None:
+                continue
+
+            node_type, participant_name, classification = decision
+            expects_activity = self.activity_expectation_for(node_type, participant_name)
+            participant_id = self.add_node(
+                node_type,
+                participant_name,
+                expects_activity=expects_activity,
+                **classification,
+            )
+            return participant_id
+
     def ask_activity_frames(self, participant_id: str) -> tuple[str, dict]:
         """Parse activity structure without rejecting the user's vocabulary.
 
