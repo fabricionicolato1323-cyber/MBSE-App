@@ -10,6 +10,7 @@ from characteristics_flow import CharacteristicsFlowMixin
 from communication_exchange_link import CommunicationExchangeLinkFlowMixin
 from composition_flow import CompositionFlowMixin
 from guidance_flow import GuidanceFlowMixin
+from minimal_input_policy import MinimalInputPolicyMixin
 from participant_classification_simple import SimplifiedParticipantClassificationMixin
 from participant_composition import (
     OperationalActorCompositionFlowMixin,
@@ -30,6 +31,7 @@ install_change_impact_finalize_support()
 
 class OAApp(
     GuidanceFlowMixin,
+    MinimalInputPolicyMixin,
     SimplifiedParticipantClassificationMixin,
     ParticipantFlowMixin,
     OperationalActorCompositionFlowMixin,
@@ -38,7 +40,7 @@ class OAApp(
     CharacteristicsFlowMixin,
     _base.OAApp,
 ):
-    """Guided builder with neutral UI guidance and Feature 4 refinements."""
+    """Guided builder with neutral UI guidance and minimal input filtering."""
 
     def capture_structure_and_environment(self) -> None:
         super().capture_structure_and_environment()
