@@ -2,6 +2,9 @@
 
 Level 1C/1D support is extended with every remaining ArcadiaOA relationship
 strategy. Level 2 is intentionally out of scope.
+
+Initial SAM2 baselines use the transactional batch publisher to avoid one server
+commit/project reload per created SysML element.
 """
 from __future__ import annotations
 
@@ -16,7 +19,7 @@ from sam_level1_complete_incremental import (
     enrich_state_with_remaining_relationships,
     sync_level1_incremental_complete,
 )
-from sam_level1_managed_direct import sync_level1_to_sam_managed_direct
+from sam_level1_managed_transactional import sync_level1_to_sam_managed_transactional
 from sam_level1_scenario_incremental import enrich_state_with_current_scenarios
 from sam_level1_sync import _rows, build_level1_sync_plan
 from sam_level1_transactional import ARCADIA_OA_LIBRARY_PACKAGE, level1_instance_package_name
@@ -331,7 +334,7 @@ def sync_level1_with_incremental_state(
         )
         baseline = None
         if adopted is None:
-            baseline = sync_level1_to_sam_managed_direct(
+            baseline = sync_level1_to_sam_managed_transactional(
                 model,
                 scenarios=scenario_rows,
                 settings=settings,
