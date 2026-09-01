@@ -11,6 +11,7 @@ from communication_exchange_link import CommunicationExchangeLinkFlowMixin
 from composition_flow import CompositionFlowMixin
 from guidance_flow import GuidanceFlowMixin
 from minimal_input_policy import MinimalInputPolicyMixin
+from minimal_input_web_patch import install_minimal_web_input_policy
 from participant_classification_simple import SimplifiedParticipantClassificationMixin
 from participant_composition import (
     OperationalActorCompositionFlowMixin,
@@ -27,6 +28,7 @@ install_characteristic_operator_support()
 install_characteristic_edit_support()
 install_change_impact_refinement_support()
 install_change_impact_finalize_support()
+install_minimal_web_input_policy()
 
 
 class OAApp(
