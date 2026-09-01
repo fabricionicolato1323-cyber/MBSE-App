@@ -1,8 +1,8 @@
 """Read-only Gate 0 smoke test for Ansys SAM / PySAM SysML2.
 
 This module authenticates against the configured SAM organization, lists the
-projects visible to the connected user, and loads a selected project. It does not
-create, edit, commit, or publish model elements.
+projects visible to the connected user, and only then loads a selected project.
+It does not create, edit, commit, or publish model elements.
 """
 
 from __future__ import annotations
@@ -67,12 +67,7 @@ def load_env_file(path: str | Path = ".env") -> None:
 
 
 def _request_project_id_override() -> str:
-    """Read an explicitly selected SAM project from the active Flask request.
-
-    The web UI sends the selected project on the read-only plan request and again
-    on the confirmed write request. CLI and unit-test usage has no Flask request
-    context, so this helper quietly falls back to the configured project ID.
-    """
+    """Read an explicitly selected SAM project from the active Flask request."""
     try:
         from flask import has_request_context, request
     except ImportError:
@@ -148,24 +143,18 @@ def _normalized_project_records(records: Any) -> list[dict[str, str]]:
             continue
         name = str(record.get("name") or project_id).strip() or project_id
         description = str(record.get("description") or "").strip()
-        result.append(
-            {
-                "id": project_id,
-                "name": name,
-                "description": description,
-            }
-        )
+        result.append({"id": project_id, "name": name, "description": description})
     result.sort(key=lambda item: (item["name"].casefold(), item["id"]))
     return result
 
 
-def list_available_projects(
+def _connect_to_organization(
     settings: SamSettings,
     *,
     connector_class: type[Any] | None = None,
     project_manager_class: type[Any] | None = None,
-) -> list[dict[str, str]]:
-    """List SysML v2 projects visible in the configured SAM organization."""
+) -> tuple[Any, Any, list[dict[str, str]]]:
+    """Authenticate in the organization and discover its visible projects first."""
     if connector_class is None or project_manager_class is None:
         try:
             from ansys.sam.sysml2 import (  # type: ignore[import-not-found]
@@ -174,44 +163,7 @@ def list_available_projects(
             )
         except ImportError as exc:
             raise RuntimeError(
-                "PySAM SysML2 is not installed. Run: "
-                "python -m pip install -r requirements.txt"
-            ) from exc
-        connector_class = connector_class or AnsysSysML2APIConnector
-        project_manager_class = project_manager_class or SysML2ProjectManager
-
-    connector = connector_class(
-        server_url=settings.server_url,
-        organization_id=settings.organization_id,
-        token=settings.access_token,
-        use_ssl=settings.use_ssl,
-    )
-    manager = project_manager_class(connector=connector)
-    return _normalized_project_records(manager.get_projects())
-
-
-def run_connection_test(
-    settings: SamSettings,
-    *,
-    connector_class: type[Any] | None = None,
-    project_manager_class: type[Any] | None = None,
-) -> dict[str, Any]:
-    """Authenticate to SAM and load the selected project without modifying it.
-
-    The returned metadata includes the project list visible in the configured
-    organization. The Level 1 UI uses that list to ask the user which project to
-    target before any synchronization write can occur.
-    """
-    if connector_class is None or project_manager_class is None:
-        try:
-            from ansys.sam.sysml2 import (  # type: ignore[import-not-found]
-                AnsysSysML2APIConnector,
-                SysML2ProjectManager,
-            )
-        except ImportError as exc:
-            raise RuntimeError(
-                "PySAM SysML2 is not installed. Run: "
-                "python -m pip install -r requirements.txt"
+                "PySAM SysML2 is not installed. Run: python -m pip install -r requirements.txt"
             ) from exc
         connector_class = connector_class or AnsysSysML2APIConnector
         project_manager_class = project_manager_class or SysML2ProjectManager
@@ -224,9 +176,67 @@ def run_connection_test(
     )
     manager = project_manager_class(connector=connector)
     available_projects = _normalized_project_records(manager.get_projects())
+    return connector, manager, available_projects
+
+
+def list_available_projects(
+    settings: SamSettings,
+    *,
+    connector_class: type[Any] | None = None,
+    project_manager_class: type[Any] | None = None,
+) -> list[dict[str, str]]:
+    """List SysML v2 projects visible in the configured SAM organization."""
+    _, _, available_projects = _connect_to_organization(
+        settings,
+        connector_class=connector_class,
+        project_manager_class=project_manager_class,
+    )
+    return available_projects
+
+
+def run_connection_test(
+    settings: SamSettings,
+    *,
+    connector_class: type[Any] | None = None,
+    project_manager_class: type[Any] | None = None,
+) -> dict[str, Any]:
+    """Discover organization projects first and load the selected project if valid.
+
+    A stale ``SAM_PROJECT_ID`` no longer blocks the web project picker. In that
+    case this function returns organization/project discovery metadata with
+    ``project_selection_required=True`` and performs no project load. The UI can
+    then ask the user to choose one of the projects that was actually returned by
+    the configured organization and retry with that explicit project ID.
+    """
+    _, manager, available_projects = _connect_to_organization(
+        settings,
+        connector_class=connector_class,
+        project_manager_class=project_manager_class,
+    )
+
+    available_ids = {item["id"] for item in available_projects}
+    if settings.project_id not in available_ids:
+        return {
+            "server_url": settings.server_url,
+            "organization_id": settings.organization_id,
+            "configured_project_id": settings.project_id,
+            "project_id": "",
+            "project_name": "",
+            "project_loaded": False,
+            "project_selection_required": True,
+            "available_projects": available_projects,
+            "root_package_name": "",
+            "root_package_id": None,
+            "top_level_items": [],
+            "write_performed": False,
+        }
+
     project = manager.get_scripting_project(settings.project_id)
     if project is None:
-        raise RuntimeError("The selected SAM project could not be loaded.")
+        raise RuntimeError(
+            f"Project {settings.project_id!r} is listed in SAM organization "
+            f"{settings.organization_id!r}, but could not be loaded."
+        )
 
     root_package = project.get_root_package()
     root_items = list(project.get_root() or [])
@@ -236,9 +246,11 @@ def run_connection_test(
     return {
         "server_url": settings.server_url,
         "organization_id": settings.organization_id,
+        "configured_project_id": settings.project_id,
         "project_id": actual_project_id,
         "project_name": project_name,
         "project_loaded": True,
+        "project_selection_required": False,
         "available_projects": available_projects,
         "root_package_name": _element_name(root_package) or project_name,
         "root_package_id": _element_id(root_package),
@@ -259,14 +271,21 @@ def _print_success(result: Mapping[str, Any]) -> None:
     print(f"Server ............. {result['server_url']}")
     print("Authentication ..... OK")
     print(f"Organization ....... {result['organization_id']}")
-    project_label = result.get("project_name") or result["project_id"]
-    print(f"Project ............ {project_label} ({result['project_id']})")
-    root_name = result.get("root_package_name")
-    if root_name:
-        print(f"Root package ....... {root_name}")
-    print("Project load ....... OK")
-    print()
-    print("Connection test: PASSED")
+    if result.get("project_loaded"):
+        project_label = result.get("project_name") or result["project_id"]
+        print(f"Project ............ {project_label} ({result['project_id']})")
+        root_name = result.get("root_package_name")
+        if root_name:
+            print(f"Root package ....... {root_name}")
+        print("Project load ....... OK")
+        print()
+        print("Connection test: PASSED")
+    else:
+        projects = result.get("available_projects") or []
+        print(f"Projects visible ... {len(projects)}")
+        print("Project selection .. REQUIRED")
+        print()
+        print("Organization discovery: PASSED")
     print("No SAM model data was changed.")
 
 

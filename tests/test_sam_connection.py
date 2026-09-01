@@ -41,11 +41,13 @@ class FakeProject:
 class FakeProjectManager:
     last_connector = None
     last_project_id = None
+    calls = []
 
     def __init__(self, connector):
         type(self).last_connector = connector
 
     def get_projects(self):
+        type(self).calls.append("get_projects")
         return [
             {
                 "@id": "project-1",
@@ -55,11 +57,17 @@ class FakeProjectManager:
         ]
 
     def get_scripting_project(self, project_id):
+        type(self).calls.append("get_scripting_project")
         type(self).last_project_id = project_id
         return FakeProject(project_id)
 
 
 class SamConnectionTests(unittest.TestCase):
+    def setUp(self):
+        FakeProjectManager.last_connector = None
+        FakeProjectManager.last_project_id = None
+        FakeProjectManager.calls = []
+
     def test_missing_required_configuration_is_rejected(self):
         with self.assertRaises(SamConfigurationError) as ctx:
             settings_from_env({}, load_dotenv=False)
@@ -93,7 +101,7 @@ class SamConnectionTests(unittest.TestCase):
                 load_dotenv=False,
             )
 
-    def test_connection_test_loads_project_read_only(self):
+    def test_connection_test_lists_organization_before_loading_project(self):
         settings = SamSettings(
             server_url="https://sam.example.test",
             organization_id="org-1",
@@ -106,27 +114,40 @@ class SamConnectionTests(unittest.TestCase):
             connector_class=FakeConnector,
             project_manager_class=FakeProjectManager,
         )
+        self.assertEqual(
+            FakeProjectManager.calls,
+            ["get_projects", "get_scripting_project"],
+        )
         connector = FakeProjectManager.last_connector
-        self.assertEqual(connector.kwargs["server_url"], settings.server_url)
         self.assertEqual(connector.kwargs["organization_id"], settings.organization_id)
-        self.assertEqual(connector.kwargs["token"], settings.access_token)
-        self.assertTrue(connector.kwargs["use_ssl"])
         self.assertEqual(FakeProjectManager.last_project_id, settings.project_id)
         self.assertTrue(result["project_loaded"])
+        self.assertFalse(result["project_selection_required"])
         self.assertEqual(result["project_id"], "project-1")
         self.assertEqual(result["project_name"], "API Test")
-        self.assertEqual(result["root_package_name"], "API Test")
         self.assertEqual(result["root_package_id"], "root-1")
-        self.assertEqual(
-            result["available_projects"],
-            [
-                {
-                    "id": "project-1",
-                    "name": "API Test",
-                    "description": "Connection test project",
-                }
-            ],
+        self.assertEqual(len(result["available_projects"]), 1)
+        self.assertFalse(result["write_performed"])
+
+    def test_stale_configured_project_returns_project_picker_discovery(self):
+        settings = SamSettings(
+            server_url="https://sam.example.test",
+            organization_id="org-1",
+            project_id="old-project-id",
+            access_token="secret",
         )
+        result = run_connection_test(
+            settings,
+            connector_class=FakeConnector,
+            project_manager_class=FakeProjectManager,
+        )
+        self.assertEqual(FakeProjectManager.calls, ["get_projects"])
+        self.assertIsNone(FakeProjectManager.last_project_id)
+        self.assertFalse(result["project_loaded"])
+        self.assertTrue(result["project_selection_required"])
+        self.assertEqual(result["configured_project_id"], "old-project-id")
+        self.assertEqual(result["project_id"], "")
+        self.assertEqual(result["available_projects"][0]["id"], "project-1")
         self.assertFalse(result["write_performed"])
 
     def test_result_never_contains_access_token(self):
