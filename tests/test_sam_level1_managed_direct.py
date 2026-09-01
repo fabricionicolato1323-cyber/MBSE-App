@@ -4,11 +4,11 @@ import unittest
 
 from sam_connection import SamSettings
 from sam_level1_managed_direct import (
+    SAM_REFERENCE_LIBRARY_PACKAGE,
     ensure_arcadia_oa_library_direct,
     sync_level1_to_sam_managed_direct,
 )
 from sam_level1_sync import level1_snapshot_digest
-from sam_level1_transactional import ARCADIA_OA_LIBRARY_PACKAGE
 
 
 class Element:
@@ -99,23 +99,21 @@ class ManagedDirectTests(unittest.TestCase):
             "factory_class": Factory,
         }
 
-    def test_library_is_created_once_and_reused(self):
+    def test_reference_library_is_created_once_and_reused(self):
         first = ensure_arcadia_oa_library_direct(self.settings, **self.kwargs())
         second = ensure_arcadia_oa_library_direct(self.settings, **self.kwargs())
 
         self.assertEqual(first["status"], "loaded")
         self.assertEqual(second["status"], "already_loaded")
-        libraries = Manager.project.find_elements_by_name(ARCADIA_OA_LIBRARY_PACKAGE)
-        self.assertEqual(len(libraries), 1)
-        self.assertFalse(
-            any(
-                getattr(item, "name", "").startswith(ARCADIA_OA_LIBRARY_PACKAGE + "__INCOMPLETE")
-                and getattr(item, "name", "") == ARCADIA_OA_LIBRARY_PACKAGE
-                for item in Manager.project.elements
-            )
+        self.assertEqual(
+            len(Manager.project.find_elements_by_name(SAM_REFERENCE_LIBRARY_PACKAGE)), 1
         )
+        names = {getattr(item, "name", None) for item in Manager.project.elements}
+        self.assertIn("Arcadia_OA_libray", names)
+        self.assertIn("Operational Iteration", names)
+        self.assertIn("Communication Mean", names)
 
-    def test_same_snapshot_is_idempotent_and_does_not_duplicate_library(self):
+    def test_same_snapshot_is_idempotent_and_uses_sam2_shape(self):
         digest = level1_snapshot_digest(self.model, [])
         first = sync_level1_to_sam_managed_direct(
             self.model,
@@ -137,13 +135,16 @@ class ManagedDirectTests(unittest.TestCase):
         self.assertEqual(second["status"], "already_synced")
         self.assertEqual(len(Manager.project.elements), count_after_first)
         self.assertEqual(
-            len(Manager.project.find_elements_by_name(ARCADIA_OA_LIBRARY_PACKAGE)),
-            1,
+            len(Manager.project.find_elements_by_name(SAM_REFERENCE_LIBRARY_PACKAGE)), 1
         )
-        self.assertTrue(first["package_name"].startswith("MBSE_Instance_Threat_Protection_"))
+        self.assertTrue(first["package_name"].startswith("MBSE_Instance_SAM2_Threat_Protection_"))
         self.assertFalse(first["completion_marker_required"])
+        self.assertTrue(first["incremental_sync_deferred"])
+        self.assertEqual(first["created"]["textual_level1_representation"], 1)
+        names = {getattr(item, "name", None) for item in Manager.project.elements}
+        self.assertTrue({"Arcadia_OA", "Structure", "Requirements", "Scenarios"}.issubset(names))
 
-    def test_second_model_reuses_library_but_creates_second_instance(self):
+    def test_second_model_reuses_library_but_creates_second_sam2_instance(self):
         first_digest = level1_snapshot_digest(self.model, [])
         first = sync_level1_to_sam_managed_direct(
             self.model,
@@ -168,8 +169,7 @@ class ManagedDirectTests(unittest.TestCase):
         self.assertEqual(first["status"], "synced")
         self.assertEqual(second["status"], "synced")
         self.assertEqual(
-            len(Manager.project.find_elements_by_name(ARCADIA_OA_LIBRARY_PACKAGE)),
-            1,
+            len(Manager.project.find_elements_by_name(SAM_REFERENCE_LIBRARY_PACKAGE)), 1
         )
         self.assertNotEqual(first["package_name"], second["package_name"])
 

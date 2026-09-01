@@ -30,27 +30,19 @@
     "OperationalCapability": {
       "sysml_name": "Operational Capability",
       "definition_kind": "requirement",
-      "required_features": [
-        "subject"
-      ],
+      "required_features": ["subject"],
       "projection_enabled": true
     },
     "OperationalExchange": {
       "sysml_name": "Operational Iteration",
       "definition_kind": "flow",
-      "endpoint_features": [
-        "a",
-        "b"
-      ],
+      "endpoint_features": ["a", "b"],
       "projection_enabled": true
     },
     "CommunicationMean": {
       "sysml_name": "Communication Mean",
       "definition_kind": "interface",
-      "endpoint_features": [
-        "source",
-        "target"
-      ],
+      "endpoint_features": ["source", "target"],
       "projection_enabled": false,
       "projection_policy": "library_definition_only"
     },
@@ -82,30 +74,63 @@
       "CommunicationMean": "excluded"
     }
   },
-  "projection_rules": {
-    "activity_ownership": {
+  "relationships": {
+    "CONTAINS": {
+      "strategy": "nested_part",
+      "source_node_types": ["OperationalEntity"],
+      "target_node_types": ["OperationalEntity", "OperationalActor"]
+    },
+    "PERFORMS": {
+      "strategy": "activity_owner",
+      "source_node_types": ["OperationalEntity", "OperationalActor"],
+      "target_node_types": ["OperationalActivity"]
+    },
+    "DECOMPOSES": {
       "strategy": "nested_usage",
-      "owner_types": [
-        "OperationalEntity",
-        "OperationalActor"
+      "variants": [
+        {"source_node_type": "OperationalCapability", "target_node_type": "OperationalCapability"},
+        {"source_node_type": "OperationalActivity", "target_node_type": "OperationalActivity"}
       ]
     },
-    "operational_exchange": {
-      "strategy": "flow_between_qualified_activity_paths"
+    "OPERATIONAL_EXCHANGE": {
+      "strategy": "flow",
+      "source_node_types": ["OperationalActivity"],
+      "target_node_types": ["OperationalActivity"]
     },
+    "SUPPORTS_CAPABILITY": {
+      "strategy": "allocation",
+      "source_node_types": ["OperationalActivity"],
+      "target_node_types": ["OperationalCapability"]
+    },
+    "LOCATED_IN": {
+      "strategy": "reference",
+      "source_node_types": ["OperationalEntity", "OperationalActor"],
+      "target_node_types": ["OperationalEntity"]
+    },
+    "COMMUNICATION_MEAN": {
+      "strategy": "ignore",
+      "source_node_types": ["OperationalEntity", "OperationalActor"],
+      "target_node_types": ["OperationalEntity", "OperationalActor"],
+      "reason": "projection_disabled_for_current_phase"
+    }
+  },
+  "projection_rules": {
+    "participant_containment": {"strategy": "nested_part_usage"},
+    "activity_ownership": {
+      "strategy": "nested_usage",
+      "owner_types": ["OperationalEntity", "OperationalActor"]
+    },
+    "decomposition": {"strategy": "nested_usage"},
+    "operational_exchange": {"strategy": "flow_between_qualified_activity_paths"},
     "supports_capability": {
       "strategy": "allocation",
       "from": "activity_path",
       "to": "capability"
     },
-    "scenario_activity": {
-      "strategy": "perform_action_reference"
-    },
-    "scenario_sequence": {
-      "strategy": "transition_first_then"
-    },
-    "communication_mean": {
-      "strategy": "excluded_from_projection"
-    }
+    "located_in": {"strategy": "reference_usage"},
+    "characteristics": {"strategy": "attribute_usage"},
+    "scenario_activity": {"strategy": "perform_action_reference"},
+    "scenario_sequence": {"strategy": "transition_first_then"},
+    "communication_mean": {"strategy": "excluded_from_projection"}
   }
 }

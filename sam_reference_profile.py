@@ -28,15 +28,26 @@ class SAMReferenceProfile:
     @property
     def definitions(self) -> dict[str, dict[str, Any]]:
         value = self.contract.get("definitions", {})
-        if not isinstance(value, dict):
-            return {}
-        return value
+        return value if isinstance(value, dict) else {}
+
+    @property
+    def relationships(self) -> dict[str, dict[str, Any]]:
+        value = self.contract.get("relationships", {})
+        return value if isinstance(value, dict) else {}
 
     def definition(self, concept: str) -> dict[str, Any]:
         value = self.definitions.get(concept)
         if not isinstance(value, dict):
             raise SAMReferenceProfileError(
                 f"SAM reference profile has no definition for {concept!r}."
+            )
+        return value
+
+    def relationship(self, relation: str) -> dict[str, Any]:
+        value = self.relationships.get(relation)
+        if not isinstance(value, dict):
+            raise SAMReferenceProfileError(
+                f"SAM reference profile has no relationship mapping for {relation!r}."
             )
         return value
 
@@ -81,12 +92,34 @@ def _require_definition(text: str, concept: str, mapping: dict[str, Any]) -> Non
         )
 
 
+def _validate_endpoint_types(
+    relation: str,
+    mapping: dict[str, Any],
+    definitions: dict[str, dict[str, Any]],
+) -> None:
+    endpoint_types: set[str] = set(mapping.get("source_node_types") or [])
+    endpoint_types.update(mapping.get("target_node_types") or [])
+    variants = mapping.get("variants")
+    if isinstance(variants, list):
+        for variant in variants:
+            if not isinstance(variant, dict):
+                raise SAMReferenceProfileError(
+                    f"SAM relationship mapping {relation!r} has an invalid variant."
+                )
+            endpoint_types.add(str(variant.get("source_node_type") or ""))
+            endpoint_types.add(str(variant.get("target_node_type") or ""))
+    unknown = sorted(value for value in endpoint_types if value and value not in definitions)
+    if unknown:
+        raise SAMReferenceProfileError(
+            f"SAM relationship mapping {relation!r} references unknown node types: "
+            + ", ".join(unknown)
+        )
+
+
 def validate_sam_reference_profile(profile: SAMReferenceProfile) -> SAMReferenceProfile:
     contract = profile.contract
     if int(contract.get("schema_version", 0)) != 1:
-        raise SAMReferenceProfileError(
-            "SAM OA reference profile schema_version must be 1."
-        )
+        raise SAMReferenceProfileError("SAM OA reference profile schema_version must be 1.")
 
     provenance = contract.get("provenance", {})
     if not isinstance(provenance, dict):
@@ -127,7 +160,6 @@ def validate_sam_reference_profile(profile: SAMReferenceProfile) -> SAMReference
         raise SAMReferenceProfileError(
             "SAM reference profile is missing required definitions: " + ", ".join(missing)
         )
-
     for concept, mapping in definitions.items():
         if not isinstance(mapping, dict):
             raise SAMReferenceProfileError(
@@ -136,20 +168,18 @@ def validate_sam_reference_profile(profile: SAMReferenceProfile) -> SAMReference
         _require_definition(profile.sysml_text, concept, mapping)
 
     actor = profile.definition("OperationalActor")
-    actor_parent = str(actor.get("specializes") or "").strip()
-    if actor_parent != "OperationalEntity":
+    if str(actor.get("specializes") or "").strip() != "OperationalEntity":
         raise SAMReferenceProfileError(
             "OperationalActor must specialize OperationalEntity in the SAM reference profile."
         )
-    parent_name = str(profile.definition(actor_parent).get("sysml_name") or "").strip()
+    parent_name = str(profile.definition("OperationalEntity").get("sysml_name") or "").strip()
     actor_name = str(actor.get("sysml_name") or "").strip()
     specialization = re.compile(
         rf"\bpart\s+def\s+{_quoted_name(actor_name)}\s*:>\s*{_quoted_name(parent_name)}"
     )
     if not specialization.search(profile.sysml_text):
         raise SAMReferenceProfileError(
-            "SAM reference SysML must preserve Operational Actor specialization of "
-            "Operational Entity."
+            "SAM reference SysML must preserve Operational Actor specialization of Operational Entity."
         )
 
     communication = profile.definition("CommunicationMean")
@@ -161,9 +191,7 @@ def validate_sam_reference_profile(profile: SAMReferenceProfile) -> SAMReference
         raise SAMReferenceProfileError(
             "CommunicationMean must use library_definition_only projection policy."
         )
-
-    exchange = profile.definition("OperationalExchange")
-    if exchange.get("definition_kind") != "flow":
+    if profile.definition("OperationalExchange").get("definition_kind") != "flow":
         raise SAMReferenceProfileError(
             "OperationalExchange must use the SAM-exported flow definition structure."
         )
@@ -192,13 +220,39 @@ def validate_sam_reference_profile(profile: SAMReferenceProfile) -> SAMReference
             "CommunicationMean must be excluded from model projection in this phase."
         )
 
+    relationships = profile.relationships
+    expected_relationships = {
+        "CONTAINS": "nested_part",
+        "PERFORMS": "activity_owner",
+        "DECOMPOSES": "nested_usage",
+        "OPERATIONAL_EXCHANGE": "flow",
+        "SUPPORTS_CAPABILITY": "allocation",
+        "LOCATED_IN": "reference",
+        "COMMUNICATION_MEAN": "ignore",
+    }
+    for relation, strategy in expected_relationships.items():
+        mapping = relationships.get(relation)
+        if not isinstance(mapping, dict) or mapping.get("strategy") != strategy:
+            raise SAMReferenceProfileError(
+                f"SAM relationship mapping {relation!r} must use strategy {strategy!r}."
+            )
+        _validate_endpoint_types(relation, mapping, definitions)
+    if profile.relationship("COMMUNICATION_MEAN").get("reason") != "projection_disabled_for_current_phase":
+        raise SAMReferenceProfileError(
+            "Communication Mean relationship mapping must explicitly record the current phase exclusion."
+        )
+
     rules = contract.get("projection_rules", {})
     if not isinstance(rules, dict):
         raise SAMReferenceProfileError("projection_rules must be an object.")
     expected_rules = {
+        "participant_containment": "nested_part_usage",
         "activity_ownership": "nested_usage",
+        "decomposition": "nested_usage",
         "operational_exchange": "flow_between_qualified_activity_paths",
         "supports_capability": "allocation",
+        "located_in": "reference_usage",
+        "characteristics": "attribute_usage",
         "scenario_activity": "perform_action_reference",
         "scenario_sequence": "transition_first_then",
         "communication_mean": "excluded_from_projection",
@@ -220,26 +274,20 @@ def load_sam_reference_profile(
 ) -> SAMReferenceProfile:
     sysml_file = Path(sysml_path or DEFAULT_REFERENCE_SYSML_PATH)
     contract_file = Path(profile_path or DEFAULT_REFERENCE_PROFILE_PATH)
-
     try:
         sysml_text = sysml_file.read_text(encoding="utf-8")
     except OSError as exc:
         raise SAMReferenceProfileError(
             f"Cannot read SAM OA reference SysML: {sysml_file}"
         ) from exc
-
     try:
         contract = json.loads(contract_file.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise SAMReferenceProfileError(
             f"Cannot read SAM OA reference profile: {contract_file}"
         ) from exc
-
     if not isinstance(contract, dict):
-        raise SAMReferenceProfileError(
-            "SAM OA reference profile root must be an object."
-        )
-
+        raise SAMReferenceProfileError("SAM OA reference profile root must be an object.")
     return validate_sam_reference_profile(SAMReferenceProfile(sysml_text, contract))
 
 

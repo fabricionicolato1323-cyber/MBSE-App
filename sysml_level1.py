@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from arcadia_oa_library import ArcadiaOALibrary
+from sam_full_projection import generate_sam_sysml_v2 as generate_sysml_v2
+from sam_reference_profile import SAMReferenceProfile
 from sam_level1_sync import level1_snapshot_digest
-from sysml_v2 import generate_sysml_v2
 
 
 def _dict_rows(value: Any) -> list[dict[str, Any]]:
@@ -18,15 +18,15 @@ def build_sysml_level1_preview(
     *,
     scenarios: list[dict[str, Any]] | None = None,
     drafts: list[dict[str, Any]] | None = None,
-    library: ArcadiaOALibrary | None = None,
+    library: SAMReferenceProfile | None = None,
 ) -> dict[str, Any]:
-    """Build the Level 1A textual SysML v2 projection without writing to SAM.
+    """Build the SAM-compatible Level 1A SysML v2 projection without writing to SAM.
 
-    Level 1 represents the complete semantic model projection. Level 1A is
-    intentionally local/read-only with respect to SAM: it generates text for
-    inspection and export, but performs no PySAM operation. The stable snapshot
-    digest is also exposed so Level 1B can prove that the model reviewed by the
-    user is the exact model sent to SAM.
+    Level 1A and the managed SAM baseline deliberately use the same SAM reference
+    profile and projection rules, so the text reviewed by the user has the same
+    ownership, package, exchange, allocation, and scenario structure as the PySAM
+    baseline. The ``library`` parameter name is retained for API compatibility;
+    it now accepts the declarative ``SAMReferenceProfile`` used by SAM projection.
     """
     model = payload if isinstance(payload, dict) else {}
     nodes = _dict_rows(model.get("nodes"))
@@ -43,7 +43,7 @@ def build_sysml_level1_preview(
         model,
         scenarios=scenario_rows,
         drafts=draft_rows,
-        library=library,
+        profile=library,
     )
     has_confirmed_content = bool(nodes or edges or valid_scenarios)
 
