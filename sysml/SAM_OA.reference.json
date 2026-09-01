@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "profile_name": "SAM OA reference profile",
+  "provenance": {
+    "kind": "sam_exported_sysml_v2",
+    "purpose": "structural_reference_only",
+    "instance_content": "forbidden"
+  },
+  "library": {
+    "exported_package": "Arcadia_OA_libray",
+    "sysml_file": "SAM_OA.reference.sysml"
+  },
+  "definitions": {
+    "OperationalScenario": {
+      "sysml_name": "Operational Scenario",
+      "definition_kind": "action",
+      "projection_enabled": true
+    },
+    "OperationalEntity": {
+      "sysml_name": "Operational Entity",
+      "definition_kind": "part",
+      "projection_enabled": true
+    },
+    "OperationalActor": {
+      "sysml_name": "Operational Actor",
+      "definition_kind": "part",
+      "specializes": "OperationalEntity",
+      "projection_enabled": true
+    },
+    "OperationalCapability": {
+      "sysml_name": "Operational Capability",
+      "definition_kind": "requirement",
+      "required_features": [
+        "subject"
+      ],
+      "projection_enabled": true
+    },
+    "OperationalExchange": {
+      "sysml_name": "Operational Iteration",
+      "definition_kind": "flow",
+      "endpoint_features": [
+        "a",
+        "b"
+      ],
+      "projection_enabled": true
+    },
+    "CommunicationMean": {
+      "sysml_name": "Communication Mean",
+      "definition_kind": "interface",
+      "endpoint_features": [
+        "source",
+        "target"
+      ],
+      "projection_enabled": false,
+      "projection_policy": "library_definition_only"
+    },
+    "OperationalConstraint": {
+      "sysml_name": "Operational Constraint",
+      "definition_kind": "constraint",
+      "projection_enabled": true
+    },
+    "OperationalActivity": {
+      "sysml_name": "Operational Activity",
+      "definition_kind": "action",
+      "projection_enabled": true
+    }
+  },
+  "model_structure": {
+    "oa_package": "Arcadia_OA",
+    "containers": {
+      "structure": "Structure",
+      "requirements": "Requirements",
+      "scenarios": "Scenarios"
+    },
+    "placement": {
+      "OperationalEntity": "structure",
+      "OperationalActor": "structure",
+      "OperationalActivity": "performer_nested",
+      "OperationalExchange": "structure",
+      "OperationalCapability": "requirements",
+      "OperationalScenario": "scenarios",
+      "CommunicationMean": "excluded"
+    }
+  },
+  "projection_rules": {
+    "activity_ownership": {
+      "strategy": "nested_usage",
+      "owner_types": [
+        "OperationalEntity",
+        "OperationalActor"
+      ]
+    },
+    "operational_exchange": {
+      "strategy": "flow_between_qualified_activity_paths"
+    },
+    "supports_capability": {
+      "strategy": "allocation",
+      "from": "activity_path",
+      "to": "capability"
+    },
+    "scenario_activity": {
+      "strategy": "perform_action_reference"
+    },
+    "scenario_sequence": {
+      "strategy": "transition_first_then"
+    },
+    "communication_mean": {
+      "strategy": "excluded_from_projection"
+    }
+  }
+}
