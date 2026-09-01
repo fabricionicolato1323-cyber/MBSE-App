@@ -40,24 +40,54 @@ def _definition_name(profile: SAMReferenceProfile, concept: str) -> str:
     return str(profile.definition(concept).get("sysml_name") or concept)
 
 
-def _create_feature_membership(factory: Any, owner: Any, feature: Any) -> Any:
-    """Make a nested Usage a real SysML feature of its owning Type.
+def _create_nested_usage(
+    factory: Any,
+    owner: Any,
+    create_method: str,
+    **kwargs: Any,
+) -> Any:
+    """Create a Usage through the FeatureMembership that semantically owns it.
 
-    A plain ``owner`` reference is enough to make SAM display an element under a
-    participant in the project tree, but it is not the same semantic structure as
-    textual SysML nesting. SysML v2 represents a nested Usage through an owning
-    FeatureMembership between the owning Type and its owned member Feature. SAM's
-    diagram editor relies on that relationship when adding nested actions to a
-    diagram.
+    In SysML v2, a Usage nested in a Type is not owned directly by that Type.
+    The Type owns a FeatureMembership and the FeatureMembership owns the nested
+    Usage as its ``ownedMemberFeature``. The nested Usage therefore has the
+    FeatureMembership as ``owner`` while its ``owningNamespace`` / featuring type
+    is the surrounding Type.
+
+    The previous implementation created the Usage with ``owner=owner`` and then
+    added a sibling FeatureMembership. SAM displayed that relationship explicitly
+    and rejected diagram edits because the ownership graph was inconsistent.
+
+    Ordinary nested usages (without the ``ref`` keyword) are composite, matching
+    the SysML textual semantics used by the SAM-exported reference model.
     """
-    return factory.create_feature_membership(
+
+    membership = factory.create_feature_membership(
         owner=owner,
         membership_owning_namespace=owner,
         owning_type=owner,
-        member_element=feature,
-        owned_member_element=feature,
-        owned_member_feature=feature,
     )
+
+    feature_kwargs = dict(kwargs)
+    feature_kwargs.update(
+        {
+            "owner": membership,
+            "owning_namespace": owner,
+            "owning_feature_membership": membership,
+            "featuring_type": [owner],
+            "is_composite": True,
+        }
+    )
+    feature = getattr(factory, create_method)(**feature_kwargs)
+
+    # Complete the owning relationship after both transaction-local objects exist.
+    # These properties are the concrete authoring side of the derived
+    # Feature.owningFeatureMembership / Feature.owningType relationships.
+    membership.member_element = feature
+    membership.owned_member_element = feature
+    membership.owned_member_feature = feature
+
+    return feature
 
 
 def create_sam_reference_definitions(
@@ -185,14 +215,21 @@ def create_projection_nodes(
         node_type = str(node.get("type") or "")
         kwargs = {
             "name": _clean(node.get("name") or node_id),
-            "owner": owner,
             "part_definition": [definitions[node_type]],
         }
         if node_type == "OperationalActor":
             kwargs["is_actor"] = True
-        element = factory.create_part_usage(**kwargs)
+
         if parent:
-            _create_feature_membership(factory, owner, element)
+            element = _create_nested_usage(
+                factory,
+                owner,
+                "create_part_usage",
+                **kwargs,
+            )
+        else:
+            element = factory.create_part_usage(owner=owner, **kwargs)
+
         created[node_id] = element
         _documentation(factory, element, _source_document(node, "element"))
         characteristic_count += _create_characteristics(factory, element, node)
@@ -213,12 +250,14 @@ def create_projection_nodes(
                     f"Operational Activity {node_id!r} has no resolved performer."
                 )
             owner = participant(performer)
-        element = factory.create_action_usage(
+
+        element = _create_nested_usage(
+            factory,
+            owner,
+            "create_action_usage",
             name=_clean(node.get("name") or node_id),
-            owner=owner,
             action_definition=[definitions["OperationalActivity"]],
         )
-        _create_feature_membership(factory, owner, element)
         created[node_id] = element
         _documentation(factory, element, _source_document(node, "element"))
         characteristic_count += _create_characteristics(factory, element, node)
@@ -231,14 +270,22 @@ def create_projection_nodes(
         node = node_by_id[node_id]
         parent = analysis.capability_parent.get(node_id)
         owner = capability(parent) if parent else packages["requirements"]
-        element = factory.create_requirement_usage(
-            name=_clean(node.get("name") or node_id),
-            owner=owner,
-            requirement_definition=definitions["OperationalCapability"],
-            req_id=node_id,
-        )
+        kwargs = {
+            "name": _clean(node.get("name") or node_id),
+            "requirement_definition": definitions["OperationalCapability"],
+            "req_id": node_id,
+        }
+
         if parent:
-            _create_feature_membership(factory, owner, element)
+            element = _create_nested_usage(
+                factory,
+                owner,
+                "create_requirement_usage",
+                **kwargs,
+            )
+        else:
+            element = factory.create_requirement_usage(owner=owner, **kwargs)
+
         created[node_id] = element
         _documentation(factory, element, _source_document(node, "element"))
         characteristic_count += _create_characteristics(factory, element, node)
@@ -354,12 +401,13 @@ def create_projection_scenarios(
             if step_name.casefold() in used_names:
                 step_name = f"{step_name} {index}"
             used_names.add(step_name.casefold())
-            usage = factory.create_perform_action_usage(
+            usage = _create_nested_usage(
+                factory,
+                scenario_usage,
+                "create_perform_action_usage",
                 name=step_name,
-                owner=scenario_usage,
                 performed_action=source,
             )
-            _create_feature_membership(factory, scenario_usage, usage)
             _documentation(
                 factory,
                 usage,
