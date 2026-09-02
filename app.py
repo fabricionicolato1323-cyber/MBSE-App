@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import app_base as _base
 from app_base import *  # noqa: F401,F403 - preserve the public surface of app.py
 from change_impact_finalize import install_change_impact_finalize_support
@@ -30,7 +33,12 @@ install_characteristic_edit_support()
 install_change_impact_refinement_support()
 install_change_impact_finalize_support()
 install_minimal_web_input_policy()
-install_next_best_question_support()
+
+# The adaptive question engine changes only the Web guided lifecycle. web_worker.py
+# imports this module after its own process has started, so the process entry point
+# is a stable boundary that avoids changing terminal behavior or import-only tests.
+if Path(sys.argv[0]).name.casefold() == "web_worker.py":
+    install_next_best_question_support()
 
 
 class OAApp(
