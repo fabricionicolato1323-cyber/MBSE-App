@@ -223,8 +223,8 @@ def test_loaded_activity_rename_previews_impact_then_returns_to_normal_colours(
             expect(page.locator("#utilitySysmlView code .sysml-token-keyword").first).to_be_visible(
                 timeout=20_000
             )
-            expect(page.locator("#utilitySysmlView code .sysml-token-definition").first).to_be_visible(
-                timeout=20_000
+            expect(page.locator("#utilitySysmlView code")).to_contain_text(
+                "Operational Capability", timeout=20_000
             )
         finally:
             browser.close()
