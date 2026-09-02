@@ -156,7 +156,10 @@ def test_sam_tree_preserves_activity_exchange_activity_path():
     assert kinds.count("action") == 3
     assert kinds.count("flow") == 1
     assert kinds.count("succession") == 1
-    assert result["expected"] == ["1. Detect", "3. Report", "2. Target report"]
+    assert [item["name"] for item in result["expected"]] == [
+        "1. Detect", "3. Report", "2. Target report"
+    ]
+    assert all(item["sam_id"] for item in result["expected"])
 
 
 def test_scenario_id_is_stable_across_rename():
