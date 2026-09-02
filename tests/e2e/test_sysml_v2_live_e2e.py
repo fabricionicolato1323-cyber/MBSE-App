@@ -79,85 +79,21 @@ def test_sysml_view_is_generated_from_arcadiaoa_contract_and_updates_after_load(
             "model_name": "SysML contract E2E",
         },
         "nodes": [
-            {
-                "id": "cap:respond",
-                "type": "OperationalCapability",
-                "name": "Respond to threat",
-            },
-            {
-                "id": "entity:center",
-                "type": "OperationalEntity",
-                "name": "Control Center",
-                "nature": "infrastructure_or_facility",
-            },
-            {
-                "id": "entity:building",
-                "type": "OperationalEntity",
-                "name": "Operations Building",
-                "nature": "infrastructure_or_facility",
-            },
-            {
-                "id": "actor:operator",
-                "type": "OperationalActor",
-                "name": "Operator",
-                "nature": "human_individual",
-            },
-            {
-                "id": "activity:detect",
-                "type": "OperationalActivity",
-                "name": "Detect Threat",
-            },
-            {
-                "id": "activity:assess",
-                "type": "OperationalActivity",
-                "name": "Assess Threat",
-            },
+            {"id": "cap:respond", "type": "OperationalCapability", "name": "Respond to threat"},
+            {"id": "entity:center", "type": "OperationalEntity", "name": "Control Center", "nature": "infrastructure_or_facility"},
+            {"id": "entity:building", "type": "OperationalEntity", "name": "Operations Building", "nature": "infrastructure_or_facility"},
+            {"id": "actor:operator", "type": "OperationalActor", "name": "Operator", "nature": "human_individual"},
+            {"id": "activity:detect", "type": "OperationalActivity", "name": "Detect Threat"},
+            {"id": "activity:assess", "type": "OperationalActivity", "name": "Assess Threat"},
         ],
         "edges": [
-            {
-                "source": "entity:center",
-                "target": "actor:operator",
-                "key": 0,
-                "type": "CONTAINS",
-            },
-            {
-                "source": "actor:operator",
-                "target": "activity:detect",
-                "key": 0,
-                "type": "PERFORMS",
-            },
-            {
-                "source": "entity:center",
-                "target": "activity:assess",
-                "key": 0,
-                "type": "PERFORMS",
-            },
-            {
-                "source": "activity:detect",
-                "target": "activity:assess",
-                "key": 0,
-                "type": "OPERATIONAL_EXCHANGE",
-                "name": "Threat Information",
-            },
-            {
-                "source": "actor:operator",
-                "target": "entity:center",
-                "key": 0,
-                "type": "COMMUNICATION_MEAN",
-                "name": "Radio",
-            },
-            {
-                "source": "activity:detect",
-                "target": "cap:respond",
-                "key": 0,
-                "type": "SUPPORTS_CAPABILITY",
-            },
-            {
-                "source": "actor:operator",
-                "target": "entity:building",
-                "key": 0,
-                "type": "LOCATED_IN",
-            },
+            {"source": "entity:center", "target": "actor:operator", "key": 0, "type": "CONTAINS"},
+            {"source": "actor:operator", "target": "activity:detect", "key": 0, "type": "PERFORMS"},
+            {"source": "entity:center", "target": "activity:assess", "key": 0, "type": "PERFORMS"},
+            {"source": "activity:detect", "target": "activity:assess", "key": 0, "type": "OPERATIONAL_EXCHANGE", "name": "Threat Information"},
+            {"source": "actor:operator", "target": "entity:center", "key": 0, "type": "COMMUNICATION_MEAN", "name": "Radio"},
+            {"source": "activity:detect", "target": "cap:respond", "key": 0, "type": "SUPPORTS_CAPABILITY"},
+            {"source": "actor:operator", "target": "entity:building", "key": 0, "type": "LOCATED_IN"},
         ],
     }
     model_file = tmp_path / "sysml-contract-e2e.json"
@@ -181,33 +117,28 @@ def test_sysml_view_is_generated_from_arcadiaoa_contract_and_updates_after_load(
 
             page.locator('[data-output-tab="sysml"]').click()
             expect(page.locator("#sysmlLevel1Button")).to_have_text("Level 1 · Model")
-            expect(page.locator("#sysmlLevel2Button")).to_have_text("Level 2 · Views")
-            expect(page.locator("#sysmlLevel2Button")).to_be_disabled()
+            expect(page.locator("#sysmlLevel2Button")).to_have_count(0)
             expect(page.locator("#sysmlLevel1Summary")).to_contain_text("6 elements")
             expect(page.locator("#sysmlLevel1Summary")).to_contain_text("7 relationships")
             expect(page.locator("#sysmlLevel1Summary")).to_contain_text("SAM not synchronized")
 
             code = page.locator("#utilitySysmlView code")
-            expect(code).to_contain_text("flow def OperationalExchange;", timeout=20_000)
-            expect(code).to_contain_text("connection def CommunicationMean;")
-            expect(code).to_contain_text("requirement def OperationalCapability;")
+            expect(code).to_contain_text("package Arcadia_OA_libray", timeout=20_000)
+            expect(code).to_contain_text("flow def 'Operational Iteration'")
+            expect(code).to_contain_text("interface def 'Communication Mean'")
+            expect(code).to_contain_text("requirement def 'Operational Capability'")
             expect(code).to_contain_text(
-                "flow oa_exchange_Threat_Information : OperationalExchange"
+                "flow 'Threat Information' : Arcadia_OA_libray::'Operational Iteration'"
             )
             expect(code).to_contain_text(
-                "connection oa_communication_Radio : CommunicationMean connect"
+                "allocation allocate Structure::'Control Center'.'Operator'.'Detect Threat' to 'Respond to threat';"
             )
             expect(code).to_contain_text(
-                "allocate oa_capability_Respond_to_threat "
-                "to oa_operationalBehavior.oa_activity_Detect_Threat;"
+                "ref part 'located in Operations Building' : Arcadia_OA_libray::'Operational Entity'"
             )
-            expect(code).to_contain_text(
-                "ref part oa_locatedIn_Operations_Building : OperationalEntity = "
-                "oa_operationalContext.oa_entity_Operations_Building;"
-            )
-            expect(code).not_to_contain_text("UNMAPPED Arcadia relation SUPPORTS_CAPABILITY")
-            expect(code).not_to_contain_text("UNMAPPED Arcadia relation LOCATED_IN")
-            expect(code).not_to_contain_text("port oa_communication_Radio")
+            # Communication means are represented by the reusable interface definition
+            # in the current SAM Level 1 projection, not as model-specific instances.
+            expect(code).not_to_contain_text("Radio")
 
             export_button = page.get_by_role(
                 "button",
@@ -221,10 +152,11 @@ def test_sysml_view_is_generated_from_arcadiaoa_contract_and_updates_after_load(
             assert download.suggested_filename == "SysML contract E2E.level1.sysml"
             exported_text = Path(download.path()).read_text(encoding="utf-8").rstrip()
             assert exported_text == rendered_text
-            assert "package ArcadiaOA" in exported_text
-            assert "flow def OperationalExchange;" in exported_text
-            assert "connection def CommunicationMean;" in exported_text
-            assert "allocate oa_capability_Respond_to_threat" in exported_text
-            assert "ref part oa_locatedIn_Operations_Building" in exported_text
+            assert "package Arcadia_OA_libray" in exported_text
+            assert "flow def 'Operational Iteration'" in exported_text
+            assert "interface def 'Communication Mean'" in exported_text
+            assert "allocation allocate Structure::'Control Center'.'Operator'.'Detect Threat'" in exported_text
+            assert "ref part 'located in Operations Building'" in exported_text
+            assert "Radio" not in exported_text
         finally:
             browser.close()
