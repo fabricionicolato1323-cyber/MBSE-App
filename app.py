@@ -12,8 +12,10 @@ from characteristic_operators import install_characteristic_operator_support
 from characteristics_flow import CharacteristicsFlowMixin
 from communication_exchange_link import CommunicationExchangeLinkFlowMixin
 from composition_flow import CompositionFlowMixin
+from conversational_surface import ConversationalSurfaceMixin
 from guidance_flow import GuidanceFlowMixin
 from knowledge_graph_role_boundary import install_role_boundary_knowledge_support
+from llm_conversation import install_conversational_llm_support
 from minimal_input_policy import MinimalInputPolicyMixin
 from minimal_input_web_patch import install_minimal_web_input_policy
 from next_best_question_flow import install_next_best_question_support
@@ -25,10 +27,11 @@ from participant_composition import (
 from participant_flow import ParticipantFlowMixin
 
 
-# Extend the central graph and Knowledge Graph before any OAApp instance is created.
-# The installers patch shared classes in place, keeping terminal and web sessions on
-# the same semantic contracts without giving the Knowledge Graph write authority.
+# Extend the central graph, Knowledge Graph, and local LLM client before any OAApp
+# instance is created. The LLM extension is presentation-only: it receives an
+# already-decided question and can only rephrase it.
 install_role_boundary_knowledge_support()
+install_conversational_llm_support()
 install_operational_actor_composition_support()
 install_characteristic_operator_support()
 install_characteristic_edit_support()
@@ -44,6 +47,7 @@ if Path(sys.argv[0]).name.casefold() == "web_worker.py":
 
 
 class OAApp(
+    ConversationalSurfaceMixin,
     GuidanceFlowMixin,
     MinimalInputPolicyMixin,
     SimplifiedParticipantClassificationMixin,
@@ -54,7 +58,7 @@ class OAApp(
     CharacteristicsFlowMixin,
     _base.OAApp,
 ):
-    """Guided builder with neutral UI guidance and minimal input filtering."""
+    """Guided builder with KG-led semantics and optional conversational phrasing."""
 
     def capture_structure_and_environment(self) -> None:
         super().capture_structure_and_environment()
