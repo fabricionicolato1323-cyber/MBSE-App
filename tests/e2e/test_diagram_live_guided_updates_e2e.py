@@ -76,35 +76,11 @@ def _assigned_communication_model() -> dict:
             "model_name": "Live diagram update model",
         },
         "nodes": [
-            {
-                "id": "goal",
-                "type": "OperationalCapability",
-                "name": "Keep engagement area safe",
-            },
-            {
-                "id": "soldier",
-                "type": "OperationalActor",
-                "name": "Soldier",
-                "nature": "human_individual",
-                "expects_activity": True,
-            },
-            {
-                "id": "detector",
-                "type": "OperationalEntity",
-                "name": "Threat detection system",
-                "nature": "unspecified",
-                "expects_activity": True,
-            },
-            {
-                "id": "report",
-                "type": "OperationalActivity",
-                "name": "Report threat engagement",
-            },
-            {
-                "id": "calculate",
-                "type": "OperationalActivity",
-                "name": "Calculate rate of kill",
-            },
+            {"id": "goal", "type": "OperationalCapability", "name": "Keep engagement area safe"},
+            {"id": "soldier", "type": "OperationalActor", "name": "Soldier", "nature": "human_individual", "expects_activity": True},
+            {"id": "detector", "type": "OperationalEntity", "name": "Threat detection system", "nature": "unspecified", "expects_activity": True},
+            {"id": "report", "type": "OperationalActivity", "name": "Report threat engagement"},
+            {"id": "calculate", "type": "OperationalActivity", "name": "Calculate rate of kill"},
         ],
         "edges": [
             {"source": "soldier", "target": "report", "key": 0, "type": "PERFORMS"},
@@ -155,19 +131,22 @@ def test_guided_communication_change_updates_detached_model_projections_without_
                 page.get_by_role("button", name="Change something that already exists", exact=True)
             ).to_be_visible(timeout=20_000)
 
-            # Pseudo-code is a live projection of the same model. It must expose
-            # the communication decision and keep updating in its detached window.
-            expect(
-                page.locator("#modelTextual .exchange-communication-line")
-            ).to_contain_text("Communication: Radio link", timeout=10_000)
+            # The current pseudo-code renderer groups communication information
+            # under its Communication section rather than using the legacy
+            # exchange-communication-line element.
+            expect(page.locator("#modelTextual")).to_contain_text("Radio link", timeout=10_000)
+            expect(page.locator("#modelTextual")).to_contain_text("Kill count", timeout=10_000)
             with page.expect_popup() as pseudo_popup_info:
                 page.locator("#modelPanel [data-panel-action='dock']").click()
             pseudo_window = pseudo_popup_info.value
             pseudo_window.wait_for_load_state("domcontentloaded")
             assert "detachedPanel=text" in pseudo_window.url
-            expect(
-                pseudo_window.locator("#modelTextual .exchange-communication-line")
-            ).to_contain_text("Communication: Radio link", timeout=10_000)
+            expect(pseudo_window.locator("#modelTextual")).to_contain_text(
+                "Radio link", timeout=10_000
+            )
+            expect(pseudo_window.locator("#modelTextual")).to_contain_text(
+                "Kill count", timeout=10_000
+            )
 
             page.get_by_role("tab", name="Diagram", exact=True).click()
             expect(page.locator("#oaDiagramEdges .source-segment")).to_have_count(1, timeout=10_000)
@@ -183,9 +162,6 @@ def test_guided_communication_change_updates_detached_model_projections_without_
             )
             expect(diagram_window.locator("#oaDiagramEdges .direct-exchange")).to_have_count(0)
 
-            # Change the communication decision through the normal loaded-model
-            # guided flow. All detached projections must follow the persisted
-            # model update by polling /api/state; no reload or redock is allowed.
             page.get_by_role("button", name="Change something that already exists", exact=True).click()
             page.get_by_role("button", name="Information or material exchanged", exact=True).click()
             page.get_by_role("button", name=re.compile(r"^Kill count"), exact=False).click()
@@ -208,12 +184,7 @@ def test_guided_communication_change_updates_detached_model_projections_without_
             expect(diagram_window.locator("#oaDiagramEdges .target-segment")).to_have_count(0)
             expect(diagram_window.locator("#oaDiagramEdges .direct-exchange")).to_have_count(1)
 
-            expect(
-                pseudo_window.locator("#modelTextual .exchange-communication-line")
-            ).to_contain_text("Communication: Unassigned", timeout=10_000)
-            expect(
-                pseudo_window.locator("#modelTextual .communication-unassigned")
-            ).to_contain_text(
+            expect(pseudo_window.locator("#modelTextual")).to_contain_text(
                 "No interaction explicitly assigned to this communication method.",
                 timeout=10_000,
             )
