@@ -35,28 +35,50 @@ def fingerprint(value):
     ).hexdigest()
 
 
-stub("sam_connection", SamSettings=SamSettings)
-stub("sam_level1_communication_incremental",
-     build_incremental_plan_with_communication=lambda *a, **k: {},
-     sync_level1_incremental_with_communication=lambda *a, **k: {})
-stub("sam_level1_direct", _MetadataTolerantFactory=lambda x: x)
-stub("sam_level1_incremental", SYNC_STATE_VERSION=2,
-     _delete_owned_tree=lambda *a, **k: None, _descendants=lambda *a, **k: [],
-     _managed_instance=lambda *a, **k: None, _scenario_fingerprint=fingerprint)
-stub("sam_level1_managed_direct", _library_status=lambda *a, **k: {})
-stub("sam_level1_sync", SamLevel1SyncError=SamLevel1SyncError,
-     _documentation=lambda *a, **k: None, _rows=rows,
-     level1_snapshot_digest=lambda *a, **k: "digest")
-stub("sam_level1_transactional",
-     _element_id=lambda x: getattr(x, "id", None),
-     _element_name=lambda x: getattr(x, "name", ""),
-     _load_project=lambda *a, **k: (None, None, None, None))
-stub("sam_reload_safe_factory", ReloadSafeFactory=lambda *a, **k: None)
+# This test loads the candidate module against lightweight dependency stubs.
+# Preserve and restore the real application modules so pytest collection of this
+# file cannot contaminate any test modules collected afterwards.
+_STUBBED_MODULE_NAMES = (
+    "sam_connection",
+    "sam_level1_communication_incremental",
+    "sam_level1_direct",
+    "sam_level1_incremental",
+    "sam_level1_managed_direct",
+    "sam_level1_sync",
+    "sam_level1_transactional",
+    "sam_reload_safe_factory",
+)
+_saved_modules = {name: sys.modules.get(name) for name in _STUBBED_MODULE_NAMES}
 
-spec = importlib.util.spec_from_file_location("scenario_candidate", MODULE)
-m = importlib.util.module_from_spec(spec)
-assert spec.loader
-spec.loader.exec_module(m)
+try:
+    stub("sam_connection", SamSettings=SamSettings)
+    stub("sam_level1_communication_incremental",
+         build_incremental_plan_with_communication=lambda *a, **k: {},
+         sync_level1_incremental_with_communication=lambda *a, **k: {})
+    stub("sam_level1_direct", _MetadataTolerantFactory=lambda x: x)
+    stub("sam_level1_incremental", SYNC_STATE_VERSION=2,
+         _delete_owned_tree=lambda *a, **k: None, _descendants=lambda *a, **k: [],
+         _managed_instance=lambda *a, **k: None, _scenario_fingerprint=fingerprint)
+    stub("sam_level1_managed_direct", _library_status=lambda *a, **k: {})
+    stub("sam_level1_sync", SamLevel1SyncError=SamLevel1SyncError,
+         _documentation=lambda *a, **k: None, _rows=rows,
+         level1_snapshot_digest=lambda *a, **k: "digest")
+    stub("sam_level1_transactional",
+         _element_id=lambda x: getattr(x, "id", None),
+         _element_name=lambda x: getattr(x, "name", ""),
+         _load_project=lambda *a, **k: (None, None, None, None))
+    stub("sam_reload_safe_factory", ReloadSafeFactory=lambda *a, **k: None)
+
+    spec = importlib.util.spec_from_file_location("scenario_candidate", MODULE)
+    m = importlib.util.module_from_spec(spec)
+    assert spec.loader
+    spec.loader.exec_module(m)
+finally:
+    for name, original in _saved_modules.items():
+        if original is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = original
 
 
 def scenario(name="Patrol", sid="scenario-1", exchange="Target report"):
