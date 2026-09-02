@@ -272,7 +272,13 @@ def test_unified_output_sidebar_splits_views_only_when_undocked(web_server):
             assert not text_popup.is_closed()
             assert not sysml_popup.is_closed()
 
-            text_popup.locator("#modelPanel [data-panel-action='dock']").click()
+            # Docking intentionally closes the detached window. Schedule the
+            # DOM click on the next task so the evaluate call returns before
+            # window.close() destroys the Playwright execution context.
+            text_popup.locator("#modelPanel [data-panel-action='dock']").evaluate(
+                "button => setTimeout(() => button.click(), 0)"
+            )
+            text_popup.wait_for_event("close", timeout=5_000)
             expect(page.locator("#modelPanel")).to_be_visible(timeout=5_000)
             expect(page.locator("#utilityTextView")).to_be_visible(timeout=5_000)
             assert not sysml_popup.is_closed()
