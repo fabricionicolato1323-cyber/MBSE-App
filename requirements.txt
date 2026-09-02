@@ -2,3 +2,5 @@ networkx>=3.3
 langdetect>=1.0.9
 rdflib>=7.0.0
 pyshacl>=0.30.0
+Flask>=3.0.0
+ansys-sam-sysml2==0.3.1

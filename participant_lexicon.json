@@ -11,22 +11,26 @@
     "worker"
   ],
   "collective_heads": [
-    "community",
     "crew",
     "group",
-    "population",
     "staff",
     "team",
     "unit"
+  ],
+  "population_heads": [
+    "community",
+    "population"
   ],
   "organization_heads": [
     "agency",
     "authority",
     "company",
-    "department",
-    "office",
     "organization",
     "organisation"
+  ],
+  "organizational_unit_heads": [
+    "department",
+    "office"
   ],
   "facility_heads": [
     "building",

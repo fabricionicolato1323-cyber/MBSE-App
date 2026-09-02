@@ -7,9 +7,12 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
+from semantic_policy import policy_terms
 
-LEXICON_PATH = Path(__file__).with_name("participant_lexicon.json")
+
+DEFAULT_LEXICON_PATH = Path(__file__).with_name("participant_lexicon.json")
 DEFAULT_EXTENSION_PATH = Path(__file__).with_name("participant_lexicon_extensions.json")
+LEXICON_ENV = "MBSE_PARTICIPANT_LEXICON_PATH"
 LEXICON_EXTENSION_ENV = "MBSE_PARTICIPANT_LEXICON_EXTENSIONS_PATH"
 
 ENTITY_NATURES = (
@@ -55,18 +58,24 @@ def _load_lexicon_file(path: Path) -> dict[str, set[str]]:
 
 @lru_cache(maxsize=1)
 def load_lexicon() -> dict[str, set[str]]:
-    """Load domain-neutral base vocabulary plus optional user extensions.
+    """Load replaceable base vocabulary plus optional local extensions.
 
-    The repository base lexicon contains only generic semantic class heads and
-    exclusion markers. Domain- or organization-specific vocabulary belongs in an
-    external extension file, selectable through
-    MBSE_PARTICIPANT_LEXICON_EXTENSIONS_PATH.
+    The classifier algorithm stays in Python, but no scenario vocabulary is
+    embedded in it. Both the base semantic vocabulary and any local/domain
+    extension can be replaced without code changes.
     """
-    merged = _load_lexicon_file(LEXICON_PATH)
-    configured = os.getenv(LEXICON_EXTENSION_ENV, "").strip()
+    configured_base = os.getenv(LEXICON_ENV, "").strip()
+    base_path = (
+        Path(configured_base).expanduser()
+        if configured_base
+        else DEFAULT_LEXICON_PATH
+    )
+    merged = _load_lexicon_file(base_path)
+
+    configured_extension = os.getenv(LEXICON_EXTENSION_ENV, "").strip()
     extension_path = (
-        Path(configured).expanduser()
-        if configured
+        Path(configured_extension).expanduser()
+        if configured_extension
         else DEFAULT_EXTENSION_PATH
     )
     extensions = _load_lexicon_file(extension_path)
@@ -100,28 +109,21 @@ def _contains_phrase(value: str, phrases: set[str]) -> bool:
 def looks_like_plural_participant_label(value: str) -> bool:
     """Return a conservative English surface-form signal for plurality.
 
-    This is only a linguistic heuristic. It must not classify a participant by
-    itself; it is used to catch a contradiction after semantic advice already
-    identifies a human participant as an actor.
+    The vocabulary for this linguistic heuristic is external configuration. The
+    signal cannot classify a participant by itself; it only repairs a semantic
+    contradiction after a human participant was already identified as an actor.
     """
     tokens = _tokens(value)
     if not tokens:
         return False
 
-    plural_markers = {
-        "both", "many", "multiple", "numerous", "several", "various",
-        "people", "persons", "personnel", "children", "men", "women",
-    }
-    if set(tokens) & plural_markers:
+    if set(tokens) & policy_terms("plural_markers"):
         return True
     if any(token.isdigit() and int(token) > 1 for token in tokens):
         return True
 
     head = tokens[-1]
-    singular_s_endings = (
-        "analysis", "business", "corps", "news", "process", "series",
-        "species", "status",
-    )
+    singular_s_endings = policy_terms("singular_s_endings")
     return (
         len(head) > 3
         and head.endswith("s")
@@ -143,10 +145,9 @@ def participant_nature_for_type(value: str, concept: str) -> str:
 
 
 def classify_participant(value: str) -> ParticipantSuggestion:
-    """Return transparent advice; never make the user's modeling decision."""
+    """Return transparent deterministic advice; never persist a user fact."""
     lexicon = load_lexicon()
     heads = _head_forms(value)
-    lowered = value.casefold()
 
     if not heads:
         return ParticipantSuggestion(
@@ -194,31 +195,39 @@ def classify_participant(value: str) -> ParticipantSuggestion:
             ("HUMAN_ROLE_HEAD",),
         )
 
-    if heads & lexicon.get("collective_heads", set()):
-        nature = (
-            "population_or_community"
-            if heads & {"community", "population"}
-            else "team_or_collective"
-        )
+    if heads & lexicon.get("population_heads", set()):
         return ParticipantSuggestion(
             "OperationalEntity",
-            nature,
+            "population_or_community",
+            "strong",
+            "The head noun denotes a population or community.",
+            ("POPULATION_HEAD",),
+        )
+
+    if heads & lexicon.get("collective_heads", set()):
+        return ParticipantSuggestion(
+            "OperationalEntity",
+            "team_or_collective",
             "strong",
             "The head noun denotes a collective that may contain human actors.",
             ("COLLECTIVE_HEAD",),
         )
 
-    if heads & lexicon.get("organization_heads", set()):
-        nature = (
-            "organizational_unit"
-            if heads & {"department", "office"}
-            else "organization"
-        )
+    if heads & lexicon.get("organizational_unit_heads", set()):
         return ParticipantSuggestion(
             "OperationalEntity",
-            nature,
+            "organizational_unit",
             "strong",
-            "The head noun denotes an organization or organizational unit.",
+            "The head noun denotes an organizational unit.",
+            ("ORGANIZATIONAL_UNIT_HEAD",),
+        )
+
+    if heads & lexicon.get("organization_heads", set()):
+        return ParticipantSuggestion(
+            "OperationalEntity",
+            "organization",
+            "strong",
+            "The head noun denotes an organization.",
             ("ORGANIZATION_HEAD",),
         )
 
@@ -233,7 +242,7 @@ def classify_participant(value: str) -> ParticipantSuggestion:
 
     if heads & lexicon.get("technical_heads", set()):
         existing = lexicon.get("existing_markers", set())
-        if any(marker in _tokens(lowered) for marker in existing):
+        if any(marker in _tokens(value) for marker in existing):
             return ParticipantSuggestion(
                 "OperationalEntity",
                 "existing_technical_system",

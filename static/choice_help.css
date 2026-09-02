@@ -1,0 +1,92 @@
+.choice-option-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.quick-actions.structured-options .choice-option-button {
+  min-width: 0;
+}
+
+.quick-actions.structured-options .choice-help-button {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid #d7ccdd;
+  background: #fff;
+  color: var(--synopsys-purple-deep);
+  box-shadow: none;
+  display: inline-grid;
+  place-items: center;
+  text-align: center;
+  font-weight: 800;
+  line-height: 1;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.quick-actions.structured-options .choice-help-button:hover,
+.quick-actions.structured-options .choice-help-button:focus-visible {
+  background: var(--synopsys-purple-soft);
+  border-color: var(--synopsys-purple-mid);
+  transform: none;
+}
+
+.quick-actions.binary-options .choice-option-row:first-child .choice-option-button {
+  background: var(--synopsys-purple);
+  border-color: var(--synopsys-purple);
+  color: #fff;
+}
+
+.quick-actions.binary-options .choice-option-row:first-child .choice-option-button:hover {
+  background: var(--synopsys-purple-deep);
+}
+
+.quick-actions.binary-options .choice-option-row:last-child .choice-option-button {
+  background: var(--synopsys-purple-faint);
+  border-color: #cbbbd4;
+  color: var(--synopsys-purple-deep);
+}
+
+.quick-actions.binary-options .choice-help-button:first-child,
+.quick-actions.binary-options .choice-help-button:last-child {
+  background: #fff;
+  border-color: #d7ccdd;
+  color: var(--synopsys-purple-deep);
+}
+
+.choice-help-tooltip {
+  position: fixed;
+  z-index: 1000;
+  width: min(280px, calc(100vw - 24px));
+  padding: 9px 11px;
+  border: 1px solid #d8cce0;
+  border-radius: 9px;
+  background: #fff;
+  color: var(--text);
+  box-shadow: 0 8px 24px rgba(61, 29, 89, 0.16);
+  font-size: 12px;
+  line-height: 1.42;
+  pointer-events: none;
+}
+
+.choice-help-tooltip[hidden] {
+  display: none !important;
+}
+
+@media (max-width: 520px) {
+  .choice-option-row {
+    grid-template-columns: minmax(0, 1fr) 38px;
+  }
+
+  .quick-actions.structured-options .choice-help-button {
+    width: 36px;
+    min-width: 36px;
+    height: 36px;
+    min-height: 36px;
+  }
+}

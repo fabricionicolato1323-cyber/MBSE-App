@@ -1,0 +1,90 @@
+/* Compact model file controls and save/load presentation. */
+
+.viewpoint-header {
+  padding-top: 12px;
+}
+
+.viewpoint-tabs {
+  margin-top: 8px;
+}
+
+.oa-title-line {
+  gap: 7px;
+}
+
+.chat-primary-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.model-file-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.model-file-button {
+  min-height: 34px;
+  padding: 7px 11px;
+  white-space: nowrap;
+}
+
+.model-file-name {
+  margin-top: 4px;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 650;
+}
+
+.model-file-field {
+  display: grid;
+  gap: 6px;
+  margin: 16px 0 10px;
+}
+
+.model-file-field label {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.model-file-field input {
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 11px;
+  border: 1px solid #d6cadc;
+  border-radius: 9px;
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+}
+
+.model-file-field input:focus {
+  outline: 2px solid rgba(91, 45, 121, .16);
+  border-color: var(--synopsys-purple-mid);
+}
+
+.model-file-location-note,
+.model-file-message {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.model-file-message.error {
+  color: #9a2b2b;
+}
+
+@media (max-width: 900px) {
+  .chat-primary-actions {
+    justify-content: flex-start;
+  }
+
+  .model-file-actions {
+    order: 2;
+  }
+}

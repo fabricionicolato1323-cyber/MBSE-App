@@ -31,6 +31,7 @@ flowchart LR
 
     OE -->|"CONTAINS"| OE
     OE -->|"CONTAINS"| OA
+    OA -.->|"CONTAINS — application grouping"| OA
 
     OA -.->|"LOCATED_IN"| OE
     OE -.->|"LOCATED_IN"| OE
@@ -38,7 +39,7 @@ flowchart LR
     NOTE0["Candidate Mention is not persisted.\nIt only guides elicitation and must be confirmed by the user."]
     NOTE4["Semantic Frame / Clause is not persisted as an Arcadia node.\nIt structures natural-language behavior before graph writes."]
     NOTE1["PART_OF is the inverse meaning of CONTAINS\nand is not stored as a duplicate edge"]
-    NOTE2["Operational Actors are structural leaves"]
+    NOTE2["Application diagram grouping may nest Actor inside Actor.\nIt is not exported as canonical Arcadia decomposition,\nand an Actor can never contain an Operational Entity."]
     NOTE3["CONTAINS/PART_OF = structure\nLOCATED_IN = operational/physical location"]
 
     CAND --- NOTE0

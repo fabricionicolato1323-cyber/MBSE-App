@@ -1,0 +1,311 @@
+:root {
+  --oa-scenario-blue: #174a8b;
+  --oa-scenario-blue-soft: rgba(23, 74, 139, .14);
+}
+
+#diagramTab {
+  position: relative;
+}
+
+.oa-scenario-create {
+  border-color: #315f96 !important;
+  background: linear-gradient(#f7fbff, #e4eef9) !important;
+  color: #173f70 !important;
+}
+
+.oa-scenario-create:disabled {
+  opacity: .48;
+  cursor: not-allowed;
+}
+
+.scenario-mode .oa-diagram-node.selected {
+  border-color: var(--oa-scenario-blue) !important;
+  box-shadow:
+    0 0 0 4px var(--oa-scenario-blue),
+    0 4px 12px rgba(23, 74, 139, .22) !important;
+}
+
+.scenario-mode .oa-diagram-edge.selected {
+  stroke: var(--oa-scenario-blue) !important;
+  stroke-width: 3px;
+}
+
+.scenario-mode .oa-diagram-edge.communication-mean.selected {
+  stroke: var(--oa-scenario-blue) !important;
+  stroke-width: var(--oa-communication-stroke);
+  filter: drop-shadow(0 0 2px rgba(23, 74, 139, .32));
+}
+
+.scenario-mode .oa-diagram-edge-label.selected {
+  fill: var(--oa-scenario-blue) !important;
+  font-weight: 850;
+}
+
+.scenario-valid-next {
+  stroke: #2f78d0 !important;
+  filter: drop-shadow(0 0 2px rgba(47, 120, 208, .35));
+}
+
+.oa-diagram-edge-label.scenario-valid-next {
+  fill: #2f78d0 !important;
+  stroke: #fcfcfa !important;
+}
+
+.oa-scenario-authoring-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 46px;
+  padding: 7px 10px;
+  border-bottom: 1px solid #cfd7e1;
+  background: #f3f7fc;
+  color: #27394d;
+}
+
+.oa-scenario-authoring-bar[hidden] {
+  display: none !important;
+}
+
+.oa-scenario-authoring-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.oa-scenario-authoring-copy strong {
+  color: #173f70;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.oa-scenario-authoring-copy span {
+  color: #66778b;
+  font-size: 9px;
+}
+
+.oa-scenario-authoring-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.oa-scenario-authoring-actions button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.oa-scenario-finish {
+  border-color: #315f96 !important;
+  background: linear-gradient(#eff6ff, #dceaf9) !important;
+  color: #173f70 !important;
+}
+
+.oa-scenario-tray {
+  position: absolute;
+  z-index: 90;
+  top: 58px;
+  left: 12px;
+  display: grid;
+  gap: 5px;
+  width: min(220px, calc(100% - 24px));
+  max-height: 42%;
+  padding: 7px;
+  overflow: auto;
+  border: 1px solid rgba(83, 93, 105, .28);
+  border-radius: 5px;
+  background: rgba(250, 250, 247, .94);
+  box-shadow: 0 5px 16px rgba(35, 45, 58, .12);
+  backdrop-filter: blur(3px);
+}
+
+.scenario-mode .oa-scenario-tray {
+  top: 108px;
+}
+
+.oa-scenario-tray[hidden] {
+  display: none !important;
+}
+
+.oa-scenario-tray-label {
+  padding: 0 3px 2px;
+  color: #68717b;
+  font-size: 8px;
+  font-weight: 850;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.oa-scenario-block {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 7px 9px;
+  text-align: left;
+  border: 1px solid #aeb6bd;
+  border-radius: 3px;
+  background: linear-gradient(#fff, #f0f1ee);
+  color: #30363b;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .06);
+}
+
+.oa-scenario-block:hover:not(:disabled),
+.oa-scenario-block:focus-visible:not(:disabled) {
+  border-color: #315f96;
+  outline: none;
+}
+
+.oa-scenario-block.active {
+  border-color: var(--oa-scenario-blue);
+  box-shadow: 0 0 0 2px var(--oa-scenario-blue);
+  background: #f0f6fd;
+}
+
+.oa-scenario-block.invalid {
+  border-style: dashed;
+  opacity: .62;
+}
+
+.oa-scenario-block-kind {
+  color: #6a737d;
+  font-size: 7.5px;
+  font-weight: 850;
+  letter-spacing: .055em;
+  text-transform: uppercase;
+}
+
+.oa-scenario-block-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #27313b;
+  font-size: 10px;
+}
+
+.oa-scenario-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 200000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.oa-scenario-modal[hidden] {
+  display: none !important;
+}
+
+.oa-scenario-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(23, 25, 29, .46);
+}
+
+.oa-scenario-modal-card {
+  position: relative;
+  width: min(430px, 100%);
+  overflow: hidden;
+  padding: 24px;
+  border: 1px solid #d8dfe7;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(20, 31, 44, .28);
+}
+
+.oa-scenario-modal-accent {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 4px;
+  background: var(--oa-scenario-blue);
+}
+
+.oa-scenario-modal-card h2 {
+  margin: 0 0 8px;
+  color: #24364a;
+  font-size: 18px;
+}
+
+.oa-scenario-modal-card p {
+  margin: 0 0 15px;
+  color: #677384;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.oa-scenario-modal-card label {
+  display: block;
+  margin-bottom: 5px;
+  color: #35465a;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.oa-scenario-modal-card input {
+  width: 100%;
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid #bdc7d2;
+  border-radius: 6px;
+  outline: none;
+  font: inherit;
+}
+
+.oa-scenario-modal-card input:focus {
+  border-color: #315f96;
+  box-shadow: 0 0 0 3px rgba(49, 95, 150, .14);
+}
+
+.oa-scenario-modal-message {
+  min-height: 18px;
+  margin: 7px 0 2px !important;
+  color: #a33a3a !important;
+  font-size: 10px !important;
+}
+
+.oa-scenario-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.operational-scenarios-section {
+  border-top: 1px solid #e1e4e8;
+  padding-top: 4px;
+}
+
+.oa-scenario-text-item {
+  border-left: 3px solid var(--oa-scenario-blue);
+  padding-left: 9px;
+}
+
+.oa-scenario-pseudocode {
+  margin: 6px 0 2px;
+  padding: 9px 11px;
+  overflow-x: auto;
+  border: 1px solid #dbe3ec;
+  border-radius: 5px;
+  background: #f6f8fa;
+  color: #263544;
+  font: 10px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre;
+}
+
+@media (max-width: 720px) {
+  .oa-scenario-authoring-bar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .oa-scenario-authoring-actions {
+    justify-content: flex-start;
+  }
+
+  .oa-scenario-tray {
+    width: min(190px, calc(100% - 20px));
+  }
+}

@@ -14,8 +14,9 @@ except ImportError:
     detect = None
     _HAS_LANGDETECT = False
 
-from ontology import CONCEPT_GUIDANCE, SOLUTION_BIAS_TERMS
+from ontology import CONCEPT_GUIDANCE
 from participant_rules import classify_participant, looks_like_plural_participant_label
+from semantic_policy import policy_terms
 
 
 @dataclass
@@ -45,37 +46,6 @@ def deterministic_english_check(value: str) -> Optional[bool]:
         return None
 
 
-# These terms describe implementation categories, not application domains.
-TECHNICAL_SOLUTION_WORDS = {
-    "system",
-    "software",
-    "application",
-    "platform",
-    "algorithm",
-    "database",
-    "microservice",
-    "sensor network",
-    "api",
-}
-
-
-# High-confidence language markers only. There is deliberately no operational
-# domain vocabulary here.
-NON_ENGLISH_MARKERS = {
-    # Portuguese
-    "o", "a", "os", "as", "de", "da", "do", "das", "dos", "para", "com", "sem",
-    "e", "ou", "que", "como", "avaliar", "fornecer", "informar", "controlar",
-    "manter", "proteger", "reduzir", "garantir", "melhorar",
-    "informação", "informações", "posição", "velocidade",
-    # German
-    "der", "die", "das", "den", "dem", "des", "und", "oder", "mit", "ohne", "für",
-    "über", "melden", "bereitstellen", "steuern", "überwachen", "halten", "schützen",
-    # Spanish / French
-    "el", "la", "los", "las", "y", "con", "sin", "proporcionar", "mantener",
-    "le", "les", "et", "avec", "sans", "fournir", "maintenir", "protéger",
-}
-
-
 def _tokens(value: str) -> list[str]:
     return re.findall(r"[a-zà-ÿ]+", value.casefold())
 
@@ -85,11 +55,12 @@ def _token_set(value: str) -> set[str]:
 
 
 def obvious_non_english_short_text(value: str) -> bool:
+    """Use only externally configured high-confidence language markers."""
     tokens = _token_set(value)
     if not tokens:
         return False
     has_diacritic = bool(re.search(r"[^\x00-\x7F]", value))
-    marker_hits = tokens & NON_ENGLISH_MARKERS
+    marker_hits = tokens & policy_terms("non_english_markers")
     return bool(marker_hits and (has_diacritic or len(marker_hits) >= 2))
 
 
@@ -131,13 +102,12 @@ def _safe_normalized_value(raw_value: str, llm_result: dict) -> str:
 
 
 def contains_high_confidence_solution_bias(value: str) -> bool:
-    """Return True only for explicit, high-confidence implementation wording."""
+    """Return True only for configured, explicit implementation wording."""
     lowered = value.casefold()
-    if any(term in lowered for term in TECHNICAL_SOLUTION_WORDS):
-        return True
-    if any(term in lowered for term in SOLUTION_BIAS_TERMS):
-        return True
-    return False
+    return any(
+        term in lowered
+        for term in policy_terms("technical_solution_terms")
+    )
 
 
 def reconcile_activity_frame_solution_bias(
@@ -148,9 +118,9 @@ def reconcile_activity_frame_solution_bias(
 
     Ollama is used to decompose complex activity sentences, not as the final
     write authority. If it returns usable clauses but labels ordinary behavior
-    as implementation bias without any explicit technical marker, retain the
-    warning for the user and allow the normal deterministic clause validation
-    and confirmation flow to continue.
+    as implementation bias without any explicit configured technical marker,
+    retain the warning for the user and allow the normal deterministic clause
+    validation and confirmation flow to continue.
     """
     adjusted = dict(frame_result)
     if not adjusted.get("solution_bias", False):
@@ -270,13 +240,7 @@ def validate_llm_candidate(
 
 
 def _repair_human_role_contradiction(llm_result: dict) -> dict:
-    """Repair a generic compact-model contradiction about professions/roles.
-
-    If the model itself says that a candidate is a profession, occupation, job
-    title, or human role but labels it Other, its explanation already establishes
-    the ontology category: human roles are OperationalActors. No domain vocabulary
-    or specific profession name is used here.
-    """
+    """Repair a compact-model contradiction using configurable semantic cues."""
     adjusted = dict(llm_result)
     if adjusted.get("detected_concept") != "Other":
         return adjusted
@@ -284,14 +248,7 @@ def _repair_human_role_contradiction(llm_result: dict) -> dict:
         return adjusted
 
     reason = str(adjusted.get("reason", "")).casefold()
-    cues = (
-        "profession",
-        "occupation",
-        "job title",
-        "human role",
-        "professional role",
-    )
-    if any(cue in reason for cue in cues):
+    if any(cue in reason for cue in policy_terms("human_role_reason_cues")):
         adjusted["detected_concept"] = "OperationalActor"
         adjusted["valid"] = True
         adjusted["reason"] = ""

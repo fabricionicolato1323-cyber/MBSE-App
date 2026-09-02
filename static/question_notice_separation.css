@@ -1,0 +1,24 @@
+.message-row.assistant.notice-row {
+  margin-bottom: 7px;
+}
+
+.message-row.assistant.notice-row .message-bubble.notice-bubble {
+  max-width: min(720px, 88%);
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.notice-bubble .message-line {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.notice-bubble .message-line.spacer {
+  min-height: 3px;
+}

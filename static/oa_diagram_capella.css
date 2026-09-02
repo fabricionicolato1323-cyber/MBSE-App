@@ -1,0 +1,83 @@
+/* Interactive Operational Analysis diagram styled to follow Capella's OA semantic colormap. */
+
+:root {
+  --oa-structural-fill-top: #f4f4ed;
+  --oa-structural-fill-bottom: #dedfce;
+  --oa-structural-border: #66665f;
+  --oa-activity-fill-top: #ffe99a;
+  --oa-activity-fill-bottom: #f4cf65;
+  --oa-activity-border: #9b7828;
+  --oa-capability-fill-top: #f6e2cb;
+  --oa-capability-fill-bottom: #e8c69f;
+  --oa-capability-border: #96704e;
+  --oa-interaction: #a8661e;
+  --oa-interaction-dark: #835018;
+  --oa-communication: #52524c;
+  --oa-relation: #77776f;
+  --oa-selection: #2f78d0;
+  --oa-communication-stroke: 5px;
+  --oa-relation-stroke: 1.7px;
+}
+
+#diagramTab.active { display:flex; flex-direction:column; overflow:hidden; background:#fbfbf8; }
+.oa-diagram-toolbar { flex:0 0 auto; min-height:44px; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 10px; border-bottom:1px solid #d8d8d2; background:#f7f7f3; }
+.oa-diagram-tools { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+.oa-diagram-tool { min-width:32px; height:31px; padding:0 10px; display:inline-grid; place-items:center; border:1px solid #c8c8c1; border-radius:4px; background:linear-gradient(#fff,#eeeeea); color:#343431; font-size:11px; font-weight:700; cursor:pointer; }
+.oa-diagram-tool:hover,.oa-diagram-tool:focus-visible { border-color:#85857e; background:#fff; outline:none; }
+.oa-diagram-toggle[aria-pressed="true"] { border-color:#8c6b3d; background:linear-gradient(#fff2cf,#f5d887); }
+.oa-diagram-mode-label { color:#73736c; font-size:10px; font-weight:700; white-space:nowrap; }
+
+.oa-diagram-viewport { position:relative; flex:1 1 auto; min-height:280px; overflow:hidden; touch-action:none; cursor:grab; outline:none; background-color:#fcfcfa; background-image:linear-gradient(rgba(80,80,72,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(80,80,72,.035) 1px,transparent 1px); background-size:24px 24px; }
+.oa-diagram-viewport:focus-visible { box-shadow:inset 0 0 0 3px rgba(47,120,208,.18); }
+.oa-diagram-viewport.is-panning { cursor:grabbing; }
+.oa-diagram-scene { position:absolute; left:0; top:0; transform-origin:0 0; will-change:transform; }
+.oa-diagram-edges,.oa-diagram-nodes,.oa-diagram-ports { position:absolute; inset:0; width:100%; height:100%; }
+/* Participant containers sit below connections, while leaf blocks sit above them. */
+.oa-diagram-edges { z-index:10; overflow:visible; pointer-events:none; }
+.oa-diagram-nodes { z-index:auto; pointer-events:none; }
+.oa-diagram-ports { z-index:40; pointer-events:none; }
+
+.oa-diagram-node { position:absolute; pointer-events:auto; user-select:none; border:1.5px solid var(--oa-structural-border); border-radius:2px; background:linear-gradient(var(--oa-structural-fill-top),var(--oa-structural-fill-bottom)); color:#242420; box-shadow:0 2px 6px rgba(0,0,0,.08); cursor:grab; overflow:hidden; touch-action:none; }
+.oa-diagram-node:active,.oa-diagram-node.is-dragging { cursor:grabbing; }
+.oa-diagram-node.is-dragging { z-index:1000!important; box-shadow:0 8px 18px rgba(0,0,0,.18); }
+.oa-diagram-node.participant-container { z-index:5; background:linear-gradient(var(--oa-structural-fill-top),var(--oa-structural-fill-bottom)); overflow:visible; }
+.oa-diagram-node.leaf-node { z-index:20; }
+.oa-diagram-node.type-operationalactor,.oa-diagram-node.type-operationalentity { border-color:var(--oa-structural-border); border-style:solid; }
+.oa-diagram-node.type-operationalactivity { border:1.5px solid var(--oa-activity-border); border-radius:7px; background:linear-gradient(var(--oa-activity-fill-top),var(--oa-activity-fill-bottom)); }
+.oa-diagram-node.type-operationalcapability { border:1.5px solid var(--oa-capability-border); border-radius:999px; background:radial-gradient(ellipse at 50% 35%,#fff8ef 0%,var(--oa-capability-fill-top) 45%,var(--oa-capability-fill-bottom) 100%); }
+.oa-diagram-node.temporary { border-style:dashed; outline:2px dashed rgba(218,123,23,.50); outline-offset:2px; }
+.oa-diagram-node.selected { border-color:var(--oa-selection); box-shadow:0 0 0 3px var(--oa-selection),0 4px 12px rgba(47,120,208,.18); }
+.scenario-mode .oa-diagram-node.selected { box-shadow:0 0 0 4px var(--oa-selection),0 4px 12px rgba(47,120,208,.22); }
+.oa-diagram-node:focus-visible { outline:3px solid rgba(47,120,208,.35); outline-offset:3px; }
+
+.oa-diagram-node-header { min-height:50px; display:grid; gap:2px; align-content:center; padding:8px 12px 7px; border-bottom:1px solid rgba(70,70,65,.18); background:rgba(255,255,255,.28); border-radius:inherit; }
+.type-operationalactivity .oa-diagram-node-header,.type-operationalcapability .oa-diagram-node-header,.leaf-node .oa-diagram-node-header { min-height:100%; border-bottom:0; background:transparent; }
+.oa-diagram-node-type { color:#67675f; font-size:8.5px; font-weight:800; text-transform:uppercase; letter-spacing:.065em; }
+.type-operationalactivity .oa-diagram-node-type { color:#70551e; }
+.type-operationalcapability .oa-diagram-node-type { color:#76563c; }
+.oa-diagram-node-title { display:block; max-width:calc(100% - 20px); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#22221f; font-size:11px; line-height:1.28; }
+.oa-diagram-containment-hint { position:absolute; top:55px; left:11px; right:11px; color:#7d7d73; font-size:8px; line-height:1.2; pointer-events:none; }
+.oa-diagram-resize-handle { position:absolute; right:2px; bottom:2px; width:30px; height:30px; display:grid; place-items:center; padding:0; border:0; border-radius:3px; background:rgba(255,255,255,.78); color:#5b5b55; font-size:14px; cursor:nwse-resize; touch-action:none; }
+.oa-diagram-resize-handle:hover,.oa-diagram-resize-handle:focus-visible { background:#fff; color:var(--oa-selection); outline:2px solid rgba(47,120,208,.25); }
+
+.oa-diagram-port { position:absolute; width:22px; height:22px; display:grid; place-items:center; padding:0; pointer-events:auto; border:2px solid #4f4f49; border-radius:1px; background:#f4f4ee; color:#2f2f2b; font-size:9px; font-weight:900; line-height:1; }
+.oa-diagram-port:hover,.oa-diagram-port:focus-visible,.oa-diagram-port.selected { border-color:var(--oa-selection); background:#eaf2fb; box-shadow:0 0 0 3px rgba(47,120,208,.18); outline:none; }
+
+.oa-diagram-edge { fill:none; pointer-events:stroke; stroke:var(--oa-relation); stroke-width:var(--oa-relation-stroke); vector-effect:non-scaling-stroke; cursor:pointer; }
+.oa-diagram-edge.operational-exchange { stroke:var(--oa-interaction); stroke-width:2px; }
+.oa-diagram-edge.exchange-access { stroke-width:2.2px; }
+.oa-diagram-edge.ordinary-relation { stroke-dasharray:5 4; }
+.oa-diagram-edge.supports-capability { stroke:#8e7451; stroke-dasharray:5 4; }
+.oa-diagram-edge.communication-mean { stroke:var(--oa-communication); stroke-width:var(--oa-communication-stroke); stroke-linecap:round; }
+.oa-diagram-edge.selected { stroke:var(--oa-selection); }
+.oa-diagram-edge-label { pointer-events:auto; cursor:pointer; paint-order:stroke; stroke:#fcfcfa; stroke-width:4px; fill:#5f5f59; font-size:10px; font-weight:650; text-anchor:middle; vector-effect:non-scaling-stroke; }
+.oa-diagram-edge-label.interaction-label { fill:var(--oa-interaction-dark); font-weight:750; }
+.oa-diagram-edge-label.communication-label { fill:#3d3d39; font-weight:800; }
+.oa-diagram-edge-label.relation-label { fill:#6e6e68; }
+.oa-diagram-edge-label.selected { fill:var(--oa-selection); }
+.oa-interaction-arrow-head { fill:var(--oa-interaction); }
+.oa-relation-arrow-head { fill:var(--oa-relation); }
+/* No instructional placeholder is displayed inside the live diagram canvas. */
+.oa-diagram-empty { display:none!important; }
+.oa-diagram-selection-status { flex:0 0 auto; min-height:34px; padding:8px 10px; border-top:1px solid #d8d8d2; background:#f7f7f3; color:#6d6d66; font-size:10px; line-height:1.35; }
+@media (max-width:620px) { .oa-diagram-toolbar { align-items:flex-start; flex-direction:column; } .oa-diagram-mode-label { padding-left:2px; } }

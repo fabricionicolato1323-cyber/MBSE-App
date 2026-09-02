@@ -1,0 +1,88 @@
+/* Interaction enhancements layered on top of the Capella-compatible OA diagram style. */
+
+/* Diagram is now a first-class view in the single docked Model output sidebar.
+   When active it must consume the entire content row between the output tabs and
+   the bottom of the panel, both docked and in its detached browser window. */
+#diagramTab.active {
+  display: flex !important;
+  flex: 1 1 0;
+  min-height: 0;
+  height: auto;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.oa-diagram-viewport {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto !important;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable both-edges;
+}
+
+/* Fit is a camera mode. Native scrollbars reflect the large internal scene, not
+   the fitted model bounds, and can preserve stale offsets when fullscreen is
+   entered. Hide them while fitted; any manual pan/zoom gesture removes this
+   class and restores the normal scrollable viewport. */
+.oa-diagram-viewport.is-fit-view {
+  overflow: hidden !important;
+  scrollbar-gutter: auto;
+}
+
+/* Keep the instruction/selection message as a compact footer at the true base
+   of the Diagram view. It should never create a second unused content region. */
+.oa-diagram-selection-status {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.oa-diagram-viewport.is-zoom-selecting {
+  cursor: crosshair !important;
+}
+
+.oa-diagram-zoom-rect {
+  position: absolute;
+  z-index: 80;
+  box-sizing: border-box;
+  border: 2px dashed #2f78d0;
+  background: rgba(47, 120, 208, .10);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .65) inset;
+  pointer-events: none;
+}
+
+.oa-diagram-zoom-rect[hidden] {
+  display: none !important;
+}
+
+#diagramTab:fullscreen,
+#diagramTab.oa-diagram-fullscreen-fallback {
+  display: flex !important;
+  flex-direction: column;
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: none !important;
+  max-height: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: #fbfbf8;
+}
+
+#diagramTab.oa-diagram-fullscreen-fallback {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 100000 !important;
+}
+
+#diagramTab:fullscreen .oa-diagram-viewport,
+#diagramTab.oa-diagram-fullscreen-fallback .oa-diagram-viewport {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+#diagramTab:fullscreen .oa-diagram-toolbar,
+#diagramTab.oa-diagram-fullscreen-fallback .oa-diagram-toolbar {
+  position: relative;
+  z-index: 100;
+}

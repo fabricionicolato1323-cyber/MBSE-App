@@ -1,0 +1,356 @@
+/* Interactive Operational Analysis diagram. Semantic model data stays separate from layout data. */
+
+:root {
+  --oa-communication-stroke: 5px;
+  --oa-relation-stroke: 1.8px;
+}
+
+#diagramTab.active {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #f8f6fa;
+}
+
+.oa-diagram-toolbar {
+  flex: 0 0 auto;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.oa-diagram-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.oa-diagram-tool {
+  min-width: 31px;
+  height: 30px;
+  padding: 0 9px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid #ddd3e3;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--synopsys-purple-deep);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.oa-diagram-tool:hover,
+.oa-diagram-tool:focus-visible {
+  border-color: #bca9c8;
+  background: var(--synopsys-purple-soft);
+  outline: none;
+}
+
+.oa-diagram-mode-label {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.oa-diagram-viewport {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 260px;
+  overflow: hidden;
+  touch-action: none;
+  cursor: grab;
+  outline: none;
+  background-color: #fbfafd;
+  background-image:
+    linear-gradient(rgba(90, 42, 130, .045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(90, 42, 130, .045) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.oa-diagram-viewport:focus-visible {
+  box-shadow: inset 0 0 0 3px rgba(90, 42, 130, .16);
+}
+
+.oa-diagram-viewport.is-panning {
+  cursor: grabbing;
+}
+
+.oa-diagram-scene {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.oa-diagram-edges,
+.oa-diagram-nodes,
+.oa-diagram-ports {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.oa-diagram-edges {
+  z-index: 20;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.oa-diagram-nodes {
+  z-index: 10;
+  pointer-events: none;
+}
+
+.oa-diagram-ports {
+  z-index: 30;
+  pointer-events: none;
+}
+
+.oa-diagram-node {
+  position: absolute;
+  pointer-events: auto;
+  user-select: none;
+  border: 2px solid #8f70a3;
+  border-radius: 11px;
+  background: #fff;
+  color: var(--text);
+  box-shadow: 0 4px 12px rgba(61, 29, 89, .08);
+  cursor: move;
+  overflow: hidden;
+}
+
+.oa-diagram-node.participant-container {
+  background: rgba(255, 255, 255, .72);
+  overflow: visible;
+}
+
+.oa-diagram-node.type-operationalactor {
+  border-style: dashed;
+  border-color: #746183;
+  background: rgba(250, 247, 252, .82);
+}
+
+.oa-diagram-node.type-operationalactivity {
+  border-radius: 8px;
+  border-width: 1.7px;
+  background: #fff;
+}
+
+.oa-diagram-node.type-operationalcapability {
+  border-radius: 999px;
+  border-color: #9e85ad;
+  background: #faf7fc;
+}
+
+.oa-diagram-node.temporary {
+  border-color: var(--temporary);
+  border-style: dashed;
+  background: var(--synopsys-orange-soft);
+}
+
+.oa-diagram-node.selected {
+  border-color: var(--synopsys-purple-deep);
+  box-shadow: 0 0 0 4px rgba(90, 42, 130, .16), 0 6px 18px rgba(61, 29, 89, .11);
+}
+
+.scenario-mode .oa-diagram-node.selected {
+  box-shadow: 0 0 0 5px rgba(90, 42, 130, .22), 0 6px 18px rgba(61, 29, 89, .11);
+}
+
+.oa-diagram-node:focus-visible {
+  outline: 3px solid rgba(90, 42, 130, .22);
+  outline-offset: 2px;
+}
+
+.oa-diagram-node-header {
+  min-height: 42px;
+  display: grid;
+  gap: 2px;
+  align-content: center;
+  padding: 7px 12px 6px;
+  border-bottom: 1px solid rgba(90, 42, 130, .10);
+  background: rgba(255, 255, 255, .78);
+  border-radius: inherit;
+}
+
+.leaf-node .oa-diagram-node-header {
+  min-height: 100%;
+  border-bottom: 0;
+}
+
+.oa-diagram-node-type {
+  color: var(--muted);
+  font-size: 8.5px;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+}
+
+.oa-diagram-node-title {
+  display: block;
+  max-width: calc(100% - 18px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.oa-diagram-containment-hint {
+  position: absolute;
+  top: 44px;
+  left: 10px;
+  right: 10px;
+  color: #8a7d91;
+  font-size: 8px;
+  line-height: 1.2;
+  pointer-events: none;
+}
+
+.oa-diagram-resize-handle {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, .84);
+  color: #796886;
+  font-size: 12px;
+  cursor: nwse-resize;
+}
+
+.oa-diagram-resize-handle:hover,
+.oa-diagram-resize-handle:focus-visible {
+  background: var(--synopsys-purple-soft);
+  color: var(--synopsys-purple-deep);
+  outline: 2px solid rgba(90, 42, 130, .15);
+}
+
+.oa-diagram-port {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  pointer-events: auto;
+  border: 2px solid #4d3b58;
+  border-radius: 2px;
+  background: #fff;
+  color: #34283b;
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.oa-diagram-port:hover,
+.oa-diagram-port:focus-visible,
+.oa-diagram-port.selected {
+  border-color: var(--synopsys-purple);
+  background: var(--synopsys-purple-soft);
+  box-shadow: 0 0 0 3px rgba(90, 42, 130, .15);
+  outline: none;
+}
+
+.oa-diagram-edge {
+  fill: none;
+  pointer-events: stroke;
+  stroke: #7e6c89;
+  stroke-width: var(--oa-relation-stroke);
+  vector-effect: non-scaling-stroke;
+  cursor: pointer;
+}
+
+.oa-diagram-edge.operational-exchange {
+  marker-end: url(#oaArrow);
+}
+
+.oa-diagram-edge.ordinary-relation {
+  stroke-dasharray: 5 4;
+  marker-end: url(#oaArrow);
+}
+
+.oa-diagram-edge.communication-mean {
+  stroke: #493653;
+  stroke-width: var(--oa-communication-stroke);
+  stroke-linecap: round;
+}
+
+.oa-diagram-edge.selected {
+  stroke: var(--synopsys-purple);
+}
+
+.oa-diagram-edge-label {
+  pointer-events: auto;
+  cursor: pointer;
+  paint-order: stroke;
+  stroke: #fbfafd;
+  stroke-width: 4px;
+  fill: #675870;
+  font-size: 10px;
+  font-weight: 650;
+  text-anchor: middle;
+  vector-effect: non-scaling-stroke;
+}
+
+.oa-diagram-edge-label.communication-label {
+  fill: #3e3046;
+  font-weight: 800;
+}
+
+.oa-diagram-edge-label.selected {
+  fill: var(--synopsys-purple-deep);
+}
+
+.oa-diagram-arrow-head {
+  fill: #7e6c89;
+}
+
+.oa-diagram-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.oa-diagram-selection-status {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+  background: #fff;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+@media (max-width: 520px) {
+  .oa-diagram-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .oa-diagram-mode-label {
+    padding-left: 2px;
+  }
+}

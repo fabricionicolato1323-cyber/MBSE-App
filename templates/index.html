@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Operational Analysis · Guided Model Builder</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='interaction.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='revision.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='question_notice_separation.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='choice_help.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='searchable_choice_picker.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='ai_control.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='workspace_layout.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='oa_header_help.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='model_file_io.css') }}">
+</head>
+<body>
+  <div class="workspace-shell">
+    <header class="viewpoint-header">
+      <div class="viewpoint-title-row">
+        <div>
+          <div class="eyebrow">Arcadia viewpoint</div>
+          <div class="oa-title-line">
+            <h1>Operational Analysis</h1>
+            <span id="oaInfoWrap" class="oa-info-wrap">
+              <button
+                id="oaInfoButton"
+                type="button"
+                class="oa-info-button"
+                aria-label="About Operational Analysis"
+                aria-expanded="false"
+                aria-controls="oaInfoPopover"
+              >?</button>
+              <span id="oaInfoPopover" class="oa-info-popover" role="tooltip" hidden>
+                <span class="oa-info-item"><strong>Purpose</strong><span>Understand the operational need and context before defining the solution.</span></span>
+                <span class="oa-info-item"><strong>Objective</strong><span>Capture goals, participants, activities, interactions, communication and constraints.</span></span>
+                <span class="oa-info-item"><strong>Key question</strong><span>What must happen in the operational environment, by whom, and under which conditions?</span></span>
+              </span>
+            </span>
+          </div>
+        </div>
+        <div class="panel-visibility-controls" aria-label="Visible panels">
+          <span>Panels</span>
+          <button type="button" class="panel-toggle active" data-panel-toggle="chat">Conversation</button>
+          <button type="button" class="panel-toggle active" data-panel-toggle="completion">Completion</button>
+          <button type="button" class="panel-toggle active" data-panel-toggle="output">Model output</button>
+        </div>
+      </div>
+
+      <nav class="viewpoint-tabs" aria-label="Arcadia viewpoints">
+        <button type="button" class="viewpoint-tab active" aria-current="page">Operational Analysis</button>
+        <button type="button" class="viewpoint-tab placeholder" aria-disabled="true" title="Placeholder — not implemented yet">System Analysis</button>
+        <button type="button" class="viewpoint-tab placeholder" aria-disabled="true" title="Placeholder — not implemented yet">Logical Architecture</button>
+        <button type="button" class="viewpoint-tab placeholder" aria-disabled="true" title="Placeholder — not implemented yet">Physical Architecture</button>
+      </nav>
+    </header>
+
+    <main id="workspace" class="workspace">
+      <aside id="completionPanel" class="workspace-panel completion-panel" data-panel="completion">
+        <header class="panel-header panel-drag-handle">
+          <div class="panel-heading-copy">
+            <div class="eyebrow">Operational Analysis</div>
+            <h2>Model completion</h2>
+          </div>
+          <div class="panel-controls" aria-label="Completion panel controls">
+            <button type="button" class="panel-control" data-panel-action="dock" title="Undock panel" aria-label="Undock panel">↗</button>
+            <button type="button" class="panel-control" data-panel-action="minimize" title="Minimize panel" aria-label="Minimize panel">−</button>
+            <button type="button" class="panel-control" data-panel-action="maximize" title="Maximize panel" aria-label="Maximize panel">□</button>
+            <button type="button" class="panel-control" data-panel-action="close" title="Hide panel" aria-label="Hide panel">×</button>
+          </div>
+        </header>
+
+        <div class="completion-body">
+          <div class="completion-score-wrap">
+            <div id="completionPercent" class="completion-percent">0%</div>
+            <div class="completion-score-copy">
+              <strong>Structural coverage</strong>
+              <span>Estimate of expected Operational Analysis building blocks, not a model-quality score.</span>
+            </div>
+          </div>
+          <div class="completion-bar" aria-hidden="true">
+            <span id="completionBarFill"></span>
+          </div>
+          <div id="completionList" class="completion-list" aria-live="polite"></div>
+        </div>
+      </aside>
+
+      <div class="panel-splitter" data-splitter="completion" role="separator" aria-orientation="vertical" aria-label="Resize completion panel"></div>
+
+      <section id="chatPanel" class="workspace-panel chat-panel" data-panel="chat">
+        <header class="topbar panel-drag-handle">
+          <div class="panel-heading-copy">
+            <div class="eyebrow">Operational Analysis</div>
+            <h2>Guided conversation</h2>
+          </div>
+          <div class="topbar-actions">
+            <div class="chat-primary-actions">
+              <div id="aiControl" class="ai-control" data-status="off" aria-live="polite">
+                <div class="ai-status-summary">
+                  <span class="ai-status-dot" aria-hidden="true"></span>
+                  <span id="aiStatusText">AI Off</span>
+                  <span id="aiModelText" class="ai-model-name" hidden></span>
+                </div>
+                <button id="aiActionButton" class="ai-action-button" type="button">Activate AI</button>
+              </div>
+              <div class="model-file-actions" aria-label="Model file actions">
+                <button id="saveModelButton" class="ghost-button model-file-button" type="button">Save model</button>
+                <button id="loadModelButton" class="ghost-button model-file-button" type="button">Load model</button>
+                <input id="loadModelInput" type="file" accept=".json,application/json" hidden>
+              </div>
+              <button id="resetButton" class="ghost-button">New model</button>
+            </div>
+            <div class="panel-controls" aria-label="Conversation panel controls">
+              <button type="button" class="panel-control" data-panel-action="dock" title="Undock panel" aria-label="Undock panel">↗</button>
+              <button type="button" class="panel-control" data-panel-action="minimize" title="Minimize panel" aria-label="Minimize panel">−</button>
+              <button type="button" class="panel-control" data-panel-action="maximize" title="Maximize panel" aria-label="Maximize panel">□</button>
+              <button type="button" class="panel-control" data-panel-action="close" title="Hide panel" aria-label="Hide panel">×</button>
+            </div>
+          </div>
+        </header>
+
+        <div id="commandBar" hidden></div>
+        <div id="chat" class="chat" aria-live="polite"></div>
+        <div id="quickActions" class="quick-actions" aria-label="Answer options"></div>
+
+        <form id="composer" class="composer">
+          <textarea id="messageInput" rows="1" placeholder="Describe the next part of the model…" autocomplete="off" aria-label="Answer"></textarea>
+          <button id="sendButton" type="submit" aria-label="Send">Send</button>
+        </form>
+        <div id="statusLine" class="status-line">Starting the guided model…</div>
+      </section>
+
+      <div class="panel-splitter" data-splitter="output" role="separator" aria-orientation="vertical" aria-label="Resize model output panel"></div>
+
+      <aside id="modelPanel" class="workspace-panel model-panel output-panel" data-panel="output">
+        <header class="model-header panel-drag-handle">
+          <div class="panel-heading-copy">
+            <div class="eyebrow">Live Operational Analysis model</div>
+            <h2 id="outputPanelTitle">Model output</h2>
+            <div id="modelFileName" class="model-file-name" hidden></div>
+          </div>
+          <div class="model-header-actions">
+            <div id="modelCount" class="model-count">0 · 0</div>
+            <div class="panel-controls" aria-label="Model output panel controls">
+              <button type="button" class="panel-control" data-panel-action="dock" title="Open active output view in a new browser window" aria-label="Open active output view in a new browser window">↗</button>
+              <button type="button" class="panel-control" data-panel-action="minimize" title="Minimize panel" aria-label="Minimize panel">−</button>
+              <button type="button" class="panel-control" data-panel-action="maximize" title="Full screen panel" aria-label="Full screen panel">□</button>
+              <button type="button" class="panel-control" data-panel-action="close" title="Hide panel" aria-label="Hide panel">×</button>
+            </div>
+          </div>
+        </header>
+
+        <div class="output-tabs" role="tablist" aria-label="Model output views">
+          <button class="output-tab-button active" type="button" data-output-tab="text" data-tab="textual" role="tab" aria-selected="true" aria-controls="utilityTextView">Pseudo-code</button>
+          <button class="output-tab-button" type="button" data-output-tab="sysml" role="tab" aria-selected="false" aria-controls="utilitySysmlView">SysML V2</button>
+          <button class="output-tab-button" type="button" data-output-tab="diagram" data-tab="diagram" role="tab" aria-selected="false" aria-controls="diagramTab">Diagram</button>
+          <button class="output-tab-button" type="button" data-output-tab="details" data-tab="details" role="tab" aria-selected="false" aria-controls="detailsTab">Details</button>
+        </div>
+
+        <div id="utilityTextView" class="output-view-content active" data-output-view="text" role="tabpanel">
+          <div class="legend">
+            <span><i class="legend-dot confirmed"></i>Confirmed</span>
+            <span><i class="legend-dot temporary"></i>Temporary</span>
+          </div>
+          <div id="textualTab" class="tab-content active" role="tabpanel">
+            <div id="modelTextual" class="model-textual"></div>
+          </div>
+        </div>
+
+        <div id="utilitySysmlView" class="output-view-content" data-output-view="sysml" role="tabpanel" hidden>
+          <div class="sysml-text-placeholder">
+            <div class="sysml-placeholder-heading">SysML V2 textual output</div>
+            <p>SysML V2 generation is not implemented yet. This view is intentionally text-based, not a block diagram.</p>
+            <pre class="sysml-code-placeholder" aria-label="SysML V2 text placeholder"><code>// Generated SysML V2 text will appear here.
+// The existing model remains unchanged until generation is implemented.</code></pre>
+          </div>
+        </div>
+
+        <div id="diagramTab" class="output-view-content tab-content" data-output-view="diagram" role="tabpanel" hidden>
+          <div class="diagram-placeholder">
+            <strong>Diagram view</strong>
+            <span>The interactive Operational Analysis diagram remains available as its own output view.</span>
+          </div>
+          <div class="legacy-diagram-layer" aria-hidden="true">
+            <svg id="modelDiagram" viewBox="0 0 420 720"></svg>
+            <div id="emptyModel"></div>
+          </div>
+        </div>
+
+        <div id="detailsTab" class="output-view-content tab-content" data-output-view="details" role="tabpanel" hidden>
+          <div id="modelDetails" class="model-details"></div>
+        </div>
+
+        <div id="outputDetachedEmpty" class="output-detached-empty" hidden>
+          <strong>All output views are undocked.</strong>
+          <span>You can hide this sidebar and continue working in Conversation while the separate browser windows remain open.</span>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <div id="resetModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="resetTitle" hidden>
+    <div class="modal-backdrop" data-close-reset></div>
+    <div class="modal-card">
+      <div class="modal-accent"></div>
+      <h2 id="resetTitle">Start a new model?</h2>
+      <p>The current modeling session will be cleared and a fresh guided session will start.</p>
+      <div class="modal-actions">
+        <button id="cancelResetButton" class="secondary-button" type="button">Cancel</button>
+        <button id="confirmResetButton" class="primary-button" type="button">Start new model</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="saveModelModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="saveModelTitle" hidden>
+    <div class="modal-backdrop" data-close-save-model></div>
+    <div class="modal-card">
+      <div class="modal-accent"></div>
+      <h2 id="saveModelTitle">Save Operational Analysis model</h2>
+      <p>Give the model a name. After that, the Windows Save As dialog lets you choose the folder and final file name.</p>
+      <div class="model-file-field">
+        <label for="modelNameInput">Model name</label>
+        <input id="modelNameInput" type="text" maxlength="120" autocomplete="off" placeholder="Example: Perimeter protection OA">
+      </div>
+      <p class="model-file-location-note"><strong>Save location:</strong> selected in the Windows Save As dialog.</p>
+      <p id="saveModelMessage" class="model-file-message" aria-live="polite"></p>
+      <div class="modal-actions">
+        <button id="cancelSaveModelButton" class="secondary-button" type="button">Cancel</button>
+        <button id="confirmSaveModelButton" class="primary-button" type="button">Choose location and save</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="aiModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="aiModalTitle" hidden>
+    <div class="modal-backdrop" data-close-ai></div>
+    <div class="modal-card">
+      <div class="modal-accent"></div>
+      <h2 id="aiModalTitle">AI assistance</h2>
+      <p>Select one of the AI models installed on this computer. AI remains advisory; you continue to confirm model content.</p>
+      <div class="ai-modal-field">
+        <label for="aiModelSelect">Installed model</label>
+        <select id="aiModelSelect" class="ai-model-select" disabled></select>
+      </div>
+      <p id="aiModalMessage" class="ai-modal-message" aria-live="polite"></p>
+      <div class="modal-actions">
+        <button id="disableAIButton" class="secondary-button ai-disable-button" type="button" hidden>Disable AI</button>
+        <button id="cancelAIButton" class="secondary-button" type="button">Cancel</button>
+        <button id="activateAIButton" class="primary-button" type="button" disabled>Activate</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+  <script src="{{ url_for('static', filename='revision_model.js') }}"></script>
+  <script src="{{ url_for('static', filename='characteristic_operators.js') }}"></script>
+  <script src="{{ url_for('static', filename='model_relationships.js') }}"></script>
+  <script src="{{ url_for('static', filename='revision_interaction.js') }}"></script>
+  <script src="{{ url_for('static', filename='choice_help.js') }}"></script>
+  <script src="{{ url_for('static', filename='searchable_choice_picker.js') }}"></script>
+  <script src="{{ url_for('static', filename='question_notice_separation.js') }}"></script>
+  <script src="{{ url_for('static', filename='ai_control.js') }}"></script>
+  <script src="{{ url_for('static', filename='workspace_layout.js') }}"></script>
+  <script src="{{ url_for('static', filename='oa_header_help.js') }}"></script>
+  <script src="{{ url_for('static', filename='model_file_io.js') }}"></script>
+</body>
+</html>

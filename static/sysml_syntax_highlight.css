@@ -1,0 +1,51 @@
+#utilitySysmlView code .sysml-syntax-line {
+  display: inline;
+  white-space: pre-wrap;
+}
+
+#utilitySysmlView code .sysml-token-keyword {
+  color: #6f42c1;
+  font-weight: 700;
+}
+
+#utilitySysmlView code .sysml-token-definition {
+  color: #005cc5;
+  font-weight: 650;
+}
+
+#utilitySysmlView code .sysml-token-type {
+  color: #087f8c;
+  font-weight: 650;
+}
+
+#utilitySysmlView code .sysml-token-string {
+  color: #22863a;
+}
+
+#utilitySysmlView code .sysml-token-number {
+  color: #b45309;
+}
+
+#utilitySysmlView code .sysml-token-comment {
+  color: #6b7280;
+  font-style: italic;
+}
+
+#utilitySysmlView code .sysml-token-operator {
+  color: #7c3aed;
+}
+
+#utilitySysmlView code .sysml-token-annotation {
+  color: #9c36b5;
+}
+
+/* Preview colours remain more important than syntax colours. */
+#utilitySysmlView code .mbse-change-line.mbse-change-modified .sysml-token,
+#utilitySysmlView code .mbse-change-line.mbse-change-modified {
+  color: #b42318 !important;
+}
+
+#utilitySysmlView code .mbse-change-line.mbse-change-impacted .sysml-token,
+#utilitySysmlView code .mbse-change-line.mbse-change-impacted {
+  color: #a94f00 !important;
+}

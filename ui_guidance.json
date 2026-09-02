@@ -8,6 +8,138 @@
     "noun phrase — real-world communication method": "<real-world communication method>",
     "Short English phrase": "<short English phrase>"
   },
+  "loaded_model": {
+    "intent_question": "What would you like to do with the loaded model?",
+    "intent_explanation": "Choose whether you want to work with something already in the model or add something new.",
+    "intents": [
+      {
+        "id": "modify",
+        "label": "Change something that already exists"
+      },
+      {
+        "id": "add",
+        "label": "Add something new"
+      }
+    ],
+    "category_question": "Which part of the model?",
+    "category_explanation": "Choose the kind of model information you want to work with. The formal Arcadia concepts remain unchanged underneath this simpler wording.",
+    "categories": [
+      {
+        "id": "goal",
+        "label": "Goals"
+      },
+      {
+        "id": "participants",
+        "label": "People, organizations, places, or systems involved"
+      },
+      {
+        "id": "activity",
+        "label": "Activities"
+      },
+      {
+        "id": "exchange",
+        "label": "Information or material exchanged"
+      },
+      {
+        "id": "communication",
+        "label": "Means of communication"
+      },
+      {
+        "id": "characteristics",
+        "label": "Characteristics and limits"
+      }
+    ]
+  },
+  "oa_help": {
+    "aria_label": "Operational Analysis help",
+    "summary": {
+      "eyebrow": "Where you are — Operational Analysis",
+      "title": "Understand the operational need before defining the solution.",
+      "body": "Operational Analysis focuses on customer goals, expected missions and activities, real operational use, actors or users, operating conditions and constraints."
+    },
+    "focus_label": "Focus on",
+    "focus_steps": [
+      "Who is involved",
+      "What they need to accomplish",
+      "What they do",
+      "What they exchange",
+      "Conditions and limits"
+    ],
+    "details_label": "Learn more about this Arcadia viewpoint",
+    "sections": [
+      {
+        "title": "Purpose",
+        "body": "Build a shared, solution-independent understanding of the operational problem and customer need. Describe the operational environment and expected outcomes before assigning responsibilities to the system."
+      },
+      {
+        "title": "What to capture",
+        "items": [
+          "Goals and operational capabilities",
+          "People, roles, organizations and other operational entities",
+          "Operational activities and their allocation",
+          "Operational interactions or exchanges",
+          "Operational scenarios and significant operating conditions",
+          "Constraints and dimensioning parameters such as safety, security, lifecycle, time, distance or capacity"
+        ]
+      },
+      {
+        "title": "Questions to ask",
+        "items": [
+          "Who or what participates in the operation?",
+          "What outcomes must be achieved?",
+          "What activities are performed, and by whom?",
+          "What information, material or requests are exchanged?",
+          "Which scenarios represent important operational use?",
+          "Which conditions, limits or constraints can change the expected outcome?"
+        ]
+      },
+      {
+        "title": "Practical starting point",
+        "body": "A useful way to begin is to describe the operational story in plain language: who is involved, what they are trying to achieve, what happens, what is exchanged and which conditions matter. Formalize the model as that shared understanding becomes clear."
+      },
+      {
+        "title": "What not to do yet",
+        "body": "Avoid defining the internal solution architecture too early. In Arcadia, the system contribution and boundary are addressed in System Analysis; Logical and Physical Architecture then develop the solution progressively."
+      },
+      {
+        "title": "Arcadia perspective path",
+        "body": "The perspectives have methodological dependencies, but Arcadia is inherently iterative and can be applied incrementally, top-down, bottom-up or through reuse-driven approaches.",
+        "path": [
+          {
+            "label": "Operational Analysis",
+            "description": "What users and operational stakeholders need to do."
+          },
+          {
+            "label": "System Analysis",
+            "description": "What the system must achieve for them, including its boundary and external interactions."
+          },
+          {
+            "label": "Logical Architecture",
+            "description": "A technology-neutral or notional decomposition of the solution."
+          },
+          {
+            "label": "Physical Architecture",
+            "description": "How the solution is realized with physical, software, hardware or firmware components."
+          }
+        ]
+      }
+    ],
+    "source_note": "Based on the official Arcadia and Capella method documentation.",
+    "sources": [
+      {
+        "label": "Official Arcadia overview",
+        "url": "https://mbse-capella.org/arcadia.html"
+      },
+      {
+        "label": "Arcadia reference documents",
+        "url": "https://mbse-capella.org/arcadia-reference.html"
+      },
+      {
+        "label": "Arcadia Questions & Answers",
+        "url": "https://mbse-capella.org/arcadia-qna.html"
+      }
+    ]
+  },
   "policy": {
     "allow_literal_domain_examples": false,
     "fallback": "none"

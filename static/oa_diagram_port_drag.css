@@ -1,0 +1,14 @@
+.oa-diagram-port {
+  cursor: ns-resize !important;
+  touch-action: none;
+}
+
+.oa-diagram-port:hover,
+.oa-diagram-port:focus-visible,
+.oa-diagram-port.is-port-dragging {
+  box-shadow: 0 0 0 3px rgba(47,120,208,.22);
+}
+
+.oa-diagram-port.is-port-dragging {
+  cursor: ns-resize !important;
+}

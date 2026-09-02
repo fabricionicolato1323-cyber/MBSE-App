@@ -1,0 +1,302 @@
+from communication_exchange_link import CommunicationExchangeLinkFlowMixin
+from graph_model import OAGraph
+
+
+def _add(graph: OAGraph, node_type: str, name: str, **attributes) -> str:
+    ok, node_id, error = graph.add_node(node_type, name, **attributes)
+    assert ok, error
+    return node_id
+
+
+class _Flow(CommunicationExchangeLinkFlowMixin):
+    def __init__(self, model: OAGraph) -> None:
+        self.model = model
+        self.notices: list[str] = []
+        self.choice_history: list[list[tuple[str, str]]] = []
+
+    def ask_yes_no(self, *_args, **_kwargs) -> bool:
+        return True
+
+    def ask_validated(self, **_kwargs) -> str:
+        return "Radio link"
+
+    def ask_choice(self, _question, choices, _why) -> str:
+        self.choice_history.append(list(choices))
+        return choices[0][0]
+
+    def add_notice(self, message: str) -> None:
+        self.notices.append(message)
+
+
+class _NewCommunicationFlow(_Flow):
+    def ask_choice(self, _question, choices, _why) -> str:
+        self.choice_history.append(list(choices))
+        keys = [key for key, _label in choices]
+        if "__new_communication__" in keys:
+            return "__new_communication__"
+        return choices[0][0]
+
+    def ask_validated(self, **_kwargs) -> str:
+        return "Backup radio"
+
+
+class _NoCommunicationFlow(_Flow):
+    def ask_choice(self, _question, choices, _why) -> str:
+        self.choice_history.append(list(choices))
+        return "__no_communication__"
+
+
+class _NamedCommunicationFlow(_Flow):
+    def __init__(self, model: OAGraph, medium_name: str) -> None:
+        super().__init__(model)
+        self.medium_name = medium_name
+
+    def ask_choice(self, _question, choices, _why) -> str:
+        self.choice_history.append(list(choices))
+        for key, label in choices:
+            if label.removesuffix(" (already associated)") == self.medium_name:
+                return key
+        raise AssertionError(f"Communication method not offered: {self.medium_name}")
+
+
+def _base_interaction_model() -> tuple[OAGraph, str, str, str, str]:
+    graph = OAGraph()
+    soldier = _add(graph, "OperationalActor", "Soldier")
+    detector = _add(
+        graph,
+        "OperationalEntity",
+        "Threat detection system",
+        expects_activity=True,
+    )
+    report = _add(graph, "OperationalActivity", "Report threat engagement")
+    detect = _add(graph, "OperationalActivity", "Detect incoming threats")
+    assert graph.add_relation(soldier, "PERFORMS", report)[0]
+    assert graph.add_relation(detector, "PERFORMS", detect)[0]
+    assert graph.add_relation(
+        detect,
+        "OPERATIONAL_EXCHANGE",
+        report,
+        name="Threat report",
+    )[0]
+    return graph, soldier, detector, report, detect
+
+
+def _communication_data(graph: OAGraph):
+    return [
+        data
+        for _source, _target, data in graph.graph.edges(data=True)
+        if data.get("type") == "COMMUNICATION_MEAN"
+    ]
+
+
+def _exchange_data(graph: OAGraph, name: str):
+    return next(
+        data
+        for _source, _target, data in graph.graph.edges(data=True)
+        if data.get("type") == "OPERATIONAL_EXCHANGE" and data.get("name") == name
+    )
+
+
+def _has_ref(data: dict, source_action: str, target_action: str, exchange_name: str) -> bool:
+    return any(
+        ref.get("source_activity_id") == source_action
+        and ref.get("target_activity_id") == target_action
+        and ref.get("exchange_name") == exchange_name
+        for ref in data.get("exchange_refs", [])
+        if isinstance(ref, dict)
+    )
+
+
+def test_new_communication_mean_records_the_exchange_it_carries():
+    graph, _soldier, _detector, report, detect = _base_interaction_model()
+    _Flow(graph).capture_communication()
+
+    communication = _communication_data(graph)
+    assert len(communication) == 1
+    assert communication[0]["name"] == "Radio link"
+    assert communication[0]["exchange_refs"] == [
+        {
+            "source_activity_id": detect,
+            "target_activity_id": report,
+            "exchange_name": "Threat report",
+        }
+    ]
+    assert _exchange_data(graph, "Threat report")["communication_assignment"] == "assigned"
+
+
+def test_existing_single_communication_mean_is_explicitly_offered_and_linked():
+    graph, soldier, detector, report, detect = _base_interaction_model()
+    assert graph.add_relation(
+        detector,
+        "COMMUNICATION_MEAN",
+        soldier,
+        name="Radio link",
+    )[0]
+
+    flow = _Flow(graph)
+    flow.capture_communication_for_exchange(detect, report, "Threat report")
+
+    assert flow.choice_history
+    labels = [label for _key, label in flow.choice_history[0]]
+    assert "Radio link" in labels
+    assert "+ Add new communication method" in labels
+    assert "No communication method / leave unassigned" in labels
+
+    refs = _communication_data(graph)[0]["exchange_refs"]
+    assert refs == [
+        {
+            "source_activity_id": detect,
+            "target_activity_id": report,
+            "exchange_name": "Threat report",
+        }
+    ]
+
+
+def test_existing_single_communication_mean_can_be_reused_for_new_exchanges():
+    graph, soldier, detector, report, detect = _base_interaction_model()
+    assert graph.add_relation(
+        detector,
+        "COMMUNICATION_MEAN",
+        soldier,
+        name="Radio link",
+    )[0]
+
+    flow = _Flow(graph)
+    flow.capture_communication()
+
+    engage = _add(graph, "OperationalActivity", "Engage threats")
+    assert graph.add_relation(soldier, "PERFORMS", engage)[0]
+    assert graph.add_relation(
+        detect,
+        "OPERATIONAL_EXCHANGE",
+        engage,
+        name="Engagement command",
+    )[0]
+
+    flow.capture_communication_for_exchange(detect, engage, "Engagement command")
+    refs = _communication_data(graph)[0]["exchange_refs"]
+    assert len(refs) == 2
+    assert {
+        "source_activity_id": detect,
+        "target_activity_id": engage,
+        "exchange_name": "Engagement command",
+    } in refs
+
+
+def test_first_explicit_link_migrates_unambiguous_legacy_exchanges():
+    graph, soldier, detector, report, detect = _base_interaction_model()
+    engage = _add(graph, "OperationalActivity", "Engage threats")
+    assert graph.add_relation(soldier, "PERFORMS", engage)[0]
+    assert graph.add_relation(
+        detect,
+        "OPERATIONAL_EXCHANGE",
+        engage,
+        name="Threat location",
+    )[0]
+    assert graph.add_relation(
+        detector,
+        "COMMUNICATION_MEAN",
+        soldier,
+        name="Radio link",
+    )[0]
+
+    # The loaded legacy model has one medium and no exchange_refs. Associating
+    # one exchange must preserve the other old exchange that was previously
+    # unambiguously carried by the same medium.
+    _Flow(graph).capture_communication_for_exchange(detect, report, "Threat report")
+
+    refs = _communication_data(graph)[0]["exchange_refs"]
+    assert {
+        "source_activity_id": detect,
+        "target_activity_id": report,
+        "exchange_name": "Threat report",
+    } in refs
+    assert {
+        "source_activity_id": detect,
+        "target_activity_id": engage,
+        "exchange_name": "Threat location",
+    } in refs
+
+
+def test_explicit_no_communication_is_persisted_to_prevent_legacy_inference():
+    graph, soldier, detector, report, detect = _base_interaction_model()
+    assert graph.add_relation(
+        detector,
+        "COMMUNICATION_MEAN",
+        soldier,
+        name="Radio link",
+    )[0]
+
+    _NoCommunicationFlow(graph).capture_communication_for_exchange(
+        detect,
+        report,
+        "Threat report",
+    )
+
+    assert _exchange_data(graph, "Threat report")["communication_assignment"] == "none"
+    assert not _communication_data(graph)[0].get("exchange_refs")
+
+
+def test_changing_an_assigned_exchange_to_no_communication_removes_the_old_reference():
+    graph, soldier, detector, report, detect = _base_interaction_model()
+    assert graph.add_relation(
+        detector,
+        "COMMUNICATION_MEAN",
+        soldier,
+        name="Radio link",
+    )[0]
+
+    _NamedCommunicationFlow(graph, "Radio link").capture_communication_for_exchange(
+        detect, report, "Threat report"
+    )
+    radio = next(item for item in _communication_data(graph) if item["name"] == "Radio link")
+    assert _has_ref(radio, detect, report, "Threat report")
+
+    _NoCommunicationFlow(graph).capture_communication_for_exchange(
+        detect, report, "Threat report"
+    )
+
+    assert _exchange_data(graph, "Threat report")["communication_assignment"] == "none"
+    assert not _has_ref(radio, detect, report, "Threat report")
+
+
+def test_switching_communication_method_moves_the_exchange_reference_instead_of_duplicating_it():
+    graph, soldier, detector, report, detect = _base_interaction_model()
+    assert graph.add_relation(detector, "COMMUNICATION_MEAN", soldier, name="Radio link")[0]
+    assert graph.add_relation(detector, "COMMUNICATION_MEAN", soldier, name="Backup radio")[0]
+
+    _NamedCommunicationFlow(graph, "Radio link").capture_communication_for_exchange(
+        detect, report, "Threat report"
+    )
+    _NamedCommunicationFlow(graph, "Backup radio").capture_communication_for_exchange(
+        detect, report, "Threat report"
+    )
+
+    by_name = {item["name"]: item for item in _communication_data(graph)}
+    assert not _has_ref(by_name["Radio link"], detect, report, "Threat report")
+    assert _has_ref(by_name["Backup radio"], detect, report, "Threat report")
+    assert _exchange_data(graph, "Threat report")["communication_assignment"] == "assigned"
+
+
+def test_user_can_add_another_communication_mean_for_the_same_interaction_pair():
+    graph, soldier, detector, report, detect = _base_interaction_model()
+    assert graph.add_relation(
+        detector,
+        "COMMUNICATION_MEAN",
+        soldier,
+        name="Radio link",
+    )[0]
+
+    flow = _NewCommunicationFlow(graph)
+    flow.capture_communication_for_exchange(detect, report, "Threat report")
+
+    communication = _communication_data(graph)
+    assert {item["name"] for item in communication} == {"Radio link", "Backup radio"}
+    backup = next(item for item in communication if item["name"] == "Backup radio")
+    assert backup["exchange_refs"] == [
+        {
+            "source_activity_id": detect,
+            "target_activity_id": report,
+            "exchange_name": "Threat report",
+        }
+    ]
