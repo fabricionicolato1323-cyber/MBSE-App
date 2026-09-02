@@ -1,0 +1,60 @@
+@prefix oa: <https://github.com/fabricionicolato1323-cyber/MBSE-App/knowledge/arcadia/oa#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+#################################################################
+# Role realization and System-of-Interest boundary checks
+#################################################################
+
+oa:OperationalRoleRealizerShape
+    a sh:NodeShape ;
+    sh:targetClass oa:OperationalRole ;
+    sh:property [
+        sh:path [ sh:inversePath oa:realizesRole ] ;
+        sh:minCount 1 ;
+        sh:class oa:OperationalEntity ;
+        sh:severity sh:Warning ;
+        sh:message "O papel operacional ainda não possui um participante real que o realize."@pt
+    ] .
+
+oa:ParticipantBoundaryCandidateShape
+    a sh:NodeShape ;
+    sh:targetClass oa:ParticipantBoundaryCandidate ;
+    sh:property [
+        sh:path oa:hasRoleRealizationKind ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class oa:RoleRealizationKind ;
+        sh:severity sh:Warning ;
+        sh:message "O candidato ainda precisa esclarecer quem ou o que realiza o papel antes da persistência."@pt
+    ] .
+
+oa:SolutionRealizationCandidateShape
+    a sh:NodeShape ;
+    sh:targetClass oa:ParticipantBoundaryCandidate ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:severity sh:Info ;
+        sh:message "O candidato foi identificado como a solução em definição e não deve ser persistido como participante da Análise Operacional."@pt ;
+        sh:select """
+            PREFIX oa: <https://github.com/fabricionicolato1323-cyber/MBSE-App/knowledge/arcadia/oa#>
+            SELECT $this WHERE {
+              $this oa:hasRoleRealizationKind oa:SolutionBeingDesignedRealization .
+            }
+        """
+    ] .
+
+oa:ExistingTechnicalParticipantBoundaryShape
+    a sh:NodeShape ;
+    sh:targetClass oa:OperationalEntity ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:severity sh:Violation ;
+        sh:message "Um participante técnico marcado como sistema de interesse não pertence à Análise Operacional; confirme se ele é realmente externo/existente ou se é a solução em definição."@pt ;
+        sh:select """
+            PREFIX oa: <https://github.com/fabricionicolato1323-cyber/MBSE-App/knowledge/arcadia/oa#>
+            SELECT $this WHERE {
+              $this oa:hasParticipantNature oa:ExistingTechnicalSystemNature ;
+                    oa:isSystemOfInterest true .
+            }
+        """
+    ] .
