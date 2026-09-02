@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import re
 
+from semantic_frames import looks_structurally_complex, parse_simple_activity_frame
+from terminal_ui import EXPECTED_STRUCTURES
+from validator import normalize_whitespace
+
 
 class ConversationalSurfaceMixin:
     """Use an active local LLM only to naturalize already-decided questions.
@@ -9,10 +13,9 @@ class ConversationalSurfaceMixin:
     The semantic process remains authoritative outside the LLM. When ``self.llm``
     is ``None`` the original question is rendered unchanged. When a local model is
     active, it may rephrase the question for conversational flow, but it cannot
-    change choices, write model facts, select the next step, or alter validation.
+    change choices, write model facts, select the next step, extract candidates,
+    classify participants, or decompose activities.
     """
-
-    _allow_llm_semantic_parsing = False
 
     @staticmethod
     def _quoted_literals(value: str) -> tuple[str, ...]:
@@ -86,9 +89,53 @@ class ConversationalSurfaceMixin:
         )
 
     def capture_goal_candidates(self, goals: list[tuple[str, str]]) -> None:
-        """Do not use the LLM as a semantic candidate extractor.
-
-        Participant discovery remains in the normal guided/KG flow. This deliberate
-        no-op prevents activating conversational AI from changing model semantics.
-        """
+        """Never use an active LLM as a semantic candidate extractor."""
         del goals
+
+    def ask_activity_frames(self, participant_id: str) -> tuple[str, dict]:
+        """Keep activity interpretation deterministic when conversational AI is on.
+
+        Simple sentences use the existing deterministic parser. Complex sentences
+        are preserved as one user-authored activity through the minimal structural
+        fallback; the LLM is never asked to interpret or decompose their meaning.
+        """
+        participant_name = self.model.name(participant_id)
+        self.current_why = (
+            "The action structure identifies who performs the behavior while the "
+            "user remains authoritative for its meaning."
+        )
+
+        while True:
+            self.draw_question(
+                f"What does {participant_name} do?",
+                explanation=(
+                    "Describe one action or a natural sentence. The conversational "
+                    "AI may rephrase this question, but it does not interpret your answer."
+                ),
+                expected_structure=EXPECTED_STRUCTURES["OperationalActivity"],
+            )
+            value = input("> ").strip()
+
+            if self.command(value):
+                continue
+            if value.startswith("/"):
+                self.add_notice("That command is not available in this step.")
+                continue
+
+            normalized = normalize_whitespace(value)
+            if not normalized:
+                self.add_notice("Please enter an activity.")
+                continue
+
+            frame_result = None
+            if not looks_structurally_complex(normalized):
+                frame_result = parse_simple_activity_frame(
+                    normalized,
+                    default_subject=participant_name,
+                )
+
+            return normalized, self._sanitize_activity_frame(
+                frame_result,
+                normalized,
+                participant_name,
+            )
