@@ -9,6 +9,9 @@ Este pacote contém uma referência aprofundada e uma implementação inicial de
 3. `03_arcadia_oa_reference_claims.ttl` — afirmações atômicas consultáveis para help/RAG controlado.
 4. `04_arcadia_oa_shapes.ttl` — regras SHACL para comparar e validar o modelo do usuário.
 5. `05_blueprint_integracao_ollama_knowledge_graph.md` — arquitetura, schemas, consultas, anti-alucinação, tempos e sequência de implementação.
+6. `06_role_boundary_ontology.ttl` — extensão semântica para papel operacional, realização do papel, natureza do participante e pistas linguísticas de fronteira.
+7. `07_role_boundary_claims.ttl` — políticas e evidências consultáveis sobre `role vs. realizer`, participante técnico existente e System of Interest.
+8. `08_role_boundary_shapes.ttl` — regras SHACL para papel sem realizador e contaminação da OA pelo System of Interest.
 
 ## Princípio de arquitetura
 
@@ -24,6 +27,30 @@ flowchart TD
 ```
 
 O Reference Graph é a fonte autorizada para ajuda sobre Arcadia. O Project Graph contém somente dados aprovados pelo usuário. A LLM interpreta e verbaliza; ela não é aceita como fonte de verdade.
+
+### Role realization e fronteira do sistema
+
+A extensão de fronteira mantém quatro decisões separadas:
+
+```text
+User phrase
+   ↓
+Knowledge Graph lexical cue
+   ↓
+Role-like? ── yes ──> Who/what realizes the role?
+   │                         ↓
+   │                 human / existing technical / solution
+   │
+   └─ technical? ──> existing operational participant or solution being designed?
+                             ↓
+                    explicit user decision
+                             ↓
+                    approved Project Graph only
+```
+
+Palavras como `manager`, `controller` e `operator` são armazenadas no KG como **heurísticas linguísticas**, não como prova de que o elemento seja humano. Do mesmo modo, palavras como `system`, `device` e `platform` apenas abrem uma decisão de fronteira. O System of Interest continua proibido na Operational Analysis.
+
+Quando um participante aprovado realiza um papel, a projeção RDF cria uma relação derivada `oa:realizesRole`. A natureza confirmada do participante também é projetada via `oa:hasParticipantNature`. Isso permite que SHACL e o Next Best Question Engine consumam semântica mais rica sem transferir autoridade de escrita para o Knowledge Graph.
 
 ## Namespace
 
