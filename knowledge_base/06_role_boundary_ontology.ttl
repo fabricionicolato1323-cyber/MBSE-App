@@ -1,0 +1,175 @@
+@prefix oa: <https://github.com/fabricionicolato1323-cyber/MBSE-App/knowledge/arcadia/oa#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+#################################################################
+# Application semantic extension: role realization and OA boundary
+#################################################################
+
+# These concepts are application semantics used to prevent a linguistic role
+# label from being mistaken for proof that the participant is human. They do
+# not replace the Arcadia Actor / Entity concepts.
+
+oa:OperationalRole a owl:Class ;
+    rdfs:subClassOf oa:ModelElement ;
+    rdfs:label "Operational role"@en , "papel operacional"@pt ;
+    skos:definition "A responsibility or role label used during elicitation. A role does not determine whether its realizer is a person, organization, existing technical participant, or the solution being designed."@en ;
+    oa:guidanceStatus oa:ApplicationPolicy .
+
+oa:ParticipantBoundaryCandidate a owl:Class ;
+    rdfs:subClassOf oa:ModelElement ;
+    rdfs:label "Participant boundary candidate"@en , "candidato de fronteira de participante"@pt ;
+    skos:definition "Transient elicitation concept used before persistence when a participant label may denote a role, an existing technical participant, or the solution being designed."@en ;
+    oa:guidanceStatus oa:ApplicationPolicy .
+
+oa:RoleRealizationKind a owl:Class ;
+    rdfs:subClassOf oa:ModelElement ;
+    rdfs:label "Role realization kind"@en , "tipo de realização de papel"@pt ;
+    oa:guidanceStatus oa:ApplicationPolicy .
+
+oa:HumanRoleRealization a oa:RoleRealizationKind ;
+    rdfs:label "Person or human role"@en .
+
+oa:OrganizationRoleRealization a oa:RoleRealizationKind ;
+    rdfs:label "Existing organization or group"@en .
+
+oa:ExistingTechnicalRoleRealization a oa:RoleRealizationKind ;
+    rdfs:label "Existing technical participant"@en .
+
+oa:SolutionBeingDesignedRealization a oa:RoleRealizationKind ;
+    rdfs:label "Solution being designed"@en .
+
+oa:UnresolvedRoleRealization a oa:RoleRealizationKind ;
+    rdfs:label "Unresolved realization"@en .
+
+#################################################################
+# Participant nature vocabulary used by the Project RDF projection
+#################################################################
+
+oa:OrganizationNature a oa:ParticipantNature ;
+    rdfs:label "Organization"@en .
+
+oa:OrganizationalUnitNature a oa:ParticipantNature ;
+    rdfs:label "Organizational unit"@en .
+
+oa:ExistingTechnicalSystemNature a oa:ParticipantNature ;
+    rdfs:label "Existing technical system"@en .
+
+oa:InfrastructureOrFacilityNature a oa:ParticipantNature ;
+    rdfs:label "Infrastructure or facility"@en .
+
+oa:ExternalOperationalServiceNature a oa:ParticipantNature ;
+    rdfs:label "External operational service"@en .
+
+oa:PopulationOrCommunityNature a oa:ParticipantNature ;
+    rdfs:label "Population or community"@en .
+
+oa:UnspecifiedParticipantNature a oa:ParticipantNature ;
+    rdfs:label "Unspecified participant nature"@en .
+
+#################################################################
+# Semantic relations
+#################################################################
+
+oa:realizesRole a owl:ObjectProperty ;
+    rdfs:domain oa:OperationalEntity ;
+    rdfs:range oa:OperationalRole ;
+    rdfs:label "realizes role"@en , "realiza papel"@pt ;
+    oa:guidanceStatus oa:ApplicationPolicy .
+
+oa:hasParticipantNature a owl:ObjectProperty ;
+    rdfs:domain oa:OperationalEntity ;
+    rdfs:range oa:ParticipantNature ;
+    rdfs:label "has participant nature"@en ;
+    oa:guidanceStatus oa:ApplicationPolicy .
+
+oa:hasRoleRealizationKind a owl:ObjectProperty ;
+    rdfs:domain oa:ParticipantBoundaryCandidate ;
+    rdfs:range oa:RoleRealizationKind ;
+    rdfs:label "has role realization kind"@en ;
+    oa:guidanceStatus oa:ApplicationPolicy .
+
+oa:candidateLabel a owl:DatatypeProperty ;
+    rdfs:domain oa:ParticipantBoundaryCandidate ;
+    rdfs:range xsd:string ;
+    rdfs:label "candidate label"@en ;
+    oa:guidanceStatus oa:ApplicationPolicy .
+
+oa:requiresClarification a owl:DatatypeProperty ;
+    rdfs:domain oa:ParticipantBoundaryCandidate ;
+    rdfs:range xsd:boolean ;
+    rdfs:label "requires clarification"@en ;
+    oa:guidanceStatus oa:ApplicationPolicy .
+
+#################################################################
+# Linguistic cues stored in the Knowledge Graph
+#################################################################
+
+oa:ParticipantLexicalCue a owl:Class ;
+    rdfs:subClassOf oa:ModelElement ;
+    rdfs:label "Participant lexical cue"@en ;
+    oa:guidanceStatus oa:LinguisticHeuristic .
+
+oa:RoleLikeCue a owl:Class ;
+    rdfs:subClassOf oa:ParticipantLexicalCue ;
+    rdfs:label "Role-like cue"@en .
+
+oa:TechnicalCue a owl:Class ;
+    rdfs:subClassOf oa:ParticipantLexicalCue ;
+    rdfs:label "Technical cue"@en .
+
+oa:ExistingTechnicalCue a owl:Class ;
+    rdfs:subClassOf oa:ParticipantLexicalCue ;
+    rdfs:label "Existing/external cue"@en .
+
+oa:SolutionCue a owl:Class ;
+    rdfs:subClassOf oa:ParticipantLexicalCue ;
+    rdfs:label "Solution cue"@en .
+
+oa:lexicalForm a owl:DatatypeProperty ;
+    rdfs:domain oa:ParticipantLexicalCue ;
+    rdfs:range xsd:string ;
+    rdfs:label "lexical form"@en ;
+    oa:guidanceStatus oa:LinguisticHeuristic .
+
+# Role-like words are evidence of a responsibility label, not proof of a human.
+oa:cue_role_manager a oa:RoleLikeCue ; oa:lexicalForm "manager" .
+oa:cue_role_controller a oa:RoleLikeCue ; oa:lexicalForm "controller" .
+oa:cue_role_operator a oa:RoleLikeCue ; oa:lexicalForm "operator" .
+oa:cue_role_supervisor a oa:RoleLikeCue ; oa:lexicalForm "supervisor" .
+oa:cue_role_coordinator a oa:RoleLikeCue ; oa:lexicalForm "coordinator" .
+oa:cue_role_dispatcher a oa:RoleLikeCue ; oa:lexicalForm "dispatcher" .
+
+# Technical nouns require a boundary decision unless they are explicitly existing/external.
+oa:cue_technical_system a oa:TechnicalCue ; oa:lexicalForm "system" .
+oa:cue_technical_device a oa:TechnicalCue ; oa:lexicalForm "device" .
+oa:cue_technical_equipment a oa:TechnicalCue ; oa:lexicalForm "equipment" .
+oa:cue_technical_machine a oa:TechnicalCue ; oa:lexicalForm "machine" .
+oa:cue_technical_network a oa:TechnicalCue ; oa:lexicalForm "network" .
+oa:cue_technical_vehicle a oa:TechnicalCue ; oa:lexicalForm "vehicle" .
+oa:cue_technical_application a oa:TechnicalCue ; oa:lexicalForm "application" .
+oa:cue_technical_platform a oa:TechnicalCue ; oa:lexicalForm "platform" .
+oa:cue_technical_software a oa:TechnicalCue ; oa:lexicalForm "software" .
+oa:cue_technical_module a oa:TechnicalCue ; oa:lexicalForm "module" .
+oa:cue_technical_sensor a oa:TechnicalCue ; oa:lexicalForm "sensor" .
+
+oa:cue_existing_existing a oa:ExistingTechnicalCue ; oa:lexicalForm "existing" .
+oa:cue_existing_external a oa:ExistingTechnicalCue ; oa:lexicalForm "external" .
+oa:cue_existing_legacy a oa:ExistingTechnicalCue ; oa:lexicalForm "legacy" .
+oa:cue_existing_current a oa:ExistingTechnicalCue ; oa:lexicalForm "current" .
+
+oa:cue_solution_soi a oa:SolutionCue ; oa:lexicalForm "system of interest" .
+oa:cue_solution_designed a oa:SolutionCue ; oa:lexicalForm "solution being designed" .
+oa:cue_solution_to_build a oa:SolutionCue ; oa:lexicalForm "to be built" .
+oa:cue_solution_to_develop a oa:SolutionCue ; oa:lexicalForm "to be developed" .
+oa:cue_solution_proposed_system a oa:SolutionCue ; oa:lexicalForm "proposed system" .
+oa:cue_solution_proposed_solution a oa:SolutionCue ; oa:lexicalForm "proposed solution" .
+oa:cue_solution_new_system a oa:SolutionCue ; oa:lexicalForm "new system" .
+oa:cue_solution_future_system a oa:SolutionCue ; oa:lexicalForm "future system" .
+oa:cue_solution_new_platform a oa:SolutionCue ; oa:lexicalForm "new platform" .
+oa:cue_solution_future_platform a oa:SolutionCue ; oa:lexicalForm "future platform" .
+oa:cue_solution_new_application a oa:SolutionCue ; oa:lexicalForm "new application" .
+oa:cue_solution_proposed_application a oa:SolutionCue ; oa:lexicalForm "proposed application" .
