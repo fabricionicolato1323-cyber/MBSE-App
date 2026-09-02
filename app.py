@@ -13,6 +13,7 @@ from characteristics_flow import CharacteristicsFlowMixin
 from communication_exchange_link import CommunicationExchangeLinkFlowMixin
 from composition_flow import CompositionFlowMixin
 from guidance_flow import GuidanceFlowMixin
+from knowledge_graph_role_boundary import install_role_boundary_knowledge_support
 from minimal_input_policy import MinimalInputPolicyMixin
 from minimal_input_web_patch import install_minimal_web_input_policy
 from next_best_question_flow import install_next_best_question_support
@@ -24,9 +25,10 @@ from participant_composition import (
 from participant_flow import ParticipantFlowMixin
 
 
-# Extend the central graph before any OAApp instance is created. The installers
-# patch the shared graph/refinement classes in place, which also keeps the web
-# autosave subclass aligned with the terminal model without replacing its graph factory.
+# Extend the central graph and Knowledge Graph before any OAApp instance is created.
+# The installers patch shared classes in place, keeping terminal and web sessions on
+# the same semantic contracts without giving the Knowledge Graph write authority.
+install_role_boundary_knowledge_support()
 install_operational_actor_composition_support()
 install_characteristic_operator_support()
 install_characteristic_edit_support()
