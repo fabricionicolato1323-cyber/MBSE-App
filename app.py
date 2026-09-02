@@ -12,6 +12,7 @@ from composition_flow import CompositionFlowMixin
 from guidance_flow import GuidanceFlowMixin
 from minimal_input_policy import MinimalInputPolicyMixin
 from minimal_input_web_patch import install_minimal_web_input_policy
+from next_best_question_flow import install_next_best_question_support
 from participant_classification_simple import SimplifiedParticipantClassificationMixin
 from participant_composition import (
     OperationalActorCompositionFlowMixin,
@@ -29,6 +30,7 @@ install_characteristic_edit_support()
 install_change_impact_refinement_support()
 install_change_impact_finalize_support()
 install_minimal_web_input_policy()
+install_next_best_question_support()
 
 
 class OAApp(
