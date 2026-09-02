@@ -1,0 +1,45 @@
+@prefix oa: <https://github.com/fabricionicolato1323-cyber/MBSE-App/knowledge/arcadia/oa#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+
+#################################################################
+# Application-policy claims for role realization and OA boundary
+#################################################################
+
+oa:claim_role_label_not_human_proof_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-APP-ROLE-NOT-HUMAN-001" ;
+    oa:answersIntent "role_vs_realizer" ;
+    oa:answersIntent "controller_human_or_system" ;
+    oa:assertionText "Words such as manager, controller, operator, supervisor, coordinator, or dispatcher are linguistic evidence of a responsibility label. They are not sufficient proof that the realizer is a human participant."@en ;
+    oa:assertionText "Palavras como manager, controller, operator, supervisor, coordinator ou dispatcher são indícios linguísticos de um papel ou responsabilidade. Elas não provam, sozinhas, que o realizador seja uma pessoa."@pt ;
+    oa:aboutElement oa:OperationalRole ;
+    oa:guidanceStatus oa:LinguisticHeuristic .
+
+oa:claim_role_requires_realizer_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-APP-ROLE-REALIZER-001" ;
+    oa:answersIntent "role_vs_realizer" ;
+    oa:answersIntent "controller_human_or_system" ;
+    oa:assertionText "When a participant label appears to denote a role, the application should clarify who or what realizes that role before persisting the participant. A role may be realized by a person, an existing organization, an existing technical participant, or the solution being designed."@en ;
+    oa:assertionText "Quando o nome parece representar um papel, a aplicação deve esclarecer quem ou o que realiza esse papel antes de persistir o participante."@pt ;
+    oa:aboutElement oa:OperationalRole ;
+    oa:guidanceStatus oa:ApplicationPolicy .
+
+oa:claim_technical_boundary_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-APP-TECHNICAL-BOUNDARY-001" ;
+    oa:answersIntent "technical_participant_vs_soi" ;
+    oa:answersIntent "controller_human_or_system" ;
+    oa:assertionText "A technical participant is valid in Operational Analysis only when it already exists independently in the operational environment. If it is the solution being designed, it must not be persisted as an operational participant."@en ;
+    oa:assertionText "Um participante técnico é válido na Análise Operacional quando já existe independentemente no ambiente operacional. Se for a solução sendo projetada, não deve ser persistido como participante operacional."@pt ;
+    oa:aboutElement oa:ExistingTechnicalSystemNature ;
+    oa:guidanceStatus oa:ApplicationPolicy .
+
+oa:claim_role_solution_boundary_001 a oa:KnowledgeClaim ;
+    oa:identifier "CLAIM-APP-ROLE-SOI-BOUNDARY-001" ;
+    oa:answersIntent "role_vs_realizer" ;
+    oa:answersIntent "technical_participant_vs_soi" ;
+    oa:answersIntent "system_of_interest_in_oa" ;
+    oa:assertionText "If the realizer of an elicited role is the system or solution being defined, the role must not be used to introduce that solution into Operational Analysis as an Actor or Entity."@en ;
+    oa:assertionText "Se o realizador de um papel identificado for o sistema ou solução em definição, esse papel não deve ser usado para introduzir a solução na Análise Operacional como Actor ou Entity."@pt ;
+    oa:aboutElement oa:OperationalRole ;
+    oa:guidanceStatus oa:ArcadiaReference ;
+    prov:wasDerivedFrom oa:src_qa ;
+    oa:sourceLocator "section 5.1 of the PDF; Q&A 'Does the system appear in the operational analysis?'" .
