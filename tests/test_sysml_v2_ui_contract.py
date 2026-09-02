@@ -47,7 +47,7 @@ class SysMLV2UIContractTests(unittest.TestCase):
         self.assertIn("plan.relationship_creates", source)
         self.assertIn("plan.relationship_updates", source)
         self.assertIn("plan.relationship_deletes", source)
-        self.assertIn("`RELATIONSHIPS\\n${deltaText(relationshipDelta)}", source)
+        self.assertIn("RELATIONSHIPS\\n${deltaText(relationshipDelta)}", source)
         self.assertNotIn("`RELATIONSHIPS: unchanged\\n`", source)
 
     def test_noop_plan_does_not_post_a_write(self) -> None:
