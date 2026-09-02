@@ -15,6 +15,9 @@ concurrency:
   group: mbse-ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  PYTHONPATH: ${{ github.workspace }}
+
 jobs:
   sysml-contract:
     name: ArcadiaOA / SysML v2 contract
@@ -73,6 +76,9 @@ jobs:
 
       - name: Install test dependencies
         run: pip install pytest
+
+      - name: Validate local module resolution
+        run: python -c "import sam_connection, sam_level1_sync, sam_level1_transactional, sam_level1_incremental; print(sam_connection.__file__); print(sam_level1_sync.__file__); print(sam_level1_transactional.__file__); print(sam_level1_incremental.__file__)"
 
       - name: Run tests
         run: python -m pytest -q
