@@ -135,13 +135,11 @@ oa:lexicalForm a owl:DatatypeProperty ;
     rdfs:label "lexical form"@en ;
     oa:guidanceStatus oa:LinguisticHeuristic .
 
-# Role-like words are evidence of a responsibility label, not proof of a human.
+# Only high-ambiguity role terms trigger an extra realization question. Broader
+# role vocabulary remains available to the normal classifier so the guard does
+# not add cognitive load to obviously human labels such as "Crossing Operator".
 oa:cue_role_manager a oa:RoleLikeCue ; oa:lexicalForm "manager" .
 oa:cue_role_controller a oa:RoleLikeCue ; oa:lexicalForm "controller" .
-oa:cue_role_operator a oa:RoleLikeCue ; oa:lexicalForm "operator" .
-oa:cue_role_supervisor a oa:RoleLikeCue ; oa:lexicalForm "supervisor" .
-oa:cue_role_coordinator a oa:RoleLikeCue ; oa:lexicalForm "coordinator" .
-oa:cue_role_dispatcher a oa:RoleLikeCue ; oa:lexicalForm "dispatcher" .
 
 # Technical nouns require a boundary decision unless they are explicitly existing/external.
 oa:cue_technical_system a oa:TechnicalCue ; oa:lexicalForm "system" .
