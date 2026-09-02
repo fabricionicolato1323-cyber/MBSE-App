@@ -7,12 +7,19 @@ from pathlib import Path
 
 import sam_level1_incremental_runner as runner
 from sam_connection import SamSettings
+from sam_level1_communication_incremental import COMMUNICATION_TRACKING_REVISION
+from sam_level1_complete_incremental import (
+    COMPLETE_RELATIONSHIP_TRACKING_REVISION,
+    SCENARIO_STRUCTURE_REVISION,
+)
 from sam_level1_incremental import (
     SYNC_STATE_VERSION,
+    TRANSPORT_OWNERSHIP_REVISION,
     _edge_fingerprint,
     _other_edge_fingerprint,
     _scenario_fingerprint,
 )
+from sam_level1_scenario_incremental import SCENARIO_TRACKING_REVISION
 from sam_level1_sync import level1_snapshot_digest
 
 
@@ -20,7 +27,10 @@ class ManualSamChangeSetPreviewTests(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
         self.previous_root = runner._RUNTIME_ROOT
-        runner._RUNTIME_ROOT = Path(self.tempdir.name)
+        self.previous_base_root = runner._base._RUNTIME_ROOT
+        runtime_root = Path(self.tempdir.name)
+        runner._RUNTIME_ROOT = runtime_root
+        runner._base._RUNTIME_ROOT = runtime_root
         self.settings = SamSettings(
             server_url="https://sam.example",
             organization_id="org",
@@ -40,6 +50,7 @@ class ManualSamChangeSetPreviewTests(unittest.TestCase):
 
     def tearDown(self):
         runner._RUNTIME_ROOT = self.previous_root
+        runner._base._RUNTIME_ROOT = self.previous_base_root
         self.tempdir.cleanup()
 
     def _manifest(self, model=None):
@@ -55,6 +66,11 @@ class ManualSamChangeSetPreviewTests(unittest.TestCase):
         }
         return {
             "version": SYNC_STATE_VERSION,
+            "transport_ownership_revision": TRANSPORT_OWNERSHIP_REVISION,
+            "communication_tracking_revision": COMMUNICATION_TRACKING_REVISION,
+            "scenario_tracking_revision": SCENARIO_TRACKING_REVISION,
+            "scenario_structure_revision": SCENARIO_STRUCTURE_REVISION,
+            "complete_relationship_tracking_revision": COMPLETE_RELATIONSHIP_TRACKING_REVISION,
             "project_id": self.settings.project_id,
             "library_package_name": "MBSE_ArcadiaOA_Library_v1",
             "instance_package_name": "MBSE_Instance_Manual_Sync_Test_deadbeef",
@@ -62,6 +78,9 @@ class ManualSamChangeSetPreviewTests(unittest.TestCase):
             "snapshot_digest": level1_snapshot_digest(model, []),
             "nodes": nodes,
             "relationships": {},
+            "communication_means": {},
+            "scenarios": {},
+            "remaining_relationships": {},
             "relationship_tracking_complete": True,
             "other_edges_fingerprint": _other_edge_fingerprint(model),
             "edges_fingerprint": _edge_fingerprint(model),
@@ -148,7 +167,7 @@ class ManualSamChangeSetPreviewTests(unittest.TestCase):
         self.assertEqual(preview["relationship_creates"][0]["edge"]["name"], "Kill count")
         self.assertEqual(before, after)
 
-    def test_non_exchange_relationship_delta_remains_blocked(self):
+    def test_non_exchange_relationship_delta_remains_blocked_when_mixed_with_node_create(self):
         runner._save_manifest(self.model, self.settings, self._manifest())
         changed = copy.deepcopy(self.model)
         changed["nodes"].append(
@@ -177,7 +196,7 @@ class ManualSamChangeSetPreviewTests(unittest.TestCase):
         self.assertEqual(preview["delta"]["create"], 1)
         self.assertTrue(
             any(
-                "outside OPERATIONAL_EXCHANGE" in item
+                "must be synchronized separately from node" in item
                 for item in preview["unsupported_changes"]
             )
         )
