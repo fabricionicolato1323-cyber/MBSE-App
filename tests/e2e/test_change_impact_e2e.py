@@ -156,7 +156,6 @@ def test_loaded_activity_rename_previews_impact_then_returns_to_normal_colours(
             composer.fill("Detect incoming threats updated")
             composer.press("Enter")
 
-            # Preview: semantic model is unchanged; impact colours are visible.
             expect(
                 page.get_by_text(
                     "Rename action 'Detect incoming threats' to 'Detect incoming threats updated'?",
@@ -169,7 +168,7 @@ def test_loaded_activity_rename_previews_impact_then_returns_to_normal_colours(
                 "Detect incoming threats → Detect incoming threats updated",
                 timeout=20_000,
             )
-            expect(page.locator("#modelTextual .mbse-change-modified")).to_contain_text(
+            expect(page.locator("#modelTextual .mbse-change-modified").first).to_contain_text(
                 "Detect incoming threats",
                 timeout=20_000,
             )
@@ -193,7 +192,6 @@ def test_loaded_activity_rename_previews_impact_then_returns_to_normal_colours(
                 page.locator("#utilitySysmlView code .mbse-change-modified").first
             ).to_contain_text("Detect incoming threats", timeout=20_000)
 
-            # Commit: same ID/new name, and preview colours must disappear.
             page.get_by_role("button", name="Yes", exact=True).click()
             page.get_by_role("tab", name="Pseudo-code", exact=True).click()
             expect(page.locator("#modelTextual")).to_contain_text(
@@ -222,8 +220,6 @@ def test_loaded_activity_rename_previews_impact_then_returns_to_normal_colours(
             expect(page.locator("#utilitySysmlView code .mbse-change-impacted")).to_have_count(0)
             expect(page.locator("#utilitySysmlView .mbse-change-summary")).to_have_count(0)
 
-            # Syntax highlighting is presentation-only and remains active after
-            # the impact review is complete.
             expect(page.locator("#utilitySysmlView code .sysml-token-keyword").first).to_be_visible(
                 timeout=20_000
             )
