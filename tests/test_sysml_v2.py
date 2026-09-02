@@ -175,11 +175,11 @@ class SysMLV2GenerationTests(unittest.TestCase):
             text,
         )
         self.assertIn(
-            "from oa_activity_Detect_Threat.oa_exchange_1_out",
+            "from oa_operationalBehavior.oa_activity_Detect_Threat.oa_exchange_1_out",
             text,
         )
         self.assertIn(
-            "to oa_activity_Assess_Threat.oa_exchange_1_in;",
+            "to oa_operationalBehavior.oa_activity_Assess_Threat.oa_exchange_1_in;",
             text,
         )
         self.assertIn(
@@ -237,7 +237,6 @@ class SysMLV2GenerationTests(unittest.TestCase):
             text,
         )
         self.assertNotIn("UNMAPPED Arcadia relation LOCATED_IN", text)
-        # The operator remains structurally nested only under Control Center via CONTAINS.
         center_index = text.index("part oa_entity_Control_Center : OperationalEntity {")
         operator_index = text.index("part oa_actor_Operator : OperationalActor {")
         building_index = text.index("part oa_entity_Operations_Building : OperationalEntity")
@@ -265,7 +264,7 @@ class SysMLV2GenerationTests(unittest.TestCase):
         self.assertIn("action oa_activity_Respond_To_Threat : OperationalActivity {", text)
         self.assertIn("action oa_activity_Detect_Threat : OperationalActivity {", text)
         self.assertIn(
-            "from oa_activity_Respond_To_Threat.oa_activity_Detect_Threat.oa_exchange_1_out",
+            "from oa_operationalBehavior.oa_activity_Respond_To_Threat.oa_activity_Detect_Threat.oa_exchange_1_out",
             text,
         )
         self.assertIn(
