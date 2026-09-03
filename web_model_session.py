@@ -14,7 +14,7 @@ from model_io import (
     prepare_model_export,
     validate_model_payload,
 )
-from web_bridge import SessionRegistry, TerminalProcessSession, _write_json_atomic
+from web_bridge import ChatTurn, SessionRegistry, TerminalProcessSession, _write_json_atomic
 
 
 class ModelFileSession(TerminalProcessSession):
@@ -30,6 +30,7 @@ class ModelFileSession(TerminalProcessSession):
     ) -> None:
         self.base_model_path: Path | None = None
         self.model_name = str(model_name or "").strip() or None
+        self._undo_preserved_turns: list[ChatTurn] | None = None
         runtime_path = Path(runtime_dir).resolve()
         runtime_path.mkdir(parents=True, exist_ok=True)
         if initial_model is not None:
@@ -77,6 +78,139 @@ class ModelFileSession(TerminalProcessSession):
             daemon=True,
         )
         self._reader.start()
+
+    @staticmethod
+    def _turns_before_last_answer(turns: list[ChatTurn]) -> list[ChatTurn]:
+        """Keep the visible conversation through the question being revisited.
+
+        Undo removes the latest user answer and everything generated after it. The
+        assistant question immediately before that answer is intentionally kept,
+        so the browser can make it active again without rebuilding older rows.
+        """
+        for index in range(len(turns) - 1, -1, -1):
+            if turns[index].role == "user":
+                return list(turns[:index])
+        return list(turns)
+
+    def _publish_if_ready(self) -> None:
+        """During replay, advance protocol state without recreating chat turns."""
+        if not getattr(self, "_restoring", False):
+            return super()._publish_if_ready()
+
+        with self._lock:
+            if not self._waiting:
+                return
+            if self._stdout == self._published_stdout:
+                return
+            delta = self._stdout[len(self._published_stdout):]
+            self._published_stdout = self._stdout
+            self._active_prompt_raw = delta
+            self._append_diagnostic(delta)
+            clean = self._clean_assistant_text(delta)
+            self._refresh_draft_state(clean)
+
+    def send(
+        self,
+        value: str,
+        *,
+        display_value: str | None = None,
+        record_history: bool = True,
+    ) -> None:
+        """Replay answers without appending duplicate visible user messages."""
+        restoring = bool(getattr(self, "_restoring", False))
+        with self._lock:
+            visible_count = len(self.turns)
+        super().send(
+            value,
+            display_value=display_value,
+            record_history=record_history,
+        )
+        if restoring:
+            with self._lock:
+                del self.turns[visible_count:]
+                self.pending_draft = None
+
+    def _reset_runtime_for_replay(self) -> None:
+        """Reset worker state while retaining the stable visible chat prefix."""
+        preserved = list(self._undo_preserved_turns or [])
+        for path in (self.model_path, self.ai_command_path, self.ai_status_path):
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+        with self._lock:
+            self._stdout = ""
+            self._published_stdout = ""
+            self._active_prompt_raw = ""
+            self._waiting = False
+            self._closed = False
+            self._model_mtime_ns = 0
+            self.pending_draft = None
+            self.turns = preserved
+            self.process = None
+
+    def undo_last_decision(self) -> None:
+        """Fast rewind one user decision while preserving the visible chat.
+
+        The current guided implementation still needs deterministic replay to
+        rebuild the Python call stack. Replay is therefore kept as an internal
+        mechanism, but it is silent and runs with AI disabled. This avoids both
+        rebuilding every browser message and re-running conversational LLM calls.
+        AI is restored only after the previous modeling question is reached.
+        """
+        self._publish_if_ready()
+        with self._lock:
+            if not self.input_history:
+                raise RuntimeError("There is no previous user decision to undo.")
+            prior_history = list(self.input_history[:-1])
+            preserved_turns = self._turns_before_last_answer(self.turns)
+
+        ai_state = self.ai_snapshot()
+        active_ai_model = (
+            ai_state.get("model")
+            if ai_state.get("status") == "active"
+            else None
+        )
+
+        self._append_diagnostic("\n\n--- WEB UNDO: fast silent replay ---\n")
+        with self._lock:
+            self._restoring = True
+            self._undo_preserved_turns = preserved_turns
+
+        try:
+            self._terminate_worker()
+            self._reset_runtime_for_replay()
+            with self._lock:
+                self.input_history = prior_history
+                self._restoring = True
+
+            # Rebuild the deterministic call stack first. AI is intentionally off
+            # so historical questions are not conversationalized again.
+            self._launch_worker()
+            self._wait_until_waiting()
+
+            for value, display_value in prior_history:
+                self._wait_until_waiting()
+                self.send(
+                    value,
+                    display_value=display_value,
+                    record_history=False,
+                )
+                self._wait_until_waiting()
+
+            # Keep the old visible wording of the question being revisited. The
+            # worker's freshly reconstructed prompt still owns the interaction
+            # contract/buttons through _active_prompt_raw.
+            self._publish_if_ready()
+
+            # Restore only the AI runtime state; no historical prompt is sent to
+            # the model. The next new question can be conversationalized normally.
+            if active_ai_model:
+                self._wait_for_ai_model(str(active_ai_model))
+        finally:
+            with self._lock:
+                self._undo_preserved_turns = None
+                self._restoring = False
 
     def export_model(self, model_name: str) -> dict[str, Any]:
         try:
