@@ -92,6 +92,17 @@ def test_ai_off_goal_to_participant_flow(web_server):
             ).to_be_visible(timeout=20_000)
             page.get_by_role("button", name="No", exact=True).click()
 
+            # The KG-driven structural analyzer now surfaces explicit noun phrases
+            # from the goal before asking for completely new participants. Rejecting
+            # this candidate must return cleanly to the ordinary participant flow.
+            expect(
+                page.get_by_text(
+                    'You mentioned "authorized visitor". Should it be included in the operational picture?',
+                    exact=True,
+                )
+            ).to_be_visible(timeout=20_000)
+            page.get_by_role("button", name="No", exact=True).click()
+
             expect(
                 page.get_by_text(
                     "Would you like to add a participant or context element?",
