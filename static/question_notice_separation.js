@@ -102,52 +102,126 @@ function revisionAppendAssistantRow(chatRoot, turn, content, options = {}) {
   return row;
 }
 
-renderRevisionTurns = function separatedRevisionTurns(
-  turns,
-  {showQuestionTools = false, showQuestionHelp = true, canUndo = true} = {}
-) {
-  const chatRoot = document.getElementById('chat');
-  const signature = `${revisionTurnsSignature(turns)}:${showQuestionTools ? 'tools' : 'plain'}:${showQuestionHelp ? 'help' : 'no-help'}:${canUndo}:separated-notices`;
-  if (signature === revisionLastTurnsSignature) return;
-  revisionLastTurnsSignature = signature;
-  chatRoot.innerHTML = '';
-
-  const latestAssistant = revisionLatestAssistantTurn(turns);
-  let activeRow = null;
-
+function revisionDesiredRows(turns) {
+  const rows = [];
   turns.forEach(turn => {
     if (turn.role !== 'assistant') {
-      const row = document.createElement('div');
-      row.className = `message-row ${turn.role}`;
-      row.dataset.turnId = turn.id;
-      const bubble = document.createElement('div');
-      bubble.className = 'message-bubble';
-      bubble.textContent = turn.content;
-      row.appendChild(bubble);
-      chatRoot.appendChild(row);
+      rows.push({
+        id: turn.id,
+        role: turn.role,
+        turn,
+        content: turn.content,
+        notice: false,
+      });
       return;
     }
 
     const split = revisionSplitAssistantQuestion(turn.content);
     if (split.notice) {
-      revisionAppendAssistantRow(chatRoot, turn, split.notice, {notice: true});
+      rows.push({
+        id: `${turn.id}:notice`,
+        role: 'assistant',
+        turn,
+        content: split.notice,
+        notice: true,
+      });
     }
-
-    const isLatest = latestAssistant?.id === turn.id;
-    const questionRow = revisionAppendAssistantRow(
-      chatRoot,
+    rows.push({
+      id: turn.id,
+      role: 'assistant',
       turn,
-      split.question,
-      {
-        tools: showQuestionTools && isLatest,
-        showHelp: showQuestionHelp,
-        canUndo,
-      }
-    );
+      content: split.question,
+      notice: false,
+    });
+  });
+  return rows;
+}
 
-    if (isLatest) activeRow = questionRow;
+function revisionAppendDesiredRow(chatRoot, descriptor) {
+  if (descriptor.role === 'assistant') {
+    return revisionAppendAssistantRow(
+      chatRoot,
+      descriptor.turn,
+      descriptor.content,
+      {notice: descriptor.notice}
+    );
+  }
+
+  const row = document.createElement('div');
+  row.className = `message-row ${descriptor.role}`;
+  row.dataset.turnId = descriptor.id;
+  const bubble = document.createElement('div');
+  bubble.className = 'message-bubble';
+  bubble.textContent = descriptor.content;
+  row.appendChild(bubble);
+  chatRoot.appendChild(row);
+  return row;
+}
+
+function revisionRefreshQuestionTools(
+  chatRoot,
+  latestAssistant,
+  {showQuestionTools, showQuestionHelp, canUndo}
+) {
+  chatRoot.querySelectorAll('.question-context-controls').forEach(control => control.remove());
+  chatRoot.querySelectorAll('.question-message-wrap').forEach(bubble => {
+    bubble.classList.remove('question-message-wrap');
   });
 
+  if (!latestAssistant) return null;
+  const activeRow = [...chatRoot.children].find(
+    row => String(row.dataset.turnId || '') === String(latestAssistant.id || '')
+  ) || null;
+  if (!activeRow) return null;
+
+  if (showQuestionTools) {
+    const bubble = activeRow.querySelector('.message-bubble');
+    if (bubble) {
+      bubble.classList.add('question-message-wrap');
+      bubble.appendChild(
+        revisionQuestionTools(canUndo, {showHelp: showQuestionHelp})
+      );
+    }
+  }
+  return activeRow;
+}
+
+renderRevisionTurns = function separatedRevisionTurns(
+  turns,
+  {showQuestionTools = false, showQuestionHelp = true, canUndo = true} = {}
+) {
+  const chatRoot = document.getElementById('chat');
+  const signature = `${revisionTurnsSignature(turns)}:${showQuestionTools ? 'tools' : 'plain'}:${showQuestionHelp ? 'help' : 'no-help'}:${canUndo}:separated-notices:incremental`;
+  if (signature === revisionLastTurnsSignature) return;
+  revisionLastTurnsSignature = signature;
+
+  const desiredRows = revisionDesiredRows(turns);
+  const existingRows = [...chatRoot.children];
+  let commonPrefix = 0;
+  while (
+    commonPrefix < existingRows.length &&
+    commonPrefix < desiredRows.length &&
+    String(existingRows[commonPrefix].dataset.turnId || '') === desiredRows[commonPrefix].id
+  ) {
+    commonPrefix += 1;
+  }
+
+  // Preserve the stable history and only replace the changed tail. Undo normally
+  // removes the latest answer and following prompt, so the previous question row
+  // stays in place instead of the whole conversation flashing/rebuilding.
+  while (chatRoot.children.length > commonPrefix) {
+    chatRoot.removeChild(chatRoot.lastElementChild);
+  }
+  for (let index = commonPrefix; index < desiredRows.length; index += 1) {
+    revisionAppendDesiredRow(chatRoot, desiredRows[index]);
+  }
+
+  const latestAssistant = revisionLatestAssistantTurn(turns);
+  const activeRow = revisionRefreshQuestionTools(
+    chatRoot,
+    latestAssistant,
+    {showQuestionTools, showQuestionHelp, canUndo}
+  );
   revisionRevealActiveQuestion(chatRoot, activeRow);
 };
 
