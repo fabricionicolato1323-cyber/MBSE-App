@@ -26,7 +26,7 @@ oa:PrepFrom a oa:MentionPrepositionCue ; oa:lexicalForm "from" .
 oa:PrepAround a oa:MentionPrepositionCue ; oa:lexicalForm "around" .
 oa:PrepNear a oa:MentionPrepositionCue ; oa:lexicalForm "near" .
 
-# Clause markers
+# Clause and infinitive markers
 oa:ClauseIf a oa:ClauseMarkerCue ; oa:lexicalForm "if" .
 oa:ClauseWhen a oa:ClauseMarkerCue ; oa:lexicalForm "when" .
 oa:ClauseWhile a oa:ClauseMarkerCue ; oa:lexicalForm "while" .
@@ -36,6 +36,7 @@ oa:ClauseUnless a oa:ClauseMarkerCue ; oa:lexicalForm "unless" .
 oa:ClauseUntil a oa:ClauseMarkerCue ; oa:lexicalForm "until" .
 oa:ClauseBecause a oa:ClauseMarkerCue ; oa:lexicalForm "because" .
 oa:ClauseDuring a oa:ClauseMarkerCue ; oa:lexicalForm "during" .
+oa:InfinitiveTo a oa:InfinitiveMarkerCue ; oa:lexicalForm "to" .
 
 # Determiners
 oa:DeterminerA a oa:DeterminerCue ; oa:lexicalForm "a" .
@@ -74,6 +75,7 @@ oa:VerbDetect a oa:PredicateCue ; oa:lexicalForm "detect" .
 oa:VerbDestroy a oa:PredicateCue ; oa:lexicalForm "destroy" .
 oa:VerbEnable a oa:PredicateCue ; oa:lexicalForm "enable" .
 oa:VerbEnsure a oa:PredicateCue ; oa:lexicalForm "ensure" .
+oa:VerbEnter a oa:PredicateCue ; oa:lexicalForm "enter" .
 oa:VerbImprove a oa:PredicateCue ; oa:lexicalForm "improve" .
 oa:VerbKeep a oa:PredicateCue ; oa:lexicalForm "keep" .
 oa:VerbMaintain a oa:PredicateCue ; oa:lexicalForm "maintain" .
