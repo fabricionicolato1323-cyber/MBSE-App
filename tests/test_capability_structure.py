@@ -65,6 +65,17 @@ def test_two_predicates_keep_their_own_direct_object_mentions():
     }
 
 
+def test_infinitive_boundary_keeps_direct_object_candidate_concise():
+    analysis = _knowledge().analyze_capability_statement(
+        "Allow an authorized visitor to enter a facility safely."
+    )
+
+    mentions = {item.text.casefold() for item in analysis.mentions}
+    assert "authorized visitor" in mentions
+    assert "authorized visitor to enter a facility safely" not in mentions
+    assert len(analysis.capability_candidates) == 1
+
+
 def test_structural_mentions_cover_coordinated_modifiers_and_context_phrase():
     analysis = _knowledge().analyze_capability_statement(
         "Ensure safe vehicles and pedestrians passage through the crossing area."
