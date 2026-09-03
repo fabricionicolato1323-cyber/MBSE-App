@@ -58,13 +58,40 @@ def _adaptive_refinement_menu(self) -> str:
 
 
 def _add_missing_goal(self) -> None:
-    goal = self.ask_validated(
-        question="What is the main goal?",
-        explanation="Describe the desired outcome in one short sentence.",
-        expected_concept="OperationalCapability",
-        why="A goal gives the remaining model a clear outcome to support.",
-    )
-    self.add_node("OperationalCapability", goal)
+    while True:
+        source_text = self.ask_validated(
+            question="What is the main goal?",
+            explanation="Describe the desired outcome in one short sentence.",
+            expected_concept="OperationalCapability",
+            why="A goal gives the remaining model a clear outcome to support.",
+        )
+        resolver = getattr(self, "_confirmed_capability_texts", None)
+        confirmed = resolver(source_text) if callable(resolver) else [source_text]
+        if confirmed is not None:
+            break
+
+    analysis_fn = getattr(self, "_analyze_capability", None)
+    analysis = analysis_fn(source_text) if callable(analysis_fn) else None
+    new_goals: list[tuple[str, str]] = []
+    for goal_text in confirmed:
+        goal_id = self.add_node(
+            "OperationalCapability",
+            goal_text,
+            structural_source_text=source_text,
+            structural_analysis_source=(
+                "knowledge_graph" if analysis is not None else "guided_input"
+            ),
+            structural_complexity_score=(
+                analysis.complexity_score if analysis is not None else 0
+            ),
+            structural_predicate_count=(
+                len(analysis.predicate_texts) if analysis is not None else 0
+            ),
+        )
+        new_goals.append((goal_id, goal_text))
+
+    if new_goals:
+        self.capture_goal_candidates(new_goals)
 
 
 def _add_missing_participant(self) -> None:
