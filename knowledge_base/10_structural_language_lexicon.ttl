@@ -1,0 +1,93 @@
+@prefix oa: <https://github.com/fabricionicolato1323-cyber/MBSE-App/knowledge/arcadia/oa#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# Generic English structural vocabulary only. No scenario, industry, asset,
+# stakeholder, or application-domain terms belong in this file.
+
+oa:DefaultStructuralPolicy a oa:StructuralPolicy ;
+    oa:maxAcceptedTokens 40 ;
+    oa:maxCandidatePredicates 4 ;
+    oa:maxComplexityScore 5 .
+
+# Coordinators
+oa:CoordinatorAnd a oa:CoordinatorCue ; oa:lexicalForm "and" .
+oa:CoordinatorOr a oa:CoordinatorCue ; oa:lexicalForm "or" .
+
+# Mention-bearing prepositions
+oa:PrepFor a oa:MentionPrepositionCue ; oa:lexicalForm "for" .
+oa:PrepThrough a oa:MentionPrepositionCue ; oa:lexicalForm "through" .
+oa:PrepAcross a oa:MentionPrepositionCue ; oa:lexicalForm "across" .
+oa:PrepIn a oa:MentionPrepositionCue ; oa:lexicalForm "in" .
+oa:PrepOn a oa:MentionPrepositionCue ; oa:lexicalForm "on" .
+oa:PrepAt a oa:MentionPrepositionCue ; oa:lexicalForm "at" .
+oa:PrepWithin a oa:MentionPrepositionCue ; oa:lexicalForm "within" .
+oa:PrepWith a oa:MentionPrepositionCue ; oa:lexicalForm "with" .
+oa:PrepFrom a oa:MentionPrepositionCue ; oa:lexicalForm "from" .
+oa:PrepAround a oa:MentionPrepositionCue ; oa:lexicalForm "around" .
+oa:PrepNear a oa:MentionPrepositionCue ; oa:lexicalForm "near" .
+
+# Clause markers
+oa:ClauseIf a oa:ClauseMarkerCue ; oa:lexicalForm "if" .
+oa:ClauseWhen a oa:ClauseMarkerCue ; oa:lexicalForm "when" .
+oa:ClauseWhile a oa:ClauseMarkerCue ; oa:lexicalForm "while" .
+oa:ClauseBefore a oa:ClauseMarkerCue ; oa:lexicalForm "before" .
+oa:ClauseAfter a oa:ClauseMarkerCue ; oa:lexicalForm "after" .
+oa:ClauseUnless a oa:ClauseMarkerCue ; oa:lexicalForm "unless" .
+oa:ClauseUntil a oa:ClauseMarkerCue ; oa:lexicalForm "until" .
+oa:ClauseBecause a oa:ClauseMarkerCue ; oa:lexicalForm "because" .
+oa:ClauseDuring a oa:ClauseMarkerCue ; oa:lexicalForm "during" .
+
+# Determiners
+oa:DeterminerA a oa:DeterminerCue ; oa:lexicalForm "a" .
+oa:DeterminerAn a oa:DeterminerCue ; oa:lexicalForm "an" .
+oa:DeterminerThe a oa:DeterminerCue ; oa:lexicalForm "the" .
+oa:DeterminerThis a oa:DeterminerCue ; oa:lexicalForm "this" .
+oa:DeterminerThat a oa:DeterminerCue ; oa:lexicalForm "that" .
+
+# Generic outcome qualifiers
+oa:QualifierSafe a oa:QualifierCue ; oa:lexicalForm "safe" .
+oa:QualifierSecure a oa:QualifierCue ; oa:lexicalForm "secure" .
+oa:QualifierEfficient a oa:QualifierCue ; oa:lexicalForm "efficient" .
+oa:QualifierEffective a oa:QualifierCue ; oa:lexicalForm "effective" .
+oa:QualifierReliable a oa:QualifierCue ; oa:lexicalForm "reliable" .
+oa:QualifierContinuous a oa:QualifierCue ; oa:lexicalForm "continuous" .
+oa:QualifierTimely a oa:QualifierCue ; oa:lexicalForm "timely" .
+
+# Generic abstract outcome heads. They are linguistic cues, not domain entities.
+oa:OutcomeAccess a oa:OutcomeNounCue ; oa:lexicalForm "access" .
+oa:OutcomeAvailability a oa:OutcomeNounCue ; oa:lexicalForm "availability" .
+oa:OutcomePassage a oa:OutcomeNounCue ; oa:lexicalForm "passage" .
+oa:OutcomePerformance a oa:OutcomeNounCue ; oa:lexicalForm "performance" .
+oa:OutcomeResponse a oa:OutcomeNounCue ; oa:lexicalForm "response" .
+oa:OutcomeSafety a oa:OutcomeNounCue ; oa:lexicalForm "safety" .
+oa:OutcomeSecurity a oa:OutcomeNounCue ; oa:lexicalForm "security" .
+oa:OutcomeService a oa:OutcomeNounCue ; oa:lexicalForm "service" .
+
+# Domain-neutral predicate cues used only for structural segmentation. This is
+# replaceable data and can be extended without Python changes.
+oa:VerbAchieve a oa:PredicateCue ; oa:lexicalForm "achieve" .
+oa:VerbAllow a oa:PredicateCue ; oa:lexicalForm "allow" .
+oa:VerbAvoid a oa:PredicateCue ; oa:lexicalForm "avoid" .
+oa:VerbControl a oa:PredicateCue ; oa:lexicalForm "control" .
+oa:VerbCoordinate a oa:PredicateCue ; oa:lexicalForm "coordinate" .
+oa:VerbDetect a oa:PredicateCue ; oa:lexicalForm "detect" .
+oa:VerbEnable a oa:PredicateCue ; oa:lexicalForm "enable" .
+oa:VerbEnsure a oa:PredicateCue ; oa:lexicalForm "ensure" .
+oa:VerbImprove a oa:PredicateCue ; oa:lexicalForm "improve" .
+oa:VerbKeep a oa:PredicateCue ; oa:lexicalForm "keep" .
+oa:VerbMaintain a oa:PredicateCue ; oa:lexicalForm "maintain" .
+oa:VerbManage a oa:PredicateCue ; oa:lexicalForm "manage" .
+oa:VerbMaximize a oa:PredicateCue ; oa:lexicalForm "maximize" .
+oa:VerbMinimize a oa:PredicateCue ; oa:lexicalForm "minimize" .
+oa:VerbMonitor a oa:PredicateCue ; oa:lexicalForm "monitor" .
+oa:VerbPreserve a oa:PredicateCue ; oa:lexicalForm "preserve" .
+oa:VerbPrevent a oa:PredicateCue ; oa:lexicalForm "prevent" .
+oa:VerbProtect a oa:PredicateCue ; oa:lexicalForm "protect" .
+oa:VerbProvide a oa:PredicateCue ; oa:lexicalForm "provide" .
+oa:VerbReduce a oa:PredicateCue ; oa:lexicalForm "reduce" .
+oa:VerbReport a oa:PredicateCue ; oa:lexicalForm "report" .
+oa:VerbSafeguard a oa:PredicateCue ; oa:lexicalForm "safeguard" .
+oa:VerbSecure a oa:PredicateCue ; oa:lexicalForm "secure" .
+oa:VerbSupport a oa:PredicateCue ; oa:lexicalForm "support" .
+oa:VerbSustain a oa:PredicateCue ; oa:lexicalForm "sustain" .
+oa:VerbWarn a oa:PredicateCue ; oa:lexicalForm "warn" .
