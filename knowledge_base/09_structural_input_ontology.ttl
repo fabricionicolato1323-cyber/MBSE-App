@@ -23,6 +23,7 @@ oa:PredicateCue a owl:Class ; rdfs:subClassOf oa:StructuralCue .
 oa:CoordinatorCue a owl:Class ; rdfs:subClassOf oa:StructuralCue .
 oa:MentionPrepositionCue a owl:Class ; rdfs:subClassOf oa:StructuralCue .
 oa:ClauseMarkerCue a owl:Class ; rdfs:subClassOf oa:StructuralCue .
+oa:InfinitiveMarkerCue a owl:Class ; rdfs:subClassOf oa:StructuralCue .
 oa:DeterminerCue a owl:Class ; rdfs:subClassOf oa:StructuralCue .
 oa:QualifierCue a owl:Class ; rdfs:subClassOf oa:StructuralCue .
 oa:OutcomeNounCue a owl:Class ; rdfs:subClassOf oa:StructuralCue .
