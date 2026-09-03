@@ -5,6 +5,7 @@ from pathlib import Path
 
 import app_base as _base
 from app_base import *  # noqa: F401,F403 - preserve the public surface of app.py
+from capability_flow import CapabilityStructuralFlowMixin
 from change_impact_finalize import install_change_impact_finalize_support
 from change_impact_refinement import install_change_impact_refinement_support
 from characteristic_edit import install_characteristic_edit_support
@@ -15,6 +16,7 @@ from composition_flow import CompositionFlowMixin
 from conversational_surface import ConversationalSurfaceMixin
 from guidance_flow import GuidanceFlowMixin
 from knowledge_graph_role_boundary import install_role_boundary_knowledge_support
+from knowledge_graph_structural_input import install_structural_input_knowledge_support
 from llm_conversation import install_conversational_llm_support
 from minimal_input_policy import MinimalInputPolicyMixin
 from minimal_input_web_patch import install_minimal_web_input_policy
@@ -28,9 +30,10 @@ from participant_flow import ParticipantFlowMixin
 
 
 # Extend the central graph, Knowledge Graph, and local LLM client before any OAApp
-# instance is created. The LLM extension is presentation-only: it receives an
-# already-decided question and can only rephrase it.
+# instance is created. Structural input semantics stay in the KG; the LLM remains
+# presentation-only and receives only an already-decided question to rephrase.
 install_role_boundary_knowledge_support()
+install_structural_input_knowledge_support()
 install_conversational_llm_support()
 install_operational_actor_composition_support()
 install_characteristic_operator_support()
@@ -47,6 +50,7 @@ if Path(sys.argv[0]).name.casefold() == "web_worker.py":
 
 
 class OAApp(
+    CapabilityStructuralFlowMixin,
     ConversationalSurfaceMixin,
     GuidanceFlowMixin,
     MinimalInputPolicyMixin,
