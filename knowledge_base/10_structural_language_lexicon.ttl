@@ -71,6 +71,7 @@ oa:VerbAvoid a oa:PredicateCue ; oa:lexicalForm "avoid" .
 oa:VerbControl a oa:PredicateCue ; oa:lexicalForm "control" .
 oa:VerbCoordinate a oa:PredicateCue ; oa:lexicalForm "coordinate" .
 oa:VerbDetect a oa:PredicateCue ; oa:lexicalForm "detect" .
+oa:VerbDestroy a oa:PredicateCue ; oa:lexicalForm "destroy" .
 oa:VerbEnable a oa:PredicateCue ; oa:lexicalForm "enable" .
 oa:VerbEnsure a oa:PredicateCue ; oa:lexicalForm "ensure" .
 oa:VerbImprove a oa:PredicateCue ; oa:lexicalForm "improve" .
