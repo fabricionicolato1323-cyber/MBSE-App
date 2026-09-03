@@ -123,6 +123,7 @@ class CapabilityStructuralFlowMixin:
                 decision = self.confirm_participant_classification(
                     mention.text,
                     advisory_type=mention.suggested_concept,
+                    advisory_nature=mention.suggested_nature,
                     advisory_reason=(
                         "Candidate supplied by configured lexical Knowledge Graph data."
                         if mention.source == "lexical_knowledge"
