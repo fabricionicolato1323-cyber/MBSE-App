@@ -6,6 +6,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from rdflib import RDF
+
 from knowledge_graph import ArcadiaKnowledgeBase, OA
 from knowledge_graph_structural_input import install_structural_input_knowledge_support
 
@@ -112,14 +114,14 @@ oa:ExternalLexeme a oa:ParticipantLexeme ;
     assert mention.suggested_nature == "existing_technical_system"
 
 
-def test_analysis_is_materialized_only_in_transient_kg_graph():
+def test_analysis_is_materialized_in_transient_kg_graph():
     knowledge = _knowledge()
     knowledge.analyze_capability_statement("Detect targets.")
 
     transient = knowledge.last_structural_analysis
-    assert any(transient.subjects(predicate=None, object=OA.StructuralAnalysis)) is False
-    assert any(transient.subjects(None, OA.StructuralAnalysis)) is False
-    assert any(transient.subjects())
+    assert next(transient.subjects(RDF.type, OA.StructuralAnalysis), None) is not None
+    assert next(transient.subjects(RDF.type, OA.PredicateCandidate), None) is not None
+    assert next(transient.subjects(RDF.type, OA.MentionCandidate), None) is not None
     assert len(transient) > 0
 
 
