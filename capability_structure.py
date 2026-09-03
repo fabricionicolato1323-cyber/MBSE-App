@@ -123,6 +123,24 @@ def _independent_predicate_indices(
     return independent, non_independent
 
 
+def _predicate_segment_end(
+    tokens: list[_Token],
+    predicate_indices: list[int],
+    offset: int,
+    coordinators: frozenset[str],
+) -> int:
+    if offset + 1 >= len(predicate_indices):
+        return len(tokens)
+    next_predicate = predicate_indices[offset + 1]
+    end = next_predicate
+    previous = _previous_word_index(tokens, next_predicate)
+    if previous is not None and tokens[previous].normalized in coordinators:
+        end = previous
+    while end > predicate_indices[offset] and tokens[end - 1].text in {",", ";"}:
+        end -= 1
+    return end
+
+
 def _segment_capabilities(
     tokens: list[_Token],
     predicate_indices: list[int],
@@ -133,16 +151,7 @@ def _segment_capabilities(
 
     segments: list[list[_Token]] = []
     for offset, start in enumerate(predicate_indices):
-        if offset + 1 < len(predicate_indices):
-            next_predicate = predicate_indices[offset + 1]
-            end = next_predicate
-            previous = _previous_word_index(tokens, next_predicate)
-            if previous is not None and tokens[previous].normalized in coordinators:
-                end = previous
-            while end > start and tokens[end - 1].text in {",", ";"}:
-                end -= 1
-        else:
-            end = len(tokens)
+        end = _predicate_segment_end(tokens, predicate_indices, offset, coordinators)
         segments.append(tokens[start:end])
 
     # A coordinated verb can share the following object, e.g. "A and B item".
@@ -276,6 +285,30 @@ def _prepositional_mentions(
     return result
 
 
+def _direct_object_mentions(
+    tokens: list[_Token],
+    lexicon: StructuralLexicon,
+    predicate_indices: list[int],
+) -> list[CapabilityMention]:
+    result: list[CapabilityMention] = []
+    for offset, predicate_index in enumerate(predicate_indices):
+        end = _predicate_segment_end(tokens, predicate_indices, offset, lexicon.coordinators)
+        segment: list[_Token] = []
+        for current in range(predicate_index + 1, end):
+            item = tokens[current]
+            if item.normalized in lexicon.mention_prepositions:
+                break
+            if item.normalized in lexicon.clause_markers or item.text == ";":
+                break
+            segment.append(item)
+
+        if any(token.normalized in lexicon.outcome_nouns for token in segment):
+            continue
+        for text in _split_coordinated_mentions(segment, lexicon):
+            result.append(CapabilityMention(text=text, source="direct_object_structure"))
+    return result
+
+
 def _modifier_mentions(
     tokens: list[_Token],
     lexicon: StructuralLexicon,
@@ -362,6 +395,7 @@ def analyze_capability_structure(
         [
             *_lexeme_mentions(tokens, lexicon),
             *_prepositional_mentions(tokens, lexicon, set(independent)),
+            *_direct_object_mentions(tokens, lexicon, independent),
             *_modifier_mentions(
                 tokens,
                 lexicon,
