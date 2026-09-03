@@ -27,6 +27,7 @@ class StructuralLexicon:
     coordinators: frozenset[str]
     mention_prepositions: frozenset[str]
     clause_markers: frozenset[str]
+    infinitive_markers: frozenset[str]
     determiners: frozenset[str]
     qualifiers: frozenset[str]
     outcome_nouns: frozenset[str]
@@ -92,6 +93,24 @@ def _previous_word_index(tokens: list[_Token], index: int) -> int | None:
     return None
 
 
+def _next_word_index(tokens: list[_Token], index: int) -> int | None:
+    for current in range(index + 1, len(tokens)):
+        if tokens[current].text not in {",", ";"}:
+            return current
+    return None
+
+
+def _is_infinitive_boundary(
+    tokens: list[_Token],
+    index: int,
+    lexicon: StructuralLexicon,
+) -> bool:
+    if tokens[index].normalized not in lexicon.infinitive_markers:
+        return False
+    following = _next_word_index(tokens, index)
+    return following is not None and tokens[following].normalized in lexicon.predicates
+
+
 def _independent_predicate_indices(
     tokens: list[_Token],
     lexicon: StructuralLexicon,
@@ -154,9 +173,9 @@ def _segment_capabilities(
         end = _predicate_segment_end(tokens, predicate_indices, offset, coordinators)
         segments.append(tokens[start:end])
 
-    # A coordinated verb can share the following object, e.g. "A and B item".
-    # If a segment contains only its predicate, inherit only the following
-    # segment's post-predicate tail. This is a grammatical rule, not domain data.
+    # A coordinated verb can share the following object. If a segment contains
+    # only its predicate, inherit only the following segment's post-predicate tail.
+    # This is a grammatical rule, not domain data.
     for index in range(len(segments) - 1):
         words = [token for token in segments[index] if token.text not in {",", ";"}]
         if len(words) != 1:
@@ -296,6 +315,8 @@ def _direct_object_mentions(
         segment: list[_Token] = []
         for current in range(predicate_index + 1, end):
             item = tokens[current]
+            if _is_infinitive_boundary(tokens, current, lexicon):
+                break
             if item.normalized in lexicon.mention_prepositions:
                 break
             if item.normalized in lexicon.clause_markers or item.text == ";":
