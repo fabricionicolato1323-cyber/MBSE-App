@@ -117,6 +117,7 @@ def _structural_lexicon(knowledge: ArcadiaKnowledgeBase) -> StructuralLexicon:
         coordinators=_cue_forms(knowledge, OA.CoordinatorCue),
         mention_prepositions=_cue_forms(knowledge, OA.MentionPrepositionCue),
         clause_markers=_cue_forms(knowledge, OA.ClauseMarkerCue),
+        infinitive_markers=_cue_forms(knowledge, OA.InfinitiveMarkerCue),
         determiners=_cue_forms(knowledge, OA.DeterminerCue),
         qualifiers=_cue_forms(knowledge, OA.QualifierCue),
         outcome_nouns=_cue_forms(knowledge, OA.OutcomeNounCue),
