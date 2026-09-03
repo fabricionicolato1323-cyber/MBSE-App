@@ -1,0 +1,64 @@
+@prefix oa: <https://github.com/fabricionicolato1323-cyber/MBSE-App/knowledge/arcadia/oa#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# This extension models structural language analysis only. It contains no
+# application-domain vocabulary and does not write user facts into the project graph.
+
+oa:StructuralAnalysis a owl:Class ;
+    rdfs:label "Structural analysis"@en .
+
+oa:PredicateCandidate a owl:Class ;
+    rdfs:label "Predicate candidate"@en .
+
+oa:MentionCandidate a owl:Class ;
+    rdfs:label "Mention candidate"@en .
+
+oa:StructuralCue a owl:Class ;
+    rdfs:label "Structural cue"@en .
+
+oa:PredicateCue a owl:Class ; rdfs:subClassOf oa:StructuralCue .
+oa:CoordinatorCue a owl:Class ; rdfs:subClassOf oa:StructuralCue .
+oa:MentionPrepositionCue a owl:Class ; rdfs:subClassOf oa:StructuralCue .
+oa:ClauseMarkerCue a owl:Class ; rdfs:subClassOf oa:StructuralCue .
+oa:DeterminerCue a owl:Class ; rdfs:subClassOf oa:StructuralCue .
+oa:QualifierCue a owl:Class ; rdfs:subClassOf oa:StructuralCue .
+oa:OutcomeNounCue a owl:Class ; rdfs:subClassOf oa:StructuralCue .
+
+oa:ParticipantLexeme a owl:Class ;
+    rdfs:label "Optional participant lexeme"@en ;
+    rdfs:comment "A replaceable lexical knowledge item loaded as data, never application logic."@en .
+
+oa:StructuralPolicy a owl:Class ;
+    rdfs:label "Structural input policy"@en .
+
+oa:lexicalForm a owl:DatatypeProperty ;
+    rdfs:range xsd:string .
+
+oa:suggestedConcept a owl:DatatypeProperty ;
+    rdfs:range xsd:string .
+
+oa:suggestedNature a owl:DatatypeProperty ;
+    rdfs:range xsd:string .
+
+oa:sourceText a owl:DatatypeProperty ; rdfs:range xsd:string .
+oa:candidateText a owl:DatatypeProperty ; rdfs:range xsd:string .
+oa:predicateIndex a owl:DatatypeProperty ; rdfs:range xsd:integer .
+oa:complexityScore a owl:DatatypeProperty ; rdfs:range xsd:integer .
+oa:requiresSimplification a owl:DatatypeProperty ; rdfs:range xsd:boolean .
+oa:analysisConfidence a owl:DatatypeProperty ; rdfs:range xsd:string .
+oa:mentionSource a owl:DatatypeProperty ; rdfs:range xsd:string .
+
+oa:hasPredicate a owl:ObjectProperty ;
+    rdfs:domain oa:StructuralAnalysis ;
+    rdfs:range oa:PredicateCandidate .
+
+oa:hasMention a owl:ObjectProperty ;
+    rdfs:domain oa:StructuralAnalysis ;
+    rdfs:range oa:MentionCandidate .
+
+oa:maxAcceptedTokens a owl:DatatypeProperty ; rdfs:range xsd:integer .
+oa:maxCandidatePredicates a owl:DatatypeProperty ; rdfs:range xsd:integer .
+oa:maxComplexityScore a owl:DatatypeProperty ; rdfs:range xsd:integer .
