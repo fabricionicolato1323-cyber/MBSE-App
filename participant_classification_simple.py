@@ -51,16 +51,15 @@ class SimplifiedParticipantClassificationMixin:
         value: str,
         *,
         advisory_type: str | None = None,
+        advisory_nature: str = "unspecified",
         advisory_reason: str = "",
         advisory_source: str = "",
     ) -> tuple[str, str, dict] | None:
-        """Resolve role realization / system boundary before the two OA choices.
+        """Resolve KG lexical advice and the role/system boundary before persistence.
 
-        The Knowledge Graph supplies read-only semantic cues. The user still makes
-        every fact decision, and only the final confirmed Actor/Entity classification
-        is written to NetworkX.
+        All advice is read-only. The user remains the authority for every persistent
+        Actor/Entity classification, including suggestions loaded from external RDF.
         """
-        del advisory_type, advisory_reason, advisory_source
         normalized = normalize_whitespace(value)
         assessment = self._knowledge_boundary_assessment(normalized)
         role_labels: list[str] = []
@@ -123,9 +122,6 @@ class SimplifiedParticipantClassificationMixin:
                     self._reject_solution_candidate()
                     return None
 
-                # "other_existing" intentionally falls through to the normal
-                # two-choice classification, while retaining the role semantics.
-
             elif assessment.kind in {"technical_boundary", "solution_boundary"}:
                 boundary = self.ask_choice(
                     "How does this technical element relate to the solution you are defining?",
@@ -159,8 +155,6 @@ class SimplifiedParticipantClassificationMixin:
                 if boundary == "solution":
                     self._reject_solution_candidate()
                     return None
-                # If the user says the phrase is not technical, continue with the
-                # ordinary simplified classification rather than forcing a KG guess.
 
             elif assessment.kind == "existing_technical":
                 existing = self.ask_choice(
@@ -186,6 +180,46 @@ class SimplifiedParticipantClassificationMixin:
                         ),
                     )
 
+        boundary_kind = str(getattr(assessment, "kind", "neutral") or "neutral")
+        if (
+            advisory_type in {"OperationalActor", "OperationalEntity"}
+            and boundary_kind == "neutral"
+        ):
+            label = "Actor / human role" if advisory_type == "OperationalActor" else "Entity / context"
+            use_suggestion = self.ask_choice(
+                "The configured Knowledge Graph has a classification suggestion for this mention. How should it be used?",
+                [
+                    ("confirm", f"Use the Knowledge Graph suggestion: {label}"),
+                    ("different", "Classify it differently"),
+                ],
+                "External lexical knowledge is advisory data; you still confirm the persistent classification.",
+            )
+            if use_suggestion == "confirm":
+                concept = advisory_type
+                nature = (
+                    "human_individual"
+                    if concept == "OperationalActor"
+                    else (
+                        advisory_nature
+                        if advisory_nature and advisory_nature != "unspecified"
+                        else participant_nature_for_type(normalized, concept)
+                    )
+                )
+                return (
+                    concept,
+                    normalized,
+                    self._participant_attributes(
+                        nature=nature,
+                        reason=(
+                            advisory_reason
+                            or "The user confirmed a classification suggestion loaded from Knowledge Graph data."
+                        ),
+                        rules=kg_rules,
+                        boundary_status="kg_lexical_suggestion_confirmed",
+                        operational_roles=role_labels,
+                    ),
+                )
+
         choice = self.ask_choice(
             "How should this participant be classified?",
             [
@@ -208,12 +242,16 @@ class SimplifiedParticipantClassificationMixin:
             concept = "OperationalEntity"
             nature = participant_nature_for_type(normalized, concept)
 
+        reason = "Selected from the simplified two-option classification."
+        if advisory_source and advisory_type:
+            reason += " A configured Knowledge Graph suggestion was available but not selected."
+
         return (
             concept,
             normalized,
             self._participant_attributes(
                 nature=nature,
-                reason="Selected from the simplified two-option classification.",
+                reason=reason,
                 rules=kg_rules,
                 operational_roles=role_labels,
             ),
