@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -47,25 +48,20 @@ exit 0
         encoding="utf-8",
     )
     (fake_bin / "codex.cmd").write_text(
-        """@echo off
-if not "%~1"=="exec" goto invalid
-if not "%~2"=="--approve-for-me" goto invalid
-if not "%~3"=="--cd" goto invalid
-if not "%~4"=="%FAKE_REPO_ROOT%" goto invalid
-if "%~5"=="resume" goto resume
-if not "%~5"=="--json" goto invalid
-echo initial>>"%FAKE_CODEX_LOG%"
-goto output
-:resume
-if not "%~6"=="--json" goto invalid
-if not "%~7"=="test-thread" goto invalid
-echo resume:%~7>>"%FAKE_CODEX_LOG%"
-:output
-echo {"type":"thread.started","thread_id":"test-thread"}
-echo {"type":"item.completed","item":{"type":"agent_message","text":"done\\nUSER_DECISION_REQUIRED: no"}}
-exit /b 0
-:invalid
-exit /b 9
+        '@echo off\npython "%~dp0fake_codex.py" %*\n', encoding="utf-8"
+    )
+    (fake_bin / "fake_codex.py").write_text(
+        """import json
+import os
+import sys
+from pathlib import Path
+
+with Path(os.environ["FAKE_CODEX_LOG"]).open("a", encoding="utf-8") as log:
+    log.write(json.dumps(sys.argv[1:]) + "\\n")
+print(json.dumps({"type": "thread.started", "thread_id": "test-thread"}))
+print(json.dumps({"type": "item.completed", "item": {
+    "type": "agent_message", "text": "done\\nUSER_DECISION_REQUIRED: no"
+}}))
 """,
         encoding="utf-8",
     )
@@ -85,7 +81,6 @@ def _run_dev(root: Path, fake_bin: Path, script: Path, *, failures: int) -> subp
     env = os.environ.copy()
     env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
     env["FAKE_CODEX_LOG"] = str(root / "codex.log")
-    env["FAKE_REPO_ROOT"] = str(root)
     env["FAKE_PREFLIGHT_COUNT"] = str(root / "preflight-count.txt")
     env["FAKE_PREFLIGHT_FAILURES"] = str(failures)
     return subprocess.run(
@@ -119,8 +114,14 @@ def test_dev_reuses_coordinator_and_retries_preflight_twice(tmp_path: Path) -> N
     assert "User decision required: no" in result.stdout
     assert (root / "preflight-count.txt").read_text(encoding="utf-8").strip() == "3"
 
-    invocations = (root / "codex.log").read_text(encoding="utf-8").splitlines()
-    assert invocations == ["initial", "resume:test-thread", "resume:test-thread"]
+    invocations = [json.loads(line) for line in (root / "codex.log").read_text(encoding="utf-8").splitlines()]
+    assert len(invocations) == 3
+    common = ["exec", "--approve-for-me", "--ignore-user-config", "--cd", str(root)]
+    assert invocations[0][:-1] == common + ["--json"]
+    for invocation in invocations[1:]:
+        assert invocation[:-1] == common + ["resume", "--json", "test-thread"]
+        assert "Do not run scripts/preflight.ps1" in invocation[-1]
+        assert "Do not push, merge, commit, release, or trigger GitHub Actions" in invocation[-1]
 
 
 def test_dev_reports_failure_after_default_repair_limit(tmp_path: Path) -> None:
@@ -142,3 +143,24 @@ def test_dev_rejects_placeholder_task(tmp_path: Path) -> None:
     assert result.returncode == 2
     assert "must contain a concrete Goal" in result.stdout
     assert not (root / "codex.log").exists()
+
+
+def test_dev_sends_approved_task_and_active_python_instructions(tmp_path: Path) -> None:
+    root, fake_bin, script = _make_repo(tmp_path, "task/test")
+
+    result = _run_dev(root, fake_bin, script, failures=0)
+
+    assert result.returncode == 0, result.stdout
+    invocation = json.loads((root / "codex.log").read_text(encoding="utf-8"))
+    prompt = invocation[-1]
+    assert "already user-approved" in prompt
+    assert "Do not ask for design or plan confirmation" in prompt
+    assert "A bounded task with acceptance criteria is not a user decision gate" in prompt
+    assert "Use the active python command for local tests" in prompt
+    assert "Do not assume .venv" in prompt
+    assert "Do not load optional user-level plugins or configuration" in prompt
+    assert "Do not run scripts/preflight.ps1" in prompt
+    assert "Do not push, merge, commit, release, or trigger GitHub Actions" in prompt
+    assert "Use zero subagents by default" in prompt
+    assert "Stop only at a decision gate defined in AGENTS.md" in prompt
+    assert "USER_DECISION_REQUIRED: yes or no" in prompt

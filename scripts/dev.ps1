@@ -143,7 +143,10 @@ try {
     }
 
     $coordinatorPrompt = @"
-Work the active task in .agent/current-task.md. Follow AGENTS.md. Implement and verify it locally.
+Work the already user-approved active task in .agent/current-task.md. Follow AGENTS.md. Implement and verify it locally.
+Do not ask for design or plan confirmation. A bounded task with acceptance criteria is not a user decision gate.
+Use the active python command for local tests. Do not assume .venv\Scripts\python.exe.
+Do not load optional user-level plugins or configuration. Keep token/context usage minimal.
 Work autonomously: inspect, edit, run focused tests, diagnose failures, and retry without asking for routine permission.
 Do not run scripts/preflight.ps1; the outer development script owns the final preflight gate.
 Do not push, merge, commit, release, or trigger GitHub Actions. Use zero subagents by default.
@@ -156,9 +159,11 @@ End your final response with exactly one line: USER_DECISION_REQUIRED: yes or no
     $commonArgs = @(
         "exec",
         "--approve-for-me",
+        "--ignore-user-config",
         "--cd", $root
     )
-    $initialArgs = $commonArgs + @("--json", $coordinatorPrompt)
+    # Batch launchers truncate multiline arguments; keep each prompt in one argument.
+    $initialArgs = $commonArgs + @("--json", ($coordinatorPrompt -replace "\r?\n", " "))
 
     Write-Host "Starting Codex coordinator for .agent/current-task.md..."
     $codexExit = Invoke-CodexTurn -CodexCommand $codexCommand -Arguments $initialArgs -ThreadId ([ref]$threadId) -DecisionRequired ([ref]$decisionRequired)
@@ -190,7 +195,7 @@ $failureTail
 End your final response with exactly one line: USER_DECISION_REQUIRED: yes or no
 "@
         $decisionRequired = $null
-        $resumeArgs = $commonArgs + @("resume", "--json", $threadId, $repairPrompt)
+        $resumeArgs = $commonArgs + @("resume", "--json", $threadId, ($repairPrompt -replace "\r?\n", " "))
         Write-Host ""
         Write-Host "Resuming the same Codex coordinator for repair cycle $repairCycle..."
         $codexExit = Invoke-CodexTurn -CodexCommand $codexCommand -Arguments $resumeArgs -ThreadId ([ref]$threadId) -DecisionRequired ([ref]$decisionRequired)
