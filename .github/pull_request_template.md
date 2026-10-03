@@ -1,6 +1,6 @@
 ## Summary
 
-Describe the change in terms of behavior and architecture, not only files edited.
+Describe behavior/architecture impact, not only files edited.
 
 ## Feature specification
 
@@ -9,57 +9,34 @@ Describe the change in terms of behavior and architecture, not only files edited
 
 ## Semantic impact
 
-- [ ] No Arcadia/model semantics changed
-- [ ] Semantic changes are explicitly defined in the linked spec
-- [ ] No duplicate source of truth for model semantics was introduced
+- [ ] No Arcadia/model semantics changed, or changes are explicitly defined in the linked spec
 - [ ] Deterministic write barrier is preserved
+- [ ] No duplicate semantic source of truth was introduced
 - [ ] LLM/advisory paths cannot persist unconfirmed model facts
 
 ## Cross-layer impact
 
-Mark affected areas and briefly explain below when needed.
-
-- [ ] Ontology / allowed relations
-- [ ] Canonical graph / mutation rules
-- [ ] Validation
-- [ ] Persistence / load-resume
-- [ ] Guided application flow
-- [ ] Web bridge / worker / app
-- [ ] UI / static presentation
-- [ ] Scenarios
-- [ ] Diagrams
-- [ ] Undo / revision
-- [ ] Knowledge graph / SHACL
-- [ ] SysML v2
-- [ ] SAM projection / synchronization
-
-## Cognitive-load review
-
-- [ ] The change does not present unnecessary decisions or information at once
-- [ ] Explicit user confirmation remains where persistent model decisions occur
-- [ ] User-facing wording preserves the friendly/domain-neutral vocabulary policy
+- [ ] Ontology / graph / validation
+- [ ] Persistence / load-resume / undo
+- [ ] Guided application / web
+- [ ] UI / diagrams / scenarios
+- [ ] SysML / SAM / knowledge comparison
 
 ## Tests
 
-List commands actually run.
+List commands actually run locally.
 
-```text
-python -m pytest -q ...
-```
-
-- [ ] Focused unit/contract tests pass
-- [ ] Full regression suite passes for Class B/C/D changes
-- [ ] Relevant E2E tests pass when browser-visible behavior changed
+- [ ] Focused tests pass
+- [ ] Full local regression passes for Class B/C/D
+- [ ] Relevant local E2E passes when browser-visible behavior changed
 - [ ] SysML/SAM contracts pass when affected
-- [ ] Windows/Ubuntu CI coverage has not been weakened
+- [ ] Remote CI was not required, or the manually requested profile/result is documented below
 
-## Compatibility
+Remote CI profile/result (only if explicitly requested):
+
+## Compatibility / remaining debt
 
 - Existing saved models:
 - Existing UI behavior:
 - Existing SysML/SAM behavior:
-- Migration required: yes / no
-
-## Remaining debt / follow-up
-
-List intentionally deferred items. Keep unrelated cleanup out of this PR.
+- Remaining debt:
