@@ -6,3 +6,6 @@ oa_model.json
 .env
 .env.*
 !.env.example
+
+# Local agent working state
+.agent/current-task.md
