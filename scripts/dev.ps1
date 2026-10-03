@@ -160,6 +160,8 @@ End your final response with exactly one line: USER_DECISION_REQUIRED: yes or no
         "exec",
         "--approve-for-me",
         "--ignore-user-config",
+        "-c", "model_reasoning_effort=low",
+        "-c", "model_verbosity=low",
         "--cd", $root
     )
     # Batch launchers truncate multiline arguments; keep each prompt in one argument.

@@ -60,6 +60,9 @@ def tests_for_path(path: str) -> set[str]:
     name = p.name
     stem = p.stem
 
+    if path == "scripts/dev.ps1":
+        add_if_exists(selected, "tests/test_dev_script.py")
+
     if path.startswith("tests/") and path.endswith(".py") and not path.startswith("tests/e2e/"):
         add_if_exists(selected, path)
         return selected

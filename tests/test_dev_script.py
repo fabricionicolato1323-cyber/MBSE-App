@@ -116,7 +116,17 @@ def test_dev_reuses_coordinator_and_retries_preflight_twice(tmp_path: Path) -> N
 
     invocations = [json.loads(line) for line in (root / "codex.log").read_text(encoding="utf-8").splitlines()]
     assert len(invocations) == 3
-    common = ["exec", "--approve-for-me", "--ignore-user-config", "--cd", str(root)]
+    common = [
+            "exec",
+            "--approve-for-me",
+            "--ignore-user-config",
+            "-c",
+            "model_reasoning_effort=low",
+            "-c",
+            "model_verbosity=low",
+            "--cd",
+            str(root),
+        ]
     assert invocations[0][:-1] == common + ["--json"]
     for invocation in invocations[1:]:
         assert invocation[:-1] == common + ["resume", "--json", "test-thread"]
