@@ -34,6 +34,7 @@ if ($changeClass -notin @("A", "B", "C", "D")) {
 }
 
 Write-Host "Local preflight for Class $changeClass"
+Remove-Item Env:MBSE_FAST_RAN_FULL -ErrorAction SilentlyContinue
 
 & "$PSScriptRoot\test-fast.ps1" -BaseRef $BaseRef
 if ($LASTEXITCODE -ne 0) {
@@ -41,7 +42,8 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $runFull = $ForceFull -or ($changeClass -in @("B", "C", "D"))
-if ($runFull) {
+$fullAlreadyRan = $env:MBSE_FAST_RAN_FULL -eq "1"
+if ($runFull -and -not $fullAlreadyRan) {
     & "$PSScriptRoot\test-full.ps1"
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
@@ -56,6 +58,7 @@ if ($runE2E) {
     }
 }
 
+Remove-Item Env:MBSE_FAST_RAN_FULL -ErrorAction SilentlyContinue
 Write-Host "Preflight passed."
 Write-Host "No push, merge, release, or GitHub Actions run was performed."
 exit 0
