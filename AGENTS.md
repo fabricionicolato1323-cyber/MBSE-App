@@ -1,115 +1,99 @@
 # MBSE-App Agent Instructions
 
-This file defines durable engineering instructions for coding agents working in this repository.
+Keep this file compact. It is loaded frequently and should contain only durable rules.
 
 ## Product intent
 
-MBSE-App is a human-in-the-loop guided builder for Arcadia Operational Analysis. Its primary UX goal is to reduce cognitive load by asking for small, explicit decisions while keeping the user in control of every persistent modeling decision.
+MBSE-App is a human-in-the-loop builder for Arcadia Operational Analysis. Reduce cognitive load, preserve explicit user decisions, and keep persistent model semantics deterministic.
 
-## Non-negotiable architectural guardrails
+## Non-negotiable invariants
 
-1. **Deterministic write barrier**
-   - The deterministic Python layer is the only authority allowed to mutate the persistent user model.
-   - LLM/Ollama code may interpret, suggest, explain, rank, or propose operations, but must not write directly to the NetworkX model.
-   - Every persistent mutation must pass deterministic validation.
+1. **Canonical model authority**
+   - `OAGraph` / NetworkX is the single source of truth for the persistent user model.
+   - Ontology, relation legality, validation, and persistent mutations remain deterministic.
 
-2. **Human approval before persistence**
-   - Do not turn extracted candidates, LLM suggestions, inferred relationships, or semantic frames into model elements without an explicit user decision.
-   - Keep transient parsing concepts out of the persistent OA graph.
+2. **LLM is advisory**
+   - LLM/Ollama may interpret, suggest, explain, rank, or propose inputs.
+   - It must never persist model facts directly or bypass deterministic validation.
 
-3. **Methodology before implementation**
-   - Do not invent new Arcadia/MBSE semantics to make a coding task easier.
-   - If a requested implementation changes the meaning of an Operational Capability, Actor, Entity, Activity, Exchange, Communication Mean, Scenario, decomposition relation, or SysML projection, stop implementation at the design boundary and document the semantic decision required in the feature spec.
+3. **Human approval before semantic persistence**
+   - Inferred candidates, relationships, or semantic frames require the same explicit user decision as today before persistence.
+   - Transient parsing concepts stay outside the persistent graph.
 
-4. **One source of truth for model semantics**
-   - Reuse existing graph relations and ontology rules when they already express the intended fact.
-   - Do not create parallel representations of the same model fact in another module, cache, UI state, or export layer.
+4. **No invented methodology**
+   - Do not change Arcadia/MBSE meaning to simplify implementation.
+   - If a task requires a semantic decision not already specified, stop at that decision boundary and report it.
 
-5. **User-facing cognitive-load policy**
-   - Prefer one small decision at a time.
-   - Preserve progressive disclosure and existing domain-neutral guidance.
-   - Do not expose internal Arcadia terminology in user-facing text when the current UI deliberately uses friendly terms such as goal, participant, action, interaction, and communication method.
+5. **No duplicate semantic source of truth**
+   - Do not copy model rules into UI, LLM, caches, exports, or parallel stores.
+   - Projections consume confirmed model state; they do not become authorities.
 
-6. **LLM independence**
-   - The application must remain usable in deterministic mode without Ollama for paths that do not require it.
-   - Never hardcode a specific model name in code, tests, prompts, or documentation.
+6. **Cognitive-load policy**
+   - Prefer one small user decision at a time.
+   - Preserve progressive disclosure and the existing friendly/domain-neutral wording policy.
 
-7. **Cross-layer consistency**
-   Any model-semantic change must be checked across the relevant layers:
-   - ontology and relation rules;
-   - graph mutation and validation;
-   - persistence/load-resume behavior;
-   - guided interaction/application flow;
-   - web/terminal presentation;
-   - diagrams and scenario views;
-   - SysML v2 / SAM projections;
-   - undo/revision behavior when applicable;
-   - unit, contract, and E2E tests.
+7. **Deterministic mode remains viable**
+   - Do not make Ollama mandatory for paths that can work deterministically.
+   - Do not hardcode a specific model name.
+
+## Single-coordinator operating model
+
+- The primary Codex agent is the only user-facing coordinator.
+- Execute routine repository inspection, editing, formatting, focused tests, regression tests, and diff review without asking the user for step-by-step permission.
+- Default to **zero subagents**.
+- A subagent is allowed only when independent work materially reduces risk or time, normally for Class C/D work or after two failed diagnosis attempts.
+- Subagents never interact with the user. They return conclusions to the coordinator.
+- Do not create more than two subagents unless the active task explicitly allows it.
+
+Stop and ask the user only for a real decision, such as:
+- unresolved model/methodology semantics;
+- destructive or incompatible migration;
+- use of secrets or an external account not already authorized;
+- push, merge, release, or remote GitHub Actions execution.
+
+## Active task
+
+Use `.agent/current-task.md` as the short-lived task contract. It is local and intentionally ignored by Git.
+
+Read only the repository files and detailed docs needed for the active task. Do not preload large documentation sets "just in case".
+
+For Class B/C/D work, the active task must reference the relevant spec in `docs/specs/`.
+
+## Local-first workflow
+
+1. Read this file and `.agent/current-task.md`.
+2. Inspect only the implementation paths needed for the task.
+3. Produce a compact implementation plan grounded in those files.
+4. Make the smallest coherent change.
+5. Run `.\scripts\test-fast.ps1`.
+6. For Class B/C/D work, run `.\scripts\test-full.ps1`.
+7. For browser-visible behavior, run `.\scripts\test-e2e.ps1` or the narrow relevant E2E path.
+8. Run `.\scripts\preflight.ps1` before proposing a commit/push.
+9. Review the diff for duplicated semantics, hidden writes, accidental coupling, and UX complexity.
+10. Return a concise summary: files changed, tests/results, remaining risk, and the next decision needed from the user.
+
+## Cost and context policy
+
+- Prefer deterministic local tools first: Git, search, Python, pytest, Playwright, formatters, and scripts.
+- Reuse `AGENTS.md`, the active task card, and existing specs instead of repeating long prompts.
+- Search narrowly before reading whole files; read whole subsystems only when necessary.
+- Do not run the full regression repeatedly during edit/debug cycles; use focused tests first.
+- Do not trigger GitHub Actions unless the user explicitly requests it.
+- Keep agent output concise and decision-oriented.
 
 ## Repository orientation
 
-Important existing modules include:
-
-- `ontology.py` — restricted persistent OA ontology and allowed relations.
-- `graph_model.py` / `graph_model_base.py` — persistent model graph behavior and model integrity rules.
+- `ontology.py` — persistent OA ontology / allowed relations.
+- `graph_model.py`, `graph_model_base.py` — canonical graph behavior and integrity.
 - `validator.py` — deterministic checks.
-- `llm_service.py`, `web_ai.py` — advisory local AI integration.
-- `operational_scenario.py` — scenario behavior.
 - `model_io.py` — persistence.
-- `sysml_v2.py`, `sysml_level1.py`, `sam_*.py` — SysML/SAM projections and synchronization.
-- `web_*.py`, `templates/`, `static/` — interaction and web presentation.
-- `tests/` and `tests/e2e/` — unit/contract and browser-level regression tests.
-- `knowledge_base/` — methodology reference, RDF/OWL claims, and SHACL material.
-
-Do not assume these boundaries are perfect. Improve them incrementally rather than performing a big-bang rewrite.
-
-## Required workflow for non-trivial changes
-
-1. Read the relevant feature spec under `docs/specs/`.
-2. Inspect the actual implementation paths before editing.
-3. Write a short implementation plan that identifies affected layers and invariants.
-4. Make the smallest coherent change that satisfies the spec.
-5. Add or update tests for the changed behavior.
-6. Run the narrowest relevant tests first, then the broader suite required by the change.
-7. Review the final diff for duplicated semantics, new coupling, hidden model writes, and accidental UX complexity.
-8. Summarize what changed, tests run, and any remaining architectural debt.
-
-If no feature spec exists for a non-trivial semantic or architectural change, create one from `docs/specs/FEATURE_SPEC_TEMPLATE.md` before implementing.
-
-## Test expectations
-
-At minimum:
-
-```bash
-python -m pytest -q
-```
-
-For web behavior, run the relevant contract tests and, when behavior is browser-visible, the E2E suite or the narrow E2E test(s):
-
-```bash
-RUN_E2E=1 python -m pytest -q tests/e2e
-```
-
-For SysML/SAM changes, run the corresponding SysML/SAM contract tests in addition to the normal suite.
-
-The GitHub CI matrix validates Python 3.12 on Ubuntu and Windows and runs Chromium E2E tests. Do not intentionally weaken CI coverage to make a change pass.
-
-## Refactoring policy
-
-- Prefer seams, adapters, extraction, and dependency inversion over wholesale rewrites.
-- Preserve externally visible behavior unless the feature spec explicitly changes it.
-- Separate interpretation/advice from validated application operations.
-- Move model mutation toward explicit deterministic operations rather than allowing UI, LLM, or projection code to mutate model state ad hoc.
-- Keep commits reviewable and scoped to one specification.
+- `llm_service.py`, `web_ai.py` — advisory AI.
+- `operational_scenario.py` — scenario behavior.
+- `sysml_v2.py`, `sysml_level1.py`, `sam_*.py` — projections/synchronization.
+- `web_*.py`, `templates/`, `static/` — web interaction/presentation.
+- `tests/`, `tests/e2e/` — regression coverage.
+- `knowledge_base/` — methodology / RDF / SHACL references.
 
 ## Definition of done
 
-A change is done only when:
-
-- the feature spec acceptance criteria are met;
-- deterministic model integrity is preserved;
-- no LLM path bypasses user confirmation or validation;
-- affected persistence and projection paths remain consistent;
-- relevant tests pass;
-- the implementation does not introduce a second source of truth for model semantics;
-- the PR explains the architectural impact and test evidence.
+A change is done when the active acceptance criteria are met, the deterministic write barrier and user-confirmation rules remain intact, relevant local tests pass, no second semantic authority was introduced, and any remaining debt/risk is stated explicitly.
