@@ -4,7 +4,21 @@ This file defines durable engineering instructions for coding agents working in 
 
 ## Product intent
 
-MBSE-App is a human-in-the-loop guided builder for Arcadia Operational Analysis. Its primary UX goal is to reduce cognitive load by asking for small, explicit decisions while keeping the user in control of every persistent modeling decision.
+MBSE-App is a human-in-the-loop, conversation-first environment for methodology-independent Business and Operational Analysis.
+
+Its primary UX goal is to reduce cognitive load by asking for small, explicit decisions while keeping the user in control of every persistent semantic decision.
+
+The Canonical Business + Operational Model is the authoritative project representation. A user may remain entirely in Canonical Mode; selecting a methodology is optional. Methodologies such as Arcadia and UAF are semantic adaptations or projections of the canonical model, not the canonical model itself.
+
+The application deliberately stops before System Analysis, Logical Architecture, and Physical Architecture.
+
+Conceptually:
+
+- Business Analysis establishes **WHY**.
+- Operational Analysis establishes **WHAT / UNDER WHICH CONDITIONS**.
+- Downstream Digital Engineering addresses **HOW**.
+
+Current methodology-specific code is legacy/adapter-facing infrastructure to be migrated incrementally. Do not let existing Arcadia-centered implementation details constrain the canonical semantics.
 
 ## Non-negotiable architectural guardrails
 
@@ -17,18 +31,24 @@ MBSE-App is a human-in-the-loop guided builder for Arcadia Operational Analysis.
    - Do not turn extracted candidates, LLM suggestions, inferred relationships, or semantic frames into model elements without an explicit user decision.
    - Keep transient parsing concepts out of the persistent OA graph.
 
-3. **Methodology before implementation**
-   - Do not invent new Arcadia/MBSE semantics to make a coding task easier.
-   - If a requested implementation changes the meaning of an Operational Capability, Actor, Entity, Activity, Exchange, Communication Mean, Scenario, decomposition relation, or SysML projection, stop implementation at the design boundary and document the semantic decision required in the feature spec.
+3. **Semantics before implementation**
+   - Do not invent Canonical, Business Analysis, Operational Analysis, Arcadia, UAF, SysML, or SAM semantics to make a coding task easier.
+   - Do not silently equate Business and Operational concepts.
+   - Existing Operational Capability content must not be converted into Business Objective or Desired Outcome content unless an explicit, approved semantic rule requires it.
+   - If a requested implementation requires a semantic relationship, representation, mapping, or projection that has not been agreed in the active feature spec, stop implementation at the design boundary and document the semantic decision required.
 
 4. **One source of truth for model semantics**
+   - The Canonical Business + Operational Model is the authoritative persistent project model.
    - Reuse existing graph relations and ontology rules when they already express the intended fact.
-   - Do not create parallel representations of the same model fact in another module, cache, UI state, or export layer.
+   - Do not create parallel representations of the same model fact in another module, cache, UI state, methodology projection, or export layer.
+   - Methodology-specific models and downstream projections are derived views/contracts, not alternative authorities.
 
 5. **User-facing cognitive-load policy**
    - Prefer one small decision at a time.
    - Preserve progressive disclosure and existing domain-neutral guidance.
-   - Do not expose internal Arcadia terminology in user-facing text when the current UI deliberately uses friendly terms such as goal, participant, action, interaction, and communication method.
+   - Canonical Mode must not require methodology selection.
+   - Do not expose methodology-specific terminology as though it were canonical terminology.
+   - Friendly terms may be used only when they do not collapse distinct canonical meanings. In particular, do not use "goal" in a way that silently equates Operational Capability, Business Objective, and Desired Outcome.
 
 6. **LLM independence**
    - The application must remain usable in deterministic mode without Ollama for paths that do not require it.
@@ -50,7 +70,7 @@ MBSE-App is a human-in-the-loop guided builder for Arcadia Operational Analysis.
 
 Important existing modules include:
 
-- `ontology.py` — restricted persistent OA ontology and allowed relations.
+- `ontology.py` — current persistent ontology/compatibility boundary; migrate incrementally toward canonical semantics according to the active feature spec.
 - `graph_model.py` / `graph_model_base.py` — persistent model graph behavior and model integrity rules.
 - `validator.py` — deterministic checks.
 - `llm_service.py`, `web_ai.py` — advisory local AI integration.
