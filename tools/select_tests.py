@@ -32,6 +32,7 @@ def changed_paths(base: str | None) -> list[str]:
 
     paths.update(git_lines("diff", "--name-only"))
     paths.update(git_lines("diff", "--name-only", "--cached"))
+    paths.update(git_lines("ls-files", "--others", "--exclude-standard"))
 
     if not paths:
         paths.update(git_lines("show", "--pretty=format:", "--name-only", "HEAD"))

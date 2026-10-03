@@ -41,7 +41,21 @@ Keep it short. The task card contains the goal, change class, acceptance criteri
 
 ## Single Codex coordinator
 
-Start Codex in the repository and use one short instruction:
+Start the coordinator, let it implement the active task, and run the final local gate with one command:
+
+```powershell
+.\scripts\dev.ps1
+```
+
+The script refuses to run on `main`, validates the task card and Codex CLI, and gives the coordinator workspace-only write access with no interactive approval pauses. The coordinator runs focused checks while it works; the outer script owns `preflight.ps1`. If preflight fails, the same coordinator can repair the failure and retry, with at most two repair cycles by default. Override the limit when needed:
+
+```powershell
+.\scripts\dev.ps1 -MaxRepairCycles 1
+```
+
+The workflow does not commit, push, merge, release, or start GitHub Actions. It finishes with Git status, a diff summary, the preflight result, and whether a user decision is required.
+
+To run the coordinator manually instead, start Codex in the repository and use one short instruction:
 
 ```text
 Work the active task in .agent/current-task.md.
