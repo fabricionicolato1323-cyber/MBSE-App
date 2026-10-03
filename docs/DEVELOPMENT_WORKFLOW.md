@@ -2,239 +2,132 @@
 
 ## Purpose
 
-The MBSE-App has moved beyond a small prototype. Changes can now affect ontology, graph semantics, persistence, guided interaction, diagrams, SysML/SAM projection, and multiple test layers at the same time.
-
-The development process therefore follows a **specification-driven, agent-assisted workflow**:
+MBSE-App uses a **specification-driven, local-first, agent-assisted workflow**. The objective is to protect model semantics and cognitive-load rules while minimizing repeated LLM context and remote CI cost.
 
 ```text
 Problem / desired behavior
         ↓
 Semantic + UX decision
         ↓
-Feature specification
+Short active task + referenced feature spec
         ↓
-Repository-wide implementation plan
+One Codex coordinator
         ↓
-Codex / coding-agent implementation
+Local implementation
         ↓
-Focused tests
+Focused local tests
         ↓
-Full regression tests / CI
+Required local regression / E2E
         ↓
 Architecture + behavior review
         ↓
-Merge
+User decision: push / merge / optional remote CI
 ```
 
-The goal is not more documentation. The goal is to prevent local code changes from silently changing model semantics or increasing user cognitive load.
+Detailed operating commands live in `docs/LOCAL_DEVELOPMENT.md`. Durable agent rules live in `AGENTS.md`.
 
 ## Responsibilities
 
 ### Product / methodology discussion
 
-Use design discussion to decide:
+Decide what the modeling concept means, what user decision is required, what must remain deterministic, what the LLM may only suggest, and whether Arcadia/SysML semantics change.
 
-- what the modeling concept means;
-- what user decision is required;
-- what must remain deterministic;
-- what the LLM may only suggest;
-- how much information the user sees at one time;
-- whether the change affects Arcadia or SysML semantics.
+For Class B/C/D changes, capture those decisions in a feature spec under `docs/specs/`.
 
-These decisions must be reflected in a feature specification before implementation begins.
+### Codex coordinator
 
-### Coding agent / Codex
+The primary coding agent is the sole user-facing coordinator. It should inspect only relevant files, plan briefly, implement, run local verification, review the diff, and return a concise result. Routine steps should not require user approval.
 
-Use the coding agent to:
-
-- inspect the repository and identify all affected modules;
-- propose an implementation plan against the feature spec;
-- implement the change across layers;
-- update tests;
-- run tests and diagnose failures;
-- review the diff for accidental coupling or duplicated semantics.
-
-The agent must follow `AGENTS.md`.
+Subagents are exceptional and hidden behind the coordinator. See `AGENTS.md`.
 
 ## Change classes
 
-### Class A — local presentation change
+- **Class A — local presentation:** non-semantic visual/text adjustment.
+- **Class B — application behavior:** guided flow, resume behavior, interaction behavior.
+- **Class C — model semantic:** relation, validation, persistent attributes, model element behavior.
+- **Class D — architecture:** boundaries, mutation ownership, persistence mechanism, major structural change.
 
-Examples: spacing, text styling, a non-semantic visual adjustment.
+Class B/C/D requires a feature spec. Class C/D requires explicit semantic/architecture impact review.
 
-Usually requires:
+## Active task contract
 
-- UI/static/template change;
-- focused contract test;
-- E2E only when visible behavior or interaction changed.
-
-A full feature spec is optional if model semantics and workflow are untouched.
-
-### Class B — application behavior change
-
-Examples: new guided question, new user decision path, load/resume behavior, scenario editing behavior.
-
-Requires:
-
-- feature spec;
-- application-flow impact review;
-- model/persistence impact check;
-- focused unit/contract tests;
-- E2E when browser-visible.
-
-### Class C — model-semantic change
-
-Examples: new relation, decomposition rule, validation rule, model element behavior, persistent attribute.
-
-Requires:
-
-- feature spec with explicit semantic rules;
-- ontology review;
-- graph mutation/invariant review;
-- validation review;
-- persistence compatibility review;
-- UI/workflow review;
-- SysML/SAM impact review;
-- unit + contract tests and relevant E2E coverage.
-
-### Class D — architectural change
-
-Examples: splitting application/domain layers, introducing an operation/command boundary, moving mutation ownership, replacing persistence mechanisms.
-
-Requires:
-
-- architecture spec;
-- explicit invariants and non-goals;
-- staged migration plan;
-- backward-compatibility plan;
-- regression evidence before each migration step;
-- no big-bang rewrite unless there is a compelling documented reason.
-
-## Feature-spec lifecycle
-
-Feature specifications live in `docs/specs/`.
-
-Use `FEATURE_SPEC_TEMPLATE.md` and give each substantial spec a stable filename, for example:
+Normal work begins from the local file:
 
 ```text
-0001-architecture-boundary-consolidation.md
-0002-operational-scenario-refinement.md
-0003-sysml-projection-extension.md
+.agent/current-task.md
 ```
 
-A spec should answer four things before coding starts:
+Create it with:
 
-1. What user/product problem are we solving?
-2. What model/semantic rules must hold?
-3. Which behavior is explicitly out of scope?
-4. How will we prove the implementation is correct?
-
-## Implementation-plan requirement
-
-Before editing code for Class B/C/D work, the coding agent should produce a compact plan containing:
-
-- current implementation paths discovered;
-- affected layers;
-- invariants that must remain true;
-- intended file/module changes;
-- tests to add or update;
-- compatibility risks.
-
-Do not accept plans that merely repeat the feature spec. The plan must be grounded in the current repository.
-
-## Cross-layer impact checklist
-
-For every semantic change, explicitly mark each item as **affected** or **not affected**:
-
-```text
-[ ] ontology.py / ontology rules
-[ ] graph_model.py / graph_model_base.py
-[ ] validator.py / deterministic validation
-[ ] model_io.py / load + save compatibility
-[ ] guided terminal/application flow
-[ ] web bridge / web worker / web application
-[ ] templates / static presentation
-[ ] operational scenarios
-[ ] diagrams
-[ ] revision / undo behavior
-[ ] knowledge base / SHACL comparison
-[ ] SysML v2 export
-[ ] SAM synchronization/projection
-[ ] unit tests
-[ ] UI contract tests
-[ ] E2E tests
+```powershell
+.\scripts\new-task.ps1
 ```
 
-"Not affected" should be a conscious decision, not an omission.
+The file is intentionally ignored by Git and should remain short. It references durable specs instead of duplicating them.
 
 ## Test strategy
 
+Use local tests by default.
+
 ### Fast feedback
 
-Run the narrow tests closest to the change first.
-
-Examples:
-
-```bash
-python -m pytest -q tests/test_operational_scenario.py
-python -m pytest -q tests/test_sysml_v2.py
-python -m pytest -q tests/test_web_bridge.py
+```powershell
+.\scripts\test-fast.ps1
 ```
 
-### Repository regression
+The selector uses the Git diff/last commit to choose nearby tests without LLM reasoning.
 
-Before merge of Class B/C/D changes:
+### Full regression
 
-```bash
-python -m pytest -q
+Required locally before completion of Class B/C/D work:
+
+```powershell
+.\scripts\test-full.ps1
 ```
 
-### Browser behavior
+### Browser-visible behavior
 
-For browser-visible behavioral changes, run relevant Playwright tests. For broad UI changes:
-
-```bash
-RUN_E2E=1 python -m pytest -q tests/e2e
+```powershell
+.\scripts\test-e2e.ps1
 ```
 
-CI remains the final cross-platform gate and currently covers Ubuntu, Windows, Python 3.12, SysML contracts, and Chromium E2E.
+Use the narrow E2E path during iteration when possible; run broader E2E before completing a broad browser change.
+
+### Automated local gate
+
+```powershell
+.\scripts\preflight.ps1
+```
+
+This reads the active task card and automatically applies the required local test tiers.
+
+## Remote CI policy
+
+GitHub Actions is manual-only. It must not run on ordinary pushes or PR updates.
+
+A remote run is justified only when explicitly requested for a merge/milestone/release or when cross-platform/browser uncertainty remains after local verification. Use the smallest manual profile that answers the uncertainty.
+
+## Cross-layer review for semantic changes
+
+Explicitly check affected/not affected for ontology, canonical graph, validation, persistence, application flow, web/UI, scenarios, diagrams, undo, knowledge/SHACL, SysML, SAM, unit tests, contract tests, and E2E.
 
 ## Review questions
 
-Every non-trivial PR should be reviewed against these questions:
+1. Did implementation change methodology beyond the spec?
+2. Can advisory/LLM code persist without deterministic validation and required user confirmation?
+3. Is the same model fact represented in more than one semantic authority?
+4. Did UI convenience introduce a semantic rule outside the canonical model layer?
+5. Are load/resume, diagrams, scenarios, SysML, or SAM inconsistent with the canonical graph?
+6. Did the change increase user cognitive load?
+7. Do tests prove behavior rather than mirror implementation?
 
-1. Did the implementation change methodology beyond the spec?
-2. Can any LLM path now mutate persistent model state directly or indirectly without deterministic validation?
-3. Can inferred content become persistent without an explicit user decision?
-4. Is the same model fact now represented in more than one place?
-5. Did a UI convenience create a second semantic rule outside the domain/model layer?
-6. Did the change increase the amount of information or number of decisions presented to the user at once?
-7. Are load/resume, diagrams, scenarios, SysML, or SAM now inconsistent with the canonical graph?
-8. Are new tests proving behavior rather than merely reproducing implementation details?
+## Branch / PR pattern
 
-## Recommended branch and PR pattern
+Use one branch per coherent task/spec. Keep unrelated cleanup out of the same PR. A PR records semantic/architecture impact and **local** test evidence. Remote CI evidence is optional unless explicitly requested.
 
-Use one branch per coherent spec or tightly scoped fix:
+## Transition rule
 
-```text
-feature/<short-feature-name>
-fix/<short-problem-name>
-refactor/<short-boundary-name>
-```
-
-Each PR should:
-
-- link or name the feature spec;
-- summarize the semantic/architectural effect;
-- list tests run;
-- identify remaining debt or deferred follow-up;
-- avoid mixing unrelated cleanup with feature work.
-
-## Transition rule for the current codebase
-
-Do not reorganize the entire repository just to match an ideal layered directory structure. The current code is working and well-covered by tests. Introduce clearer boundaries incrementally when a feature gives a concrete reason to do so.
-
-The desired direction is:
+Improve boundaries incrementally; do not reorganize the whole repository without a concrete feature reason.
 
 ```text
 Interaction / presentation
@@ -248,4 +141,4 @@ Canonical model graph
 Persistence / projections
 ```
 
-LLM services remain advisory beside the interaction/application layers and never become a persistence authority.
+LLM services remain advisory and never become persistence authority.
