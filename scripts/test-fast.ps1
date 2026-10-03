@@ -54,6 +54,7 @@ try {
 
     if ($requiresFull) {
         Write-Host "At least one changed code path has no focused mapping; running full regression as safe fallback."
+        $env:MBSE_FAST_RAN_FULL = "1"
         & "$PSScriptRoot\test-full.ps1"
         exit $LASTEXITCODE
     }
